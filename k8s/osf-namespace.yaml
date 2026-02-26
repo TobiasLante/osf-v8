@@ -1,0 +1,8 @@
+# OSF v8 — Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: osf
+  labels:
+    kubernetes.io/metadata.name: osf
+    app.kubernetes.io/part-of: osf

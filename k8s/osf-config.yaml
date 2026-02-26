@@ -1,0 +1,63 @@
+# OSF v8 — ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osf-config
+  namespace: osf
+  labels:
+    app.kubernetes.io/part-of: osf
+data:
+  NODE_ENV: "production"
+
+  # Gateway
+  GATEWAY_HOST: "0.0.0.0"
+  GATEWAY_PORT: "8012"
+
+  # Databases (PostgreSQL on 192.168.178.150)
+  FACTORY_DB_HOST: "192.168.178.150"
+  FACTORY_DB_PORT: "30432"
+  FACTORY_DB_NAME: "bigdata_homelab"
+  FACTORY_DB_USER: "admin"
+
+  ERP_DB_HOST: "192.168.178.150"
+  ERP_DB_PORT: "30431"
+  ERP_DB_NAME: "erpdb"
+  ERP_DB_USER: "admin"
+
+  QMS_DB_HOST: "192.168.178.150"
+  QMS_DB_PORT: "30433"
+  QMS_DB_NAME: "qmsdb"
+  QMS_DB_USER: "admin"
+
+  # Redis (cluster-internal)
+  REDIS_HOST: "osf-redis"
+  REDIS_PORT: "6379"
+
+  # Factory Simulator MCP (in factory namespace)
+  MCP_ERP_URL: "http://factory-v3-fertigung.factory.svc.cluster.local:8020/mcp"
+  MCP_WMS_URL: "http://factory-v3-fertigung.factory.svc.cluster.local:8020/mcp"
+  MCP_QMS_URL: "http://factory-v3-fertigung.factory.svc.cluster.local:8020/mcp"
+  MCP_FERTIGUNG_URL: "http://factory-v3-fertigung.factory.svc.cluster.local:8020/mcp"
+
+  # MCP Server Ports (internal)
+  MCP_OEE_DB_PORT: "8001"
+  MCP_FACTORY_DB_PORT: "8002"
+  MCP_ERP_DB_PORT: "8003"
+  MCP_MATH_SERVICE_PORT: "8004"
+  MCP_QMS_DB_PORT: "8005"
+  MCP_SHOPFLOOR_SKILLS_PORT: "8010"
+
+  # LLM
+  LLM_URL: "http://192.168.178.120:5001"
+  LLM_MODEL: "Qwen2.5-72B-Instruct.Q4_K_M.gguf"
+  LLM_API_KEY: "not-needed"
+  LLM_TIMEOUT: "1200000"
+
+  # Anthropic
+  ANTHROPIC_MODEL: "claude-sonnet-4-20250514"
+
+  # Langfuse
+  LANGFUSE_HOST: "https://cloud.langfuse.com"
+
+  # Frontend URL (for CORS)
+  FRONTEND_URL: "https://openshopfloor.zeroguess.ai"

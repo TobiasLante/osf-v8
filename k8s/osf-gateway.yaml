@@ -1,0 +1,107 @@
+# OSF v8 — Gateway Deployment + Service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-gateway
+  namespace: osf
+  labels:
+    app: osf-gateway
+    version: v8
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-gateway
+  template:
+    metadata:
+      labels:
+        app: osf-gateway
+        version: v8
+    spec:
+      containers:
+      - name: gateway
+        image: 192.168.178.150:32000/osf-gateway:v8
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8012
+          name: http
+        envFrom:
+        - configMapRef:
+            name: osf-config
+        env:
+        - name: FACTORY_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: FACTORY_DB_PASSWORD
+        - name: ERP_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: ERP_DB_PASSWORD
+        - name: QMS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: QMS_DB_PASSWORD
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: ANTHROPIC_API_KEY
+        - name: LANGFUSE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: LANGFUSE_SECRET_KEY
+        - name: LANGFUSE_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: LANGFUSE_PUBLIC_KEY
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          periodSeconds: 5
+          failureThreshold: 30
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          periodSeconds: 30
+          failureThreshold: 5
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+
+---
+# Gateway Service — ClusterIP (CF Tunnel handles external access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-gateway
+  namespace: osf
+  labels:
+    app: osf-gateway
+spec:
+  selector:
+    app: osf-gateway
+  ports:
+  - name: http
+    port: 8012
+    targetPort: 8012

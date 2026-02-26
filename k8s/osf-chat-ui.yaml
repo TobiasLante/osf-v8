@@ -1,0 +1,64 @@
+# OSF v8 — Chat-UI Deployment + Service
+# Standalone nginx serving chat-space.html → demo.zeroguess.ai via CF Tunnel
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-chat-ui
+  namespace: osf
+  labels:
+    app: osf-chat-ui
+    version: v8
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-chat-ui
+  template:
+    metadata:
+      labels:
+        app: osf-chat-ui
+        version: v8
+    spec:
+      containers:
+      - name: chat-ui
+        image: 192.168.178.150:32000/osf-chat-ui:v8
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "25m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          periodSeconds: 30
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          periodSeconds: 10
+          failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-chat-ui
+  namespace: osf
+  labels:
+    app: osf-chat-ui
+spec:
+  selector:
+    app: osf-chat-ui
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
