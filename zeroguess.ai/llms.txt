@@ -1,0 +1,60 @@
+# ZeroGuess AI — Manufacturing AI Education Platform
+
+> ZeroGuess AI is an education platform for manufacturing AI. Learn to build AI agents that analyze factory data, optimize production, and solve real manufacturing challenges — with a live factory simulation.
+
+## What is ZeroGuess AI?
+
+ZeroGuess AI is a manufacturing AI education platform by Tobias Lante. It provides hands-on learning experiences for engineers, developers, and students who want to understand how AI works in manufacturing environments. The flagship product is OpenShopFloor — a free Manufacturing AI Playground.
+
+## Products
+
+### OpenShopFloor — Manufacturing AI Playground
+A free, hands-on playground for building and testing AI agents against a live manufacturing simulation. Features include 111 MCP tools, real-time factory data (OEE, stock, orders, quality, energy), pre-built AI agents, 6 gamified challenges, a visual flow editor, and a chat interface with tool visualization.
+
+- Playground: https://openshopfloor.zeroguess.ai
+- Live Factory: https://osf-factory.zeroguess.ai
+- API: https://osf-api.zeroguess.ai
+- GitHub: https://github.com/TobiasLante/openshopfloor
+
+## Pages
+
+- https://www.zeroguess.ai/ — Landing page: education platform overview, link to playground
+- https://openshopfloor.zeroguess.ai/ — OpenShopFloor playground landing page
+- https://openshopfloor.zeroguess.ai/challenges — 6 gamified manufacturing AI challenges
+- https://openshopfloor.zeroguess.ai/agents — Pre-built AI agents for manufacturing
+- https://openshopfloor.zeroguess.ai/chat — AI chat with live factory data via MCP tools
+- https://openshopfloor.zeroguess.ai/flows — Visual AI flow editor (Node-RED based)
+- https://openshopfloor.zeroguess.ai/onboarding — Interactive onboarding tour
+
+## Challenges
+
+1. **OEE Champion** (Beginner): Achieve OEE > 85% across all machines for 24 simulated hours
+2. **Zero Delay** (Intermediate): Ensure zero late deliveries over 48 simulated hours
+3. **Lean Inventory** (Intermediate): Reduce inventory costs by 20% with zero stockouts
+4. **Quality First** (Advanced): Achieve Cpk > 1.33 on all characteristics, resolve all SPC alarms
+5. **Energy Saver** (Beginner): Reduce kWh per part by 15% over 24 simulated hours
+6. **Full Auto** (Expert): Keep the factory running autonomously for 72 simulated hours
+
+## Factory Simulation
+
+The live factory simulation includes:
+- 8 CNC machines and injection molding stations
+- Assembly lines and quality inspection
+- Real-time OEE, stock levels, order tracking
+- 111 MCP tools across 6 servers (ERP, WMS, QMS, OEE, TMS, Knowledge Graph)
+- 24/7 operation with realistic production patterns
+
+## Technology
+
+- **MCP Tools**: 111 tools across 6 MCP servers for querying factory data
+- **AI Agents**: Chat-based agents with tool calling for manufacturing analysis
+- **Visual Flows**: Node-RED-based drag-and-drop AI workflow editor
+- **Stack**: TypeScript, Next.js, Express, PostgreSQL, MicroK8s
+- **LLM**: Platform-provided LLM or bring your own (OpenAI, Anthropic, local models)
+
+## Contact
+
+- Website: https://www.zeroguess.ai
+- LinkedIn: https://www.linkedin.com/in/tobias-lante-99477a239/
+- GitHub: https://github.com/TobiasLante
+- Full docs: https://www.zeroguess.ai/llms-full.txt

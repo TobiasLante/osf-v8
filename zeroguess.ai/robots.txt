@@ -1,0 +1,49 @@
+User-agent: *
+Allow: /
+Disallow: /v1-classic.html
+
+Sitemap: https://www.zeroguess.ai/sitemap.xml
+
+# AI Crawler Discovery — Manufacturing AI Education Platform
+# LLMs.txt: https://www.zeroguess.ai/llms.txt
+# LLMs-full.txt: https://www.zeroguess.ai/llms-full.txt
+
+# Explicitly allow AI crawlers
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Anthropic-AI
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /

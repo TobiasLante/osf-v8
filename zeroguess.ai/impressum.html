@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="de" data-lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Impressum & Datenschutz | ZeroGuess AI</title>
+    <meta name="description" content="Impressum und Datenschutzerklärung von ZeroGuess AI — Manufacturing AI Education Platform by Tobias Lante.">
+    <meta name="robots" content="noindex, follow">
+    <link rel="canonical" href="https://www.zeroguess.ai/impressum">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://www.zeroguess.ai/impressum">
+    <meta property="og:title" content="Impressum & Datenschutz | ZeroGuess AI">
+    <meta property="og:description" content="Impressum und Datenschutzerklärung von ZeroGuess AI.">
+    <meta property="og:site_name" content="ZeroGuess AI">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Impressum & Datenschutz | ZeroGuess AI">
+    <meta name="twitter:description" content="Impressum und Datenschutzerklärung von ZeroGuess AI.">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <style>
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 300 900;
+            font-display: swap;
+            src: url(inter-latin-ext.woff2) format('woff2');
+            unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+        }
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 300 900;
+            font-display: swap;
+            src: url(inter-latin.woff2) format('woff2');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+    </style>
+    <style>
+        :root {
+            --surface-0: #050507;
+            --surface-1: #111114;
+            --surface-2: #1a1a1f;
+            --border: rgba(255,255,255,0.06);
+            --border-hover: rgba(255, 149, 0, 0.25);
+            --text-0: #fafafa;
+            --text-1: #a1a1aa;
+            --text-2: #71717a;
+            --accent: #ff9500;
+            --accent-2: #ff5722;
+            --gradient: linear-gradient(135deg, #ff9500, #ff5722);
+            --radius-md: 14px;
+            --radius-lg: 22px;
+        }
+
+        /* ═══ IMPRESSUM SPLASH ═══ */
+        .splash-overlay {
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            padding: 120px 20px 60px;
+        }
+        .splash-logo {
+            width: 72px; height: 72px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #ff9500, #ff5722);
+            display: grid; place-items: center;
+            box-shadow: 0 0 60px rgba(255, 149, 0, 0.4), 0 0 120px rgba(255, 149, 0, 0.15);
+            animation: splash-pulse 3s ease-in-out infinite;
+        }
+        .splash-logo svg { width: 36px; height: 36px; color: white; }
+        .splash-name {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            color: #fafafa;
+        }
+        @keyframes splash-pulse {
+            0%, 100% { box-shadow: 0 0 60px rgba(255,149,0,0.4), 0 0 120px rgba(255,149,0,0.15); }
+            50% { box-shadow: 0 0 80px rgba(255,149,0,0.5), 0 0 160px rgba(255,149,0,0.25); }
+        }
+        /* Hide original page content, show only minimal impressum */
+        nav, .bg-mesh, .bg-noise, .bg-grid, footer { display: none !important; }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 0 20px 60px;
+            font-size: 11px;
+            color: #555;
+            line-height: 1.6;
+        }
+        .container h1 { font-size: 14px; color: #777; margin-bottom: 16px; }
+        .container h2 { font-size: 12px; color: #666; margin-top: 20px; margin-bottom: 8px; }
+        .container a { color: #666; }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--surface-0);
+            color: var(--text-1);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 0 32px;
+        }
+
+        /* ── i18n ── */
+        [data-lang="en"] .de { display: none; }
+        [data-lang="de"] .en { display: none; }
+
+        /* ── NAV ── */
+        nav {
+            border-bottom: 1px solid var(--border);
+            background: rgba(5, 5, 7, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-inner {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+
+        .nav-logo {
+            width: 34px; height: 34px;
+            border-radius: 9px;
+            background: var(--gradient);
+            display: grid; place-items: center;
+            box-shadow: 0 0 24px rgba(255, 149, 0, 0.35);
+        }
+
+        .nav-logo svg { width: 17px; height: 17px; color: white; }
+
+        .nav-name {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--text-0);
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .nav-back {
+            color: var(--text-2);
+            text-decoration: none;
+            font-size: 13.5px;
+            font-weight: 500;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .nav-back:hover { color: var(--text-0); }
+        .nav-back svg { width: 16px; height: 16px; }
+
+        .lang-switch {
+            display: flex;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: var(--surface-1);
+        }
+
+        .lang-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-2);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            letter-spacing: 0.5px;
+        }
+
+        .lang-btn.active {
+            background: var(--gradient);
+            color: white;
+        }
+
+        .lang-btn:not(.active):hover {
+            color: var(--text-0);
+            background: var(--surface-2);
+        }
+
+        /* ── CONTENT ── */
+        .legal-content {
+            padding: 80px 0 60px;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            color: var(--text-0);
+            margin-bottom: 48px;
+            line-height: 1.15;
+        }
+
+        h1 .gradient-text {
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--text-0);
+            margin-top: 56px;
+            margin-bottom: 20px;
+            padding-top: 32px;
+            border-top: 1px solid var(--border);
+        }
+
+        h2:first-of-type {
+            border-top: none;
+            padding-top: 0;
+            margin-top: 0;
+        }
+
+        h3 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-0);
+            margin-top: 28px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            margin-bottom: 14px;
+            font-size: 15px;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        a:hover { color: var(--accent-2); }
+
+        ul {
+            list-style: none;
+            margin-bottom: 14px;
+        }
+
+        ul li {
+            padding-left: 20px;
+            position: relative;
+            margin-bottom: 6px;
+            font-size: 15px;
+        }
+
+        ul li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 10px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            opacity: 0.5;
+        }
+
+        .info-block {
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 24px 28px;
+            margin-bottom: 20px;
+        }
+
+        .info-block p { margin-bottom: 4px; }
+        .info-block p:last-child { margin-bottom: 0; }
+
+        .section-divider {
+            margin: 64px 0;
+            height: 2px;
+            background: var(--gradient);
+            border-radius: 2px;
+            opacity: 0.3;
+        }
+
+        /* ── FOOTER ── */
+        footer {
+            text-align: center;
+            padding: 36px 0;
+            border-top: 1px solid var(--border);
+            color: var(--text-2);
+            font-size: 13px;
+        }
+
+        footer a { color: var(--accent); }
+
+        @media (max-width: 640px) {
+            h1 { font-size: 1.6rem; }
+            h2 { font-size: 1.2rem; }
+            .legal-content { padding: 48px 0 40px; }
+        }
+
+        /* ── COOKIE BANNER ── */
+        .cookie-banner {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(120px);
+            z-index: 200;
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 18px 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            max-width: 620px;
+            width: calc(100% - 48px);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            opacity: 0;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s ease;
+        }
+        .cookie-banner.visible { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .cookie-banner p { font-size: 13.5px; color: var(--text-1); line-height: 1.6; flex: 1; }
+        .cookie-banner a { color: var(--accent); text-decoration: none; }
+        .cookie-btn {
+            padding: 10px 22px; border-radius: 8px; background: var(--gradient);
+            color: white; border: none; font-size: 13px; font-weight: 700;
+            font-family: inherit; cursor: pointer; white-space: nowrap;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .cookie-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(255,149,0,0.35); }
+        @media (max-width: 640px) {
+            .cookie-banner { flex-direction: column; text-align: center; gap: 14px; bottom: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- ═══ SPLASH OVERLAY ═══ -->
+    <div class="splash-overlay" aria-hidden="true">
+        <div class="splash-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+        </div>
+        <div class="splash-name">ZeroGuess AI</div>
+    </div>
+
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="nav-brand">
+                <div class="nav-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                    </svg>
+                </div>
+                <span class="nav-name">ZeroGuess AI</span>
+            </a>
+            <div class="nav-right">
+                <a href="/" class="nav-back">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                    <span class="de">Zur&uuml;ck</span>
+                    <span class="en">Back</span>
+                </a>
+                <div class="lang-switch">
+                    <button class="lang-btn" data-lang-btn="en" onclick="setLang('en')">EN</button>
+                    <button class="lang-btn active" data-lang-btn="de" onclick="setLang('de')">DE</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="legal-content">
+
+            <!-- ════════════════════════════════════════════════════
+                 IMPRESSUM
+            ════════════════════════════════════════════════════ -->
+            <h1>
+                <span class="de">Impressum & <span class="gradient-text">Datenschutz</span></span>
+                <span class="en">Legal Notice & <span class="gradient-text">Privacy Policy</span></span>
+            </h1>
+
+            <h2>
+                <span class="de">Impressum</span>
+                <span class="en">Legal Notice</span>
+            </h2>
+            <p>
+                <span class="de"><strong>Angaben gem&auml;&szlig; &sect; 5 TMG</strong></span>
+                <span class="en"><strong>Information pursuant to &sect; 5 TMG (German Telemedia Act)</strong></span>
+            </p>
+
+            <div class="info-block">
+                <p><strong>Tobias Lante</strong></p>
+                <p>Raiffeisenstr. 3b</p>
+                <p>82433 Bad Kohlgrub</p>
+                <p><span class="de">Deutschland</span><span class="en">Germany</span></p>
+            </div>
+
+            <h3>
+                <span class="de">Kontakt</span>
+                <span class="en">Contact</span>
+            </h3>
+            <p>
+                <span class="de">E-Mail: <a href="mailto:tobias.lante@web.de">tobias.lante@web.de</a></span>
+                <span class="en">Email: <a href="mailto:tobias.lante@web.de">tobias.lante@web.de</a></span>
+            </p>
+
+            <h3>
+                <span class="de">Verantwortlich f&uuml;r den Inhalt nach &sect; 55 Abs. 2 RStV</span>
+                <span class="en">Responsible for content pursuant to &sect; 55 (2) RStV</span>
+            </h3>
+            <p>Tobias Lante<br>Raiffeisenstr. 3b<br>82433 Bad Kohlgrub</p>
+
+            <h3>
+                <span class="de">Haftung f&uuml;r Inhalte</span>
+                <span class="en">Liability for Content</span>
+            </h3>
+            <p>
+                <span class="de">Als Diensteanbieter sind wir gem&auml;&szlig; &sect; 7 Abs.1 TMG f&uuml;r eigene Inhalte auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach &sect;&sect; 8 bis 10 TMG sind wir als Diensteanbieter jedoch nicht verpflichtet, &uuml;bermittelte oder gespeicherte fremde Informationen zu &uuml;berwachen oder nach Umst&auml;nden zu forschen, die auf eine rechtswidrige T&auml;tigkeit hinweisen.</span>
+                <span class="en">As a service provider, we are responsible for our own content on these pages in accordance with &sect; 7 (1) TMG (German Telemedia Act). According to &sect;&sect; 8 to 10 TMG, however, we are not obligated to monitor transmitted or stored third-party information or to investigate circumstances that indicate illegal activity.</span>
+            </p>
+
+            <h3>
+                <span class="de">Haftung f&uuml;r Links</span>
+                <span class="en">Liability for Links</span>
+            </h3>
+            <p>
+                <span class="de">Unser Angebot enth&auml;lt Links zu externen Websites Dritter, auf deren Inhalte wir keinen Einfluss haben. F&uuml;r die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber verantwortlich. Eine permanente inhaltliche Kontrolle der verlinkten Seiten ist ohne konkrete Anhaltspunkte einer Rechtsverletzung nicht zumutbar. Bei Bekanntwerden von Rechtsverletzungen werden wir derartige Links umgehend entfernen.</span>
+                <span class="en">Our website contains links to external third-party websites over whose content we have no control. The respective provider or operator is always responsible for the content of linked pages. Permanent monitoring of linked pages for legal violations is unreasonable without concrete evidence of infringement. Upon becoming aware of any violations, we will remove such links immediately.</span>
+            </p>
+
+            <h3>
+                <span class="de">Urheberrecht</span>
+                <span class="en">Copyright</span>
+            </h3>
+            <p>
+                <span class="de">Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen Urheberrecht. Die Vervielf&auml;ltigung, Bearbeitung, Verbreitung und jede Art der Verwertung au&szlig;erhalb der Grenzen des Urheberrechtes bed&uuml;rfen der schriftlichen Zustimmung des jeweiligen Autors bzw. Erstellers.</span>
+                <span class="en">The content and works created by the site operators on these pages are subject to German copyright law. Duplication, processing, distribution, and any form of exploitation beyond the scope of copyright law require written consent of the respective author or creator.</span>
+            </p>
+
+            <div class="section-divider"></div>
+
+            <!-- ════════════════════════════════════════════════════
+                 DATENSCHUTZERKL&Auml;RUNG / PRIVACY POLICY
+            ════════════════════════════════════════════════════ -->
+            <h2>
+                <span class="de">Datenschutzerkl&auml;rung</span>
+                <span class="en">Privacy Policy</span>
+            </h2>
+
+            <h3>
+                <span class="de">1. Verantwortlicher</span>
+                <span class="en">1. Data Controller</span>
+            </h3>
+            <div class="info-block">
+                <p><strong>Tobias Lante</strong></p>
+                <p>Raiffeisenstr. 3b</p>
+                <p>82433 Bad Kohlgrub</p>
+                <p>
+                    <span class="de">E-Mail: <a href="mailto:tobias.lante@web.de">tobias.lante@web.de</a></span>
+                    <span class="en">Email: <a href="mailto:tobias.lante@web.de">tobias.lante@web.de</a></span>
+                </p>
+            </div>
+
+            <h3>
+                <span class="de">2. &Uuml;bersicht der Verarbeitungen</span>
+                <span class="en">2. Overview of Data Processing</span>
+            </h3>
+            <p>
+                <span class="de">Die nachfolgende &Uuml;bersicht fasst die Arten der verarbeiteten Daten und die Zwecke ihrer Verarbeitung zusammen und verweist auf die betroffenen Personen.</span>
+                <span class="en">The following overview summarizes the types of data processed, the purposes of their processing, and refers to the data subjects concerned.</span>
+            </p>
+            <ul>
+                <li>
+                    <span class="de">Bestandsdaten (z.B. Namen, Adressen)</span>
+                    <span class="en">Inventory data (e.g. names, addresses)</span>
+                </li>
+                <li>
+                    <span class="de">Nutzungsdaten (z.B. besuchte Seiten, Zugriffszeit)</span>
+                    <span class="en">Usage data (e.g. pages visited, access time)</span>
+                </li>
+                <li>
+                    <span class="de">Meta-/Kommunikationsdaten (z.B. IP-Adressen, Ger&auml;teinformationen)</span>
+                    <span class="en">Meta/communication data (e.g. IP addresses, device information)</span>
+                </li>
+            </ul>
+
+            <h3>
+                <span class="de">3. Ma&szlig;gebliche Rechtsgrundlagen</span>
+                <span class="en">3. Legal Basis</span>
+            </h3>
+            <p>
+                <span class="de">Im Folgenden erhalten Sie eine &Uuml;bersicht der Rechtsgrundlagen der DSGVO, auf deren Basis wir personenbezogene Daten verarbeiten:</span>
+                <span class="en">Below you will find an overview of the legal bases of the GDPR on which we process personal data:</span>
+            </p>
+            <ul>
+                <li>
+                    <span class="de"><strong>Berechtigte Interessen (Art. 6 Abs. 1 S. 1 lit. f DSGVO)</strong> &ndash; Die Verarbeitung ist zur Wahrung unserer berechtigten Interessen erforderlich, sofern nicht die Interessen oder Grundrechte der betroffenen Person &uuml;berwiegen.</span>
+                    <span class="en"><strong>Legitimate Interests (Art. 6 (1)(f) GDPR)</strong> &ndash; Processing is necessary for the purposes of our legitimate interests, except where such interests are overridden by the interests or fundamental rights of the data subject.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Einwilligung (Art. 6 Abs. 1 S. 1 lit. a DSGVO)</strong> &ndash; Die betroffene Person hat ihre Einwilligung in die Verarbeitung der sie betreffenden personenbezogenen Daten gegeben.</span>
+                    <span class="en"><strong>Consent (Art. 6 (1)(a) GDPR)</strong> &ndash; The data subject has given consent to the processing of their personal data for one or more specific purposes.</span>
+                </li>
+            </ul>
+
+            <h3>
+                <span class="de">4. Bereitstellung des Onlineangebotes und Webhosting</span>
+                <span class="en">4. Provision of the Online Service and Web Hosting</span>
+            </h3>
+            <p>
+                <span class="de">Wir verarbeiten die Daten der Nutzer, um ihnen unsere Online-Dienste zur Verf&uuml;gung stellen zu k&ouml;nnen. Zu diesem Zweck verarbeiten wir die IP-Adresse des Nutzers, die notwendig ist, um die Inhalte und Funktionen unserer Online-Dienste an den Browser bzw. das Endger&auml;t der Nutzer zu &uuml;bermitteln.</span>
+                <span class="en">We process users' data in order to provide our online services. For this purpose, we process the user's IP address, which is necessary to deliver the content and functions of our online services to the user's browser or device.</span>
+            </p>
+            <ul>
+                <li>
+                    <span class="de"><strong>Verarbeitete Datenarten:</strong> Nutzungsdaten, Meta-/Kommunikationsdaten</span>
+                    <span class="en"><strong>Data types processed:</strong> Usage data, meta/communication data</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Betroffene Personen:</strong> Nutzer unseres Onlineangebotes</span>
+                    <span class="en"><strong>Data subjects:</strong> Users of our online services</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Rechtsgrundlage:</strong> Berechtigte Interessen (Art. 6 Abs. 1 S. 1 lit. f DSGVO)</span>
+                    <span class="en"><strong>Legal basis:</strong> Legitimate interests (Art. 6 (1)(f) GDPR)</span>
+                </li>
+            </ul>
+
+            <h3>
+                <span class="de">5. Schriftarten (Lokales Hosting)</span>
+                <span class="en">5. Fonts (Local Hosting)</span>
+            </h3>
+            <p>
+                <span class="de">Diese Website verwendet die Schriftart &bdquo;Inter&ldquo;. Die Schriftdateien werden lokal auf unserem eigenen Server gehostet. Es findet keine Verbindung zu externen Servern (z.B. Google) statt. Es werden keine personenbezogenen Daten an Dritte &uuml;bermittelt.</span>
+                <span class="en">This website uses the "Inter" typeface. The font files are hosted locally on our own server. No connection to external servers (e.g. Google) is made. No personal data is transmitted to third parties.</span>
+            </p>
+
+            <h3>
+                <span class="de">6. Cookies</span>
+                <span class="en">6. Cookies</span>
+            </h3>
+            <p>
+                <span class="de">Diese Website verwendet einen technisch notwendigen Cookie, um Ihre Spracheinstellung (Deutsch/Englisch) zu speichern, sowie einen Cookie, der speichert, dass Sie den Cookie-Hinweis best&auml;tigt haben. Diese Cookies sind f&uuml;r die Funktion der Website erforderlich und werden auf Grundlage unseres berechtigten Interesses (Art. 6 Abs. 1 S. 1 lit. f DSGVO) gesetzt. Eine Einwilligung ist hierf&uuml;r nicht erforderlich.</span>
+                <span class="en">This website uses a technically necessary cookie to store your language preference (German/English), as well as a cookie that records your acknowledgment of the cookie notice. These cookies are required for the website to function and are set on the basis of our legitimate interest (Art. 6 (1)(f) GDPR). No consent is required for these cookies.</span>
+            </p>
+            <ul>
+                <li>
+                    <span class="de"><strong>zg_lang</strong> &ndash; Speichert Ihre Spracheinstellung (DE/EN). Laufzeit: 1 Jahr.</span>
+                    <span class="en"><strong>zg_lang</strong> &ndash; Stores your language preference (DE/EN). Duration: 1 year.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>zg_consent</strong> &ndash; Speichert, dass der Cookie-Hinweis best&auml;tigt wurde. Laufzeit: 1 Jahr.</span>
+                    <span class="en"><strong>zg_consent</strong> &ndash; Records acknowledgment of the cookie notice. Duration: 1 year.</span>
+                </li>
+            </ul>
+
+            <h3>
+                <span class="de">6a. Webanalyse (Umami)</span>
+                <span class="en">6a. Web Analytics (Umami)</span>
+            </h3>
+            <p>
+                <span class="de">Wir verwenden Umami, eine datenschutzfreundliche Webanalyse-L&ouml;sung, die auf unseren eigenen Servern betrieben wird (Self-Hosted). Umami erhebt <strong>keine personenbezogenen Daten</strong>, verwendet <strong>keine Cookies</strong> und speichert <strong>keine IP-Adressen</strong>. Es findet kein Fingerprinting statt. Alle Daten werden ausschlie&szlig;lich auf unseren eigenen Servern in Deutschland verarbeitet und nicht an Dritte weitergegeben.</span>
+                <span class="en">We use Umami, a privacy-friendly web analytics solution hosted on our own servers (self-hosted). Umami collects <strong>no personal data</strong>, uses <strong>no cookies</strong>, and stores <strong>no IP addresses</strong>. No fingerprinting takes place. All data is processed exclusively on our own servers in Germany and is not shared with third parties.</span>
+            </p>
+            <ul>
+                <li>
+                    <span class="de"><strong>Verarbeitete Daten:</strong> Anonymisierte Seitenaufrufe, Referrer, Ger&auml;tetyp, Land (ohne IP-Speicherung)</span>
+                    <span class="en"><strong>Data processed:</strong> Anonymized page views, referrer, device type, country (without IP storage)</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Rechtsgrundlage:</strong> Berechtigte Interessen (Art. 6 Abs. 1 S. 1 lit. f DSGVO)</span>
+                    <span class="en"><strong>Legal basis:</strong> Legitimate interests (Art. 6 (1)(f) GDPR)</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Hosting:</strong> Self-Hosted auf eigener Infrastruktur in Deutschland</span>
+                    <span class="en"><strong>Hosting:</strong> Self-hosted on our own infrastructure in Germany</span>
+                </li>
+            </ul>
+
+            <h3>
+                <span class="de">7. Rechte der betroffenen Personen</span>
+                <span class="en">7. Rights of Data Subjects</span>
+            </h3>
+            <p>
+                <span class="de">Ihnen stehen als Betroffene nach der DSGVO verschiedene Rechte zu:</span>
+                <span class="en">As a data subject, you have the following rights under the GDPR:</span>
+            </p>
+            <ul>
+                <li>
+                    <span class="de"><strong>Auskunftsrecht (Art. 15 DSGVO):</strong> Sie haben das Recht, eine Best&auml;tigung dar&uuml;ber zu verlangen, ob Sie betreffende personenbezogene Daten verarbeitet werden.</span>
+                    <span class="en"><strong>Right of access (Art. 15 GDPR):</strong> You have the right to obtain confirmation as to whether personal data concerning you is being processed.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Recht auf Berichtigung (Art. 16 DSGVO):</strong> Sie haben das Recht auf Berichtigung unrichtiger Daten.</span>
+                    <span class="en"><strong>Right to rectification (Art. 16 GDPR):</strong> You have the right to rectification of inaccurate data.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Recht auf L&ouml;schung (Art. 17 DSGVO):</strong> Sie haben das Recht, die L&ouml;schung Ihrer Daten zu verlangen.</span>
+                    <span class="en"><strong>Right to erasure (Art. 17 GDPR):</strong> You have the right to request the deletion of your data.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Recht auf Einschr&auml;nkung (Art. 18 DSGVO):</strong> Sie haben das Recht, die Einschr&auml;nkung der Verarbeitung zu verlangen.</span>
+                    <span class="en"><strong>Right to restriction (Art. 18 GDPR):</strong> You have the right to request restriction of processing.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Recht auf Daten&uuml;bertragbarkeit (Art. 20 DSGVO):</strong> Sie haben das Recht, Ihre Daten in einem &uuml;bertragbaren Format zu erhalten.</span>
+                    <span class="en"><strong>Right to data portability (Art. 20 GDPR):</strong> You have the right to receive your data in a portable format.</span>
+                </li>
+                <li>
+                    <span class="de"><strong>Widerspruchsrecht (Art. 21 DSGVO):</strong> Sie haben das Recht, der Verarbeitung Ihrer Daten zu widersprechen.</span>
+                    <span class="en"><strong>Right to object (Art. 21 GDPR):</strong> You have the right to object to the processing of your data.</span>
+                </li>
+            </ul>
+
+            <h3>
+                <span class="de">8. Beschwerderecht bei einer Aufsichtsbeh&ouml;rde</span>
+                <span class="en">8. Right to Lodge a Complaint with a Supervisory Authority</span>
+            </h3>
+            <p>
+                <span class="de">Unbeschadet eines anderweitigen verwaltungsrechtlichen oder gerichtlichen Rechtsbehelfs steht Ihnen das Recht auf Beschwerde bei einer Aufsichtsbeh&ouml;rde zu, insbesondere in dem Mitgliedstaat Ihres Aufenthaltsorts, Ihres Arbeitsplatzes oder des Orts des mutma&szlig;lichen Versto&szlig;es.</span>
+                <span class="en">Without prejudice to any other administrative or judicial remedy, you have the right to lodge a complaint with a supervisory authority, in particular in the Member State of your habitual residence, place of work, or place of the alleged infringement.</span>
+            </p>
+            <p>
+                <span class="de">Die f&uuml;r uns zust&auml;ndige Aufsichtsbeh&ouml;rde ist:</span>
+                <span class="en">The supervisory authority responsible for us is:</span>
+            </p>
+            <div class="info-block">
+                <p><strong>Bayerisches Landesamt f&uuml;r Datenschutzaufsicht (BayLDA)</strong></p>
+                <p>Promenade 18</p>
+                <p>91522 Ansbach, <span class="de">Deutschland</span><span class="en">Germany</span></p>
+                <p><a href="https://www.lda.bayern.de" target="_blank" rel="noopener">www.lda.bayern.de</a></p>
+            </div>
+
+            <h3>
+                <span class="de">9. &Auml;nderung dieser Datenschutzerkl&auml;rung</span>
+                <span class="en">9. Changes to This Privacy Policy</span>
+            </h3>
+            <p>
+                <span class="de">Wir behalten uns vor, diese Datenschutzerkl&auml;rung anzupassen, damit sie stets den aktuellen rechtlichen Anforderungen entspricht oder um &Auml;nderungen unserer Leistungen in der Datenschutzerkl&auml;rung umzusetzen. F&uuml;r Ihren erneuten Besuch gilt dann die neue Datenschutzerkl&auml;rung.</span>
+                <span class="en">We reserve the right to update this privacy policy to ensure it always complies with current legal requirements or to reflect changes to our services. The new privacy policy will apply to your subsequent visits.</span>
+            </p>
+
+            <p style="margin-top: 32px; color: var(--text-2); font-size: 13px;">
+                <span class="de">Stand: Februar 2026</span>
+                <span class="en">Last updated: February 2026</span>
+            </p>
+
+        </div>
+
+        <footer>
+            <span>&copy; 2026 ZeroGuess AI &mdash;
+                <span class="de">Eine Marke von</span>
+                <span class="en">A brand of</span>
+                <a href="https://factory-intelligence.de">factory-intelligence.de</a>
+            </span>
+        </footer>
+    </div>
+
+    <script>
+    function setLang(lang) {
+        document.documentElement.setAttribute('data-lang', lang);
+        document.querySelectorAll('.lang-btn').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('data-lang-btn') === lang);
+        });
+    }
+
+    (function() {
+        const browserDE = navigator.language.startsWith('de');
+        setLang(browserDE ? 'de' : 'en');
+    })();
+    </script>
+
+    <!-- ═══ COOKIE BANNER ═══ -->
+    <div class="cookie-banner" id="cookieBanner">
+        <p>
+            <span class="en">This site uses a cookie to remember your language preference. Analytics are anonymous and cookie-free. <a href="/impressum">Privacy Policy</a></span>
+            <span class="de">Diese Seite nutzt einen Cookie f&uuml;r Ihre Spracheinstellung. Analysen erfolgen anonym ohne Cookies. <a href="/impressum">Datenschutz</a></span>
+        </p>
+        <button class="cookie-btn" onclick="acceptCookies()">OK</button>
+    </div>
+
+    <!-- ═══ UMAMI ANALYTICS (cookieless) ═══ -->
+    <script defer src="https://analytics.zeroguess.ai/script.js" data-website-id="4827bc0b-2b61-4d7a-bfca-feca339ca05d"></script>
+
+    <script>
+    function setCookie(name, value, days) {
+        const d = new Date();
+        d.setTime(d.getTime() + days * 86400000);
+        document.cookie = name + '=' + value + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+    }
+    function getCookie(name) {
+        const v = document.cookie.match('(^|;)\\s*' + name + '=([^;]*)');
+        return v ? v[2] : null;
+    }
+    function acceptCookies() {
+        setCookie('zg_consent', '1', 365);
+        document.getElementById('cookieBanner').classList.remove('visible');
+    }
+    (function() {
+        if (!getCookie('zg_consent')) {
+            setTimeout(() => document.getElementById('cookieBanner').classList.add('visible'), 1500);
+        }
+    })();
+    // Language from cookie
+    (function() {
+        const saved = getCookie('zg_lang');
+        if (saved) setLang(saved);
+    })();
+    const _origSetLang = setLang;
+    setLang = function(lang) { _origSetLang(lang); setCookie('zg_lang', lang, 365); };
+    </script>
+</body>
+</html>

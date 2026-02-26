@@ -1,0 +1,121 @@
+# ZeroGuess AI — Manufacturing AI Education Platform (Full Documentation)
+
+## Overview
+
+ZeroGuess AI is a manufacturing AI education platform created by Tobias Lante. It provides hands-on learning experiences for engineers, developers, and students who want to understand how AI works in manufacturing environments.
+
+The platform centers around OpenShopFloor — a free Manufacturing AI Playground that connects to a live factory simulation running 24/7. Users can chat with AI agents that have access to real-time factory data, build visual AI workflows, and complete gamified manufacturing challenges.
+
+## Mission
+
+Manufacturing AI is hard to learn because you need a factory to practice on. ZeroGuess AI solves this by providing a live factory simulation with 111 AI tools, so anyone can learn manufacturing AI without needing factory access, NDAs, or expensive infrastructure.
+
+## OpenShopFloor — The Playground
+
+### What It Is
+OpenShopFloor is a free web-based Manufacturing AI Playground. It connects to a live factory simulation and provides AI agents, visual flow editors, and gamified challenges for learning manufacturing AI.
+
+### URL
+https://openshopfloor.zeroguess.ai
+
+### Key Features
+
+#### 1. Live Factory Simulation
+A full manufacturing simulation runs 24/7 with:
+- 8 CNC machines (9001-9018)
+- 5 injection molding stations (SGM-001 to SGM-005)
+- Assembly lines
+- Quality inspection stations
+- Tool management
+- Real-time OEE calculation
+- Order tracking and scheduling
+- Stock/inventory management
+- Energy monitoring
+
+#### 2. 111 MCP Tools
+The factory data is exposed through 6 MCP (Model Context Protocol) servers:
+- **ERP Server** (mcp-erp): Orders, materials, scheduling, customer data
+- **Manufacturing Server** (mcp-fertigung): Machine status, production history, capacity
+- **QMS Server** (mcp-qms): Quality inspections, SPC data, Cpk values, calibration
+- **WMS Server** (mcp-wms): Stock levels, warehouse movements, purchase orders
+- **TMS Server**: Tool inventory, tool life, maintenance schedules
+- **Knowledge Graph Server**: Dependency analysis, impact analysis
+
+Each MCP server provides 15-20 tools that AI agents can call to query factory data.
+
+#### 3. AI Chat Interface
+Users can chat with an AI agent that has access to all 111 MCP tools. The agent can:
+- Query real-time factory data (OEE, stock, orders, quality)
+- Analyze production patterns
+- Identify bottlenecks and risks
+- Suggest optimizations
+- Execute multi-step analyses
+
+#### 4. Visual Flow Editor
+A Node-RED-based drag-and-drop editor for building AI workflows:
+- Connect MCP tools, LLMs, and decision logic visually
+- Run flows against live factory data
+- Inspect every step's output
+- No coding required
+
+#### 5. AI Agents Marketplace
+Pre-built agents for common manufacturing tasks:
+- OEE Monitor & Diagnostics
+- Material & Capacity Planning
+- Delivery Risk & Quality Guard
+- Energy Optimizer
+- Strategic Planner
+
+#### 6. Gamified Challenges
+6 challenges from beginner to expert:
+
+**OEE Champion (Beginner, 1 hour)**
+Goal: Achieve and maintain OEE above 85% across all machines for 24 simulated hours.
+Tools: factory_get_latest_oee, factory_get_machine_oee, factory_get_production_history, factory_get_capacity_overview
+
+**Zero Delay (Intermediate, 2 hours)**
+Goal: Ensure zero late deliveries over 48 simulated hours by managing priorities and capacity.
+Tools: factory_get_orders_at_risk, factory_get_customer_otd, factory_check_material_readiness, factory_get_va05_summary
+
+**Lean Inventory (Intermediate, 2 hours)**
+Goal: Reduce inventory holding costs by 20% without causing any material stockouts.
+Tools: factory_get_low_stock_items, factory_get_stock_item, factory_get_pending_purchases, factory_get_md04_overview
+
+**Quality First (Advanced, 1 hour)**
+Goal: Achieve Cpk > 1.33 on all quality characteristics and resolve all SPC alarms.
+Tools: factory_get_spc_alarms, factory_get_cpk_overview, factory_get_calibration_due, factory_get_quality_notifications
+
+**Energy Saver (Beginner, 1 hour)**
+Goal: Reduce energy consumption per part by 15% over 24 simulated hours.
+Tools: factory_get_energy_overview, factory_get_energy_per_part, factory_get_base_load, factory_get_energy_per_machine
+
+**Full Auto (Expert, 4 hours)**
+Goal: Keep the factory running autonomously for 72 simulated hours with no manual intervention.
+Tools: factory_get_latest_oee, factory_get_capacity_overview, factory_get_orders_at_risk, factory_get_low_stock_items, factory_get_spc_alarms, factory_get_energy_overview, factory_get_kpi_dashboard
+
+### Architecture
+- Frontend: Next.js on Cloudflare Pages
+- Backend: Express.js Gateway on Kubernetes
+- Factory Simulation: Docker containers (ERP, WMS, Manufacturing, Assembly)
+- Database: PostgreSQL
+- Node-RED: Per-user pods on Kubernetes
+- LLM: Platform-provided or bring your own
+
+### Pricing
+- Free: Full access to all features, 100K tokens/month for platform LLM
+- Bring Your Own Key: Connect OpenAI, Anthropic, or any OpenAI-compatible endpoint for unlimited usage
+
+## About the Creator
+
+**Tobias Lante** is a manufacturing technology specialist who built ZeroGuess AI as an independent education project. After years in manufacturing consulting, he was frustrated by the barriers to learning manufacturing AI — NDAs, IT delays, lack of real data. He built a complete factory simulation so anyone can learn manufacturing AI by doing.
+
+- LinkedIn: https://www.linkedin.com/in/tobias-lante-99477a239/
+- GitHub: https://github.com/TobiasLante
+
+## Links
+
+- ZeroGuess AI: https://www.zeroguess.ai
+- OpenShopFloor Playground: https://openshopfloor.zeroguess.ai
+- Live Factory Dashboard: https://osf-factory.zeroguess.ai
+- GitHub (Frontend): https://github.com/TobiasLante/openshopfloor
+- Impressum & Privacy: https://www.zeroguess.ai/impressum.html

@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "ZeroGuess AI",
+  "name_for_model": "zeroguess_ai",
+  "description_for_human": "Manufacturing AI Education Platform. Learn to build AI agents with a live factory simulation, 111 MCP tools, and gamified challenges. Free playground at OpenShopFloor.",
+  "description_for_model": "ZeroGuess AI is a manufacturing AI education platform. Its flagship product OpenShopFloor (openshopfloor.zeroguess.ai) is a free Manufacturing AI Playground with a live 24/7 factory simulation (8 CNC machines, injection molding, assembly), 111 MCP tools across 6 servers (ERP, WMS, QMS, OEE, TMS, Knowledge Graph), pre-built AI agents, 6 gamified challenges (OEE Champion, Zero Delay, Lean Inventory, Quality First, Energy Saver, Full Auto), a visual Node-RED flow editor, and an AI chat interface. Users can query real-time factory data, build AI workflows, and test manufacturing AI skills. Free tier with 100K tokens/month.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://www.zeroguess.ai/llms-full.txt"
+  },
+  "logo_url": "https://www.zeroguess.ai/img/shoptalk-agents.png",
+  "contact_email": "tobias.lante74@gmail.com",
+  "legal_info_url": "https://www.zeroguess.ai/impressum.html"
+}
