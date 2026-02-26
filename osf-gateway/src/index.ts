@@ -53,7 +53,7 @@ async function main() {
   const defaultHelmet = helmet({
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
-    hsts: { maxAge: 31536000, includeSubDomains: true },
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
     permittedCrossDomainPolicies: false,
   });
   // Permissions-Policy header (helmet doesn't support it natively)
@@ -331,7 +331,7 @@ async function main() {
   });
 
   // GET /v7/progress/:sessionId — SSE proxy (chunked streaming)
-  app.get('/v7/progress/:sessionId', async (req, res) => {
+  app.get('/v7/progress/:sessionId', requireAuth, async (req, res) => {
     const { sessionId } = req.params;
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -389,12 +389,22 @@ async function main() {
   // Catch-all V7 API proxy — proxies /v7-api/* to V7 gateway /api/*
   // Used by the embedded V7 chat UI (deep-analysis.html)
   app.all('/v7-api/*', requireAuth, async (req, res) => {
-    const apiPath = req.originalUrl.replace('/v7-api/', '/api/');
-    if (apiPath.includes('..') || apiPath.includes('%2e') || apiPath.includes('%2E')) {
+    // Fully decode + normalize to prevent double-encoding bypass (%252e etc.)
+    const raw = req.originalUrl.replace('/v7-api/', '/api/');
+    let normalized: string;
+    try {
+      const parsed = new URL(raw, V7_BASE);
+      normalized = parsed.pathname + parsed.search;
+    } catch {
       res.status(400).json({ error: 'Invalid path' });
       return;
     }
-    const url = `${V7_BASE}${apiPath}`;
+    // After full URL parsing, check the resolved path
+    if (!normalized.startsWith('/api/') || normalized.includes('..')) {
+      res.status(400).json({ error: 'Invalid path' });
+      return;
+    }
+    const url = `${V7_BASE}${normalized}`;
     try {
       const headers: Record<string, string> = {};
       if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;

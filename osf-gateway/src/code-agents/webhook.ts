@@ -39,20 +39,29 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  // Verify signature if webhook_secret is set on the agent
+  // Verify signature — require it when a secret is configured
   for (const agent of result.rows) {
     const secret = agent.webhook_secret || GITHUB_WEBHOOK_SECRET;
-    if (secret && signature) {
+    if (secret) {
+      if (!signature) {
+        logger.warn({ agentId: agent.id, deliveryId }, 'Webhook signature missing but secret configured');
+        continue; // Skip — unsigned request cannot be trusted
+      }
       const rawBody = JSON.stringify(body);
       const expected = 'sha256=' + crypto
         .createHmac('sha256', secret)
         .update(rawBody)
         .digest('hex');
 
-      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      if (signature.length !== expected.length ||
+          !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
         logger.warn({ agentId: agent.id, deliveryId }, 'Webhook signature mismatch');
         continue; // Skip this agent, don't fail the whole request
       }
+    } else {
+      // No secret configured — reject to prevent unsigned webhook abuse
+      logger.warn({ agentId: agent.id, deliveryId }, 'Webhook rejected: no secret configured');
+      continue;
     }
 
     // Trigger re-sync in background

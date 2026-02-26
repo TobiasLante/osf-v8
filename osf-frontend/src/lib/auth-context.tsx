@@ -26,24 +26,23 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = localStorage.getItem(LS_REFRESH_TOKEN);
-  if (!refreshToken) return null;
-
+async function refreshAccessToken(): Promise<boolean> {
   try {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai";
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
+      credentials: "include",
+      body: JSON.stringify({}),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return false;
     const data = await res.json();
-    localStorage.setItem(LS_TOKEN, data.token);
-    localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
-    return data.token;
+    // Keep localStorage as fallback during migration
+    if (data.token) localStorage.setItem(LS_TOKEN, data.token);
+    if (data.refreshToken) localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -53,30 +52,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Try to fetch user — cookies will authenticate automatically
+    // Also check localStorage for backwards compat
     const stored = localStorage.getItem(LS_TOKEN);
-    if (stored) {
-      setToken(stored);
-      apiFetch<{ user: User }>("/auth/me")
-        .then(({ user }) => setUser(user))
-        .catch(async () => {
-          // Token might be expired — try refresh
-          const newToken = await refreshAccessToken();
-          if (newToken) {
-            setToken(newToken);
-            try {
-              const { user } = await apiFetch<{ user: User }>("/auth/me");
-              setUser(user);
-            } catch {
-              clearAuth();
-            }
-          } else {
+
+    apiFetch<{ user: User }>("/auth/me")
+      .then(({ user }) => {
+        setUser(user);
+        if (stored) setToken(stored);
+      })
+      .catch(async () => {
+        // Token might be expired — try refresh
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const newToken = localStorage.getItem(LS_TOKEN);
+          if (newToken) setToken(newToken);
+          try {
+            const { user } = await apiFetch<{ user: User }>("/auth/me");
+            setUser(user);
+          } catch {
             clearAuth();
           }
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+        } else {
+          clearAuth();
+        }
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const clearAuth = useCallback(() => {
@@ -87,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setTokensAndUser = useCallback((accessToken: string, refreshToken: string, userData: User) => {
+    // Keep localStorage as fallback; primary auth is via httpOnly cookies
     localStorage.setItem(LS_TOKEN, accessToken);
     localStorage.setItem(LS_REFRESH_TOKEN, refreshToken);
     setToken(accessToken);
@@ -98,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
+    // Backend sets httpOnly cookies; keep localStorage as fallback
     localStorage.setItem(LS_TOKEN, data.token);
     localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
     setToken(data.token);

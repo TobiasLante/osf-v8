@@ -14,6 +14,30 @@ import { callLlm } from '../chat/llm-client';
 
 const router = Router();
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+function setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
+  res.cookie('osf_access_token', accessToken, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: IS_PROD ? 'none' : 'lax',
+    maxAge: 15 * 60 * 1000, // 15 min (matches JWT expiry)
+    path: '/',
+  });
+  res.cookie('osf_refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: IS_PROD ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/auth/refresh',
+  });
+}
+
+function clearAuthCookies(res: Response): void {
+  res.clearCookie('osf_access_token', { path: '/' });
+  res.clearCookie('osf_refresh_token', { path: '/auth/refresh' });
+}
+
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
 
@@ -147,6 +171,8 @@ router.post('/login', async (req: Request, res: Response) => {
     );
 
     if (result.rows.length === 0) {
+      // Constant-time: always run bcrypt to prevent timing-based user enumeration
+      await bcrypt.compare(password, '$2a$12$000000000000000000000uGSBZDeGRDKMfhOBCuVwJyBLXqeHh.W');
       logSecurity('auth.login.failed', { email, ip, reason: 'unknown_email' });
       res.status(401).json({ error: 'Invalid credentials' });
       return;
@@ -202,6 +228,7 @@ router.post('/login', async (req: Request, res: Response) => {
     );
 
     const { password_hash: _, locked_until: _l, failed_login_count: _f, email_verified: _v, api_key: _ak, ...safeUser } = user;
+    setAuthCookies(res, accessToken, refreshToken);
     logSecurity('auth.login.success', { userId: user.id, email, ip });
     res.json({ token: accessToken, refreshToken, user: safeUser });
   } catch (err: any) {
@@ -255,6 +282,7 @@ router.post('/verify-email', async (req: Request, res: Response) => {
       [row.user_id, tokenId]
     );
 
+    setAuthCookies(res, accessToken, refreshToken);
     logSecurity('auth.email.verified', { userId: row.user_id, email: row.email });
     res.json({
       token: accessToken,
@@ -405,7 +433,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 // ─── Refresh Token ──────────────────────────────────────────────────────────
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.body?.refreshToken || req.cookies?.osf_refresh_token;
     if (!refreshToken) {
       res.status(400).json({ error: 'Refresh token required' });
       return;
@@ -413,40 +441,60 @@ router.post('/refresh', async (req: Request, res: Response) => {
 
     const payload = verifyRefreshToken(refreshToken);
 
-    // Check if token exists and is not revoked
-    const result = await pool.query(
-      'SELECT id FROM refresh_tokens WHERE token_id = $1 AND revoked = FALSE AND expires_at > NOW()',
-      [payload.tokenId]
-    );
-    if (result.rows.length === 0) {
-      logSecurity('auth.token.invalid', { userId: payload.userId, reason: 'revoked_or_expired' });
-      res.status(401).json({ error: 'Refresh token revoked or expired' });
-      return;
+    // Atomic check+revoke+rotate in SERIALIZABLE transaction to prevent race condition
+    const client = await pool.connect();
+    let user: any;
+    let accessToken: string;
+    let newRefreshToken: string;
+    try {
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+      // Check if token exists and is not revoked
+      const result = await client.query(
+        'SELECT id FROM refresh_tokens WHERE token_id = $1 AND revoked = FALSE AND expires_at > NOW()',
+        [payload.tokenId]
+      );
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        logSecurity('auth.token.invalid', { userId: payload.userId, reason: 'revoked_or_expired' });
+        res.status(401).json({ error: 'Refresh token revoked or expired' });
+        return;
+      }
+
+      // Revoke old refresh token (rotation)
+      await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_id = $1', [payload.tokenId]);
+
+      // Get current user data
+      const userResult = await client.query(
+        'SELECT id, email, tier, role FROM users WHERE id = $1',
+        [payload.userId]
+      );
+      if (userResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(401).json({ error: 'User not found' });
+        return;
+      }
+      user = userResult.rows[0];
+
+      // Issue new tokens
+      accessToken = signAccessToken({ userId: user.id, email: user.email, tier: user.tier, role: user.role || 'user' });
+      const refreshResult = signRefreshToken(user.id);
+      newRefreshToken = refreshResult.token;
+
+      await client.query(
+        `INSERT INTO refresh_tokens (user_id, token_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
+        [user.id, refreshResult.tokenId]
+      );
+
+      await client.query('COMMIT');
+    } catch (txErr: any) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
     }
 
-    // Revoke old refresh token (rotation)
-    await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_id = $1', [payload.tokenId]);
-
-    // Get current user data
-    const userResult = await pool.query(
-      'SELECT id, email, tier, role FROM users WHERE id = $1',
-      [payload.userId]
-    );
-    if (userResult.rows.length === 0) {
-      res.status(401).json({ error: 'User not found' });
-      return;
-    }
-    const user = userResult.rows[0];
-
-    // Issue new tokens
-    const accessToken = signAccessToken({ userId: user.id, email: user.email, tier: user.tier, role: user.role || 'user' });
-    const { token: newRefreshToken, tokenId } = signRefreshToken(user.id);
-
-    await pool.query(
-      `INSERT INTO refresh_tokens (user_id, token_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
-      [user.id, tokenId]
-    );
-
+    setAuthCookies(res, accessToken, newRefreshToken);
     logSecurity('auth.token.refresh', { userId: user.id });
     res.json({ token: accessToken, refreshToken: newRefreshToken });
   } catch (err: any) {
@@ -459,6 +507,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
 router.post('/logout', requireAuth, async (req: Request, res: Response) => {
   try {
     await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1', [req.user!.userId]);
+    clearAuthCookies(res);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: 'Logout failed' });
@@ -469,7 +518,9 @@ router.post('/logout', requireAuth, async (req: Request, res: Response) => {
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, name, tier, role, avatar, api_key, created_at FROM users WHERE id = $1',
+      `SELECT id, email, name, tier, role, avatar, created_at,
+              CASE WHEN api_key IS NOT NULL THEN 'osf_' || repeat('•', 24) || RIGHT(api_key, 4) ELSE NULL END AS api_key_masked
+       FROM users WHERE id = $1`,
       [req.user!.userId]
     );
 
@@ -478,11 +529,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    const user = result.rows[0];
-    // Mask API key — only show last 4 chars
-    const maskedKey = user.api_key ? `osf_${'•'.repeat(24)}${user.api_key.slice(-4)}` : null;
-    const { api_key: _, ...safeUser } = user;
-    res.json({ user: { ...safeUser, api_key_masked: maskedKey } });
+    res.json({ user: result.rows[0] });
   } catch (err: any) {
     logger.error({ err: err.message }, 'Me error');
     res.status(500).json({ error: 'Failed to fetch user' });
@@ -548,13 +595,17 @@ router.put('/llm-settings', requireAuth, async (req: Request, res: Response) => 
           res.status(400).json({ error: 'Only HTTP/HTTPS URLs allowed' });
           return;
         }
-        const host = parsed.hostname.toLowerCase();
-        if (/^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.|::1|0000:)/.test(host) ||
-            host.endsWith('.svc.cluster.local') || host.endsWith('.internal')) {
+        // Resolve hostname to IP and check if it's private
+        const { isPrivateUrl } = await import('../util/ssrf-guard');
+        if (await isPrivateUrl(parsed)) {
           res.status(400).json({ error: 'Private/internal URLs not allowed' });
           return;
         }
-      } catch {
+      } catch (urlErr: any) {
+        if (urlErr?.message === 'SSRF_BLOCKED') {
+          res.status(400).json({ error: 'Private/internal URLs not allowed' });
+          return;
+        }
         res.status(400).json({ error: 'Invalid base URL format' });
         return;
       }

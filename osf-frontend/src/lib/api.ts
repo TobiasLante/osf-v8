@@ -10,24 +10,24 @@ export class ApiError extends Error {
 
 let isRefreshing = false;
 
-async function tryRefreshToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  const refreshToken = localStorage.getItem(LS_REFRESH_TOKEN);
-  if (!refreshToken) return null;
+async function tryRefreshToken(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
 
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'include',
+      body: JSON.stringify({}),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return false;
     const data = await res.json();
-    localStorage.setItem(LS_TOKEN, data.token);
-    localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
-    return data.token;
+    // Keep localStorage as fallback for backwards compat during migration
+    if (data.token) localStorage.setItem(LS_TOKEN, data.token);
+    if (data.refreshToken) localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -42,31 +42,36 @@ export async function apiFetch<T = any>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
 
-  if (token) {
+  // Fallback: send Bearer token from localStorage if cookie not yet set
+  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+  if (token && !headers['Authorization']) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   // On 401, try to refresh the token once, then retry
-  if (res.status === 401 && token && !isRefreshing) {
+  if (res.status === 401 && !isRefreshing) {
     isRefreshing = true;
-    const newToken = await tryRefreshToken();
+    const refreshed = await tryRefreshToken();
     isRefreshing = false;
 
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    if (refreshed) {
+      // Retry with cookies (and updated localStorage fallback)
+      const retryHeaders = { ...headers };
+      const newToken = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+      if (newToken) retryHeaders['Authorization'] = `Bearer ${newToken}`;
+
+      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders, credentials: 'include' });
       if (retry.ok) return retry.json();
     }
 
@@ -137,13 +142,10 @@ export function executeV7Agent(
   };
 
   // 2. POST to execute — returns 202 immediately (fire-and-forget)
-  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
   fetch(`${API_BASE}/v7/agents/${agentName}/execute`, {
     method: 'POST',
-    headers,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ sessionId, language: options.language || 'de' }),
   }).then(async (res) => {
     if (!res.ok && res.status !== 202) {
@@ -168,6 +170,7 @@ export function executeV7Agent(
       fetch(`${API_BASE}/v7/agents/${agentName}/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ sessionId }),
       }).catch(() => {});
     },
@@ -203,18 +206,10 @@ export async function* streamSSE(
   path: string,
   body: any
 ): AsyncGenerator<SSEEvent> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(body),
   });
 

@@ -1,0 +1,14 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# K8s secrets (contain real values)
+k8s/*-secret*.yaml
+k8s/*-secrets*.yaml
+
+# OS
+.DS_Store
+Thumbs.db

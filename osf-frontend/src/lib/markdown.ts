@@ -2,7 +2,7 @@ import DOMPurify from 'isomorphic-dompurify';
 
 const PURIFY_CONFIG = {
   ALLOWED_TAGS: ['h1','h2','h3','strong','em','code','pre','a','table','tr','td','th','li','ul','ol','br','p','span'],
-  ALLOWED_ATTR: ['href','target','rel','class'],
+  ALLOWED_ATTR: ['href','target','rel'],
 };
 
 export function safeMarkdown(md: string): string {

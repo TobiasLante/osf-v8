@@ -63,6 +63,20 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
+  // Try httpOnly access token cookie
+  const accessCookie = req.cookies?.osf_access_token;
+  if (accessCookie) {
+    try {
+      req.user = verifyToken(accessCookie);
+      next();
+      return;
+    } catch {
+      logSecurity('auth.cookie.invalid', { ip: req.ip, path: req.path });
+      res.status(401).json({ error: 'Invalid or expired session' });
+      return;
+    }
+  }
+
   // Try editor cookie (set by /flows/auth/session for iframe use)
   const editorToken = req.cookies?.osf_editor_token;
   if (editorToken) {

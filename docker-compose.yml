@@ -28,19 +28,19 @@ services:
       FACTORY_DB_PORT: 30432
       FACTORY_DB_NAME: bigdata_homelab
       FACTORY_DB_USER: admin
-      FACTORY_DB_PASSWORD: ${FACTORY_DB_PASSWORD:-Kohlgrub.123}
+      FACTORY_DB_PASSWORD: ${FACTORY_DB_PASSWORD:?FACTORY_DB_PASSWORD required}
 
       ERP_DB_HOST: 192.168.178.150
       ERP_DB_PORT: 30431
       ERP_DB_NAME: erpdb
       ERP_DB_USER: admin
-      ERP_DB_PASSWORD: ${ERP_DB_PASSWORD:-Kohlgrub.123}
+      ERP_DB_PASSWORD: ${ERP_DB_PASSWORD:?ERP_DB_PASSWORD required}
 
       QMS_DB_HOST: 192.168.178.150
       QMS_DB_PORT: 30433
       QMS_DB_NAME: qmsdb
       QMS_DB_USER: admin
-      QMS_DB_PASSWORD: ${QMS_DB_PASSWORD:-Kohlgrub.123}
+      QMS_DB_PASSWORD: ${QMS_DB_PASSWORD:?QMS_DB_PASSWORD required}
 
       # Redis
       REDIS_HOST: redis

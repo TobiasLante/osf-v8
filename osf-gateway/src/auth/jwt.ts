@@ -22,7 +22,7 @@ export interface RefreshPayload {
 }
 
 export function signAccessToken(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
 export function signRefreshToken(userId: string): { token: string; tokenId: string } {
@@ -30,17 +30,17 @@ export function signRefreshToken(userId: string): { token: string; tokenId: stri
   const token = jwt.sign(
     { userId, tokenId, type: 'refresh' } as RefreshPayload,
     JWT_SECRET,
-    { expiresIn: REFRESH_TOKEN_EXPIRY }
+    { algorithm: 'HS256', expiresIn: REFRESH_TOKEN_EXPIRY }
   );
   return { token, tokenId };
 }
 
 export function verifyToken(token: string): JwtPayload {
-  return jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
+  return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as unknown as JwtPayload;
 }
 
 export function verifyRefreshToken(token: string): RefreshPayload {
-  const payload = jwt.verify(token, JWT_SECRET) as unknown as RefreshPayload;
+  const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as unknown as RefreshPayload;
   if (payload.type !== 'refresh') {
     throw new Error('Not a refresh token');
   }

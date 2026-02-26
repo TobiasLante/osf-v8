@@ -68,7 +68,7 @@ router.get('/llm-config', verifyPodOwnership, async (req: Request, res: Response
 });
 
 // POST /internal/mcp-tool — Execute MCP tool
-router.post('/mcp-tool', async (req: Request, res: Response) => {
+router.post('/mcp-tool', verifyPodOwnership, async (req: Request, res: Response) => {
   try {
     const { name, args } = req.body;
     const result = await callMcpTool(name, args);
