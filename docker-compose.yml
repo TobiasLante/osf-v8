@@ -1,0 +1,140 @@
+# ════════════════════════════════════════════════════════════════════════════
+# OSF v8 — Full Stack (Gateway + Frontend + Redis + MQTT Explorer)
+# ════════════════════════════════════════════════════════════════════════════
+# Start:  docker compose up -d --build
+# Logs:   docker compose logs -f
+# Stop:   docker compose down
+# ════════════════════════════════════════════════════════════════════════════
+
+services:
+  # ════════════════════════════════════════════════════════════════════════════
+  # Gateway (v7-gateway) — Port 8012
+  # ════════════════════════════════════════════════════════════════════════════
+  gateway:
+    build:
+      context: ./osf-gateway
+      dockerfile: Dockerfile.gateway
+    container_name: v7-gateway
+    restart: unless-stopped
+    ports:
+      - "8012:8012"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 8012
+
+      # Databases (auf 192.168.178.150)
+      FACTORY_DB_HOST: 192.168.178.150
+      FACTORY_DB_PORT: 30432
+      FACTORY_DB_NAME: bigdata_homelab
+      FACTORY_DB_USER: admin
+      FACTORY_DB_PASSWORD: ${FACTORY_DB_PASSWORD:-Kohlgrub.123}
+
+      ERP_DB_HOST: 192.168.178.150
+      ERP_DB_PORT: 30431
+      ERP_DB_NAME: erpdb
+      ERP_DB_USER: admin
+      ERP_DB_PASSWORD: ${ERP_DB_PASSWORD:-Kohlgrub.123}
+
+      QMS_DB_HOST: 192.168.178.150
+      QMS_DB_PORT: 30433
+      QMS_DB_NAME: qmsdb
+      QMS_DB_USER: admin
+      QMS_DB_PASSWORD: ${QMS_DB_PASSWORD:-Kohlgrub.123}
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Factory Simulator MCP
+      MCP_ERP_URL: http://192.168.178.110:8020/mcp
+      MCP_WMS_URL: http://192.168.178.110:8020/mcp
+      MCP_QMS_URL: http://192.168.178.110:8020/mcp
+      MCP_FERTIGUNG_URL: http://192.168.178.110:8020/mcp
+
+      # LLM
+      LLM_URL: http://192.168.178.120:5001
+      LLM_MODEL: Qwen2.5-72B-Instruct.Q4_K_M.gguf
+      LLM_API_KEY: ${LLM_API_KEY:-not-needed}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-1200000}
+
+      # Anthropic (optional)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: claude-sonnet-4-20250514
+
+      # Langfuse Cloud
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_HOST: https://cloud.langfuse.com
+
+      # MCP Server Ports
+      MCP_OEE_DB_PORT: 8001
+      MCP_FACTORY_DB_PORT: 8002
+      MCP_ERP_DB_PORT: 8003
+      MCP_MATH_SERVICE_PORT: 8004
+      MCP_QMS_DB_PORT: 8005
+      MCP_SHOPFLOOR_SKILLS_PORT: 8010
+
+    env_file:
+      - ./osf-gateway/.env.gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Frontend — Port 3000
+  # ════════════════════════════════════════════════════════════════════════════
+  frontend:
+    build:
+      context: ./osf-frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://192.168.178.111:8012
+        NEXT_PUBLIC_FACTORY_URL: http://192.168.178.110:8888
+        NEXT_PUBLIC_MQTT_EXPLORER_URL: http://192.168.178.111:4000
+    container_name: osf-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Redis — Session/Queue Backend
+  # ════════════════════════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: v7-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # MQTT Explorer — Port 4000
+  # ════════════════════════════════════════════════════════════════════════════
+  mqtt-explorer:
+    image: smeagolworms4/mqtt-explorer:latest
+    container_name: mqtt-explorer
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+
+volumes:
+  redis-data:
+    name: v8-redis-data
