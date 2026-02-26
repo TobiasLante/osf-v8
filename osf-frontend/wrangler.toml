@@ -1,0 +1,7 @@
+name = "openshopfloor"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = ".next"
+
+# Cloudflare Pages uses @cloudflare/next-on-pages
+# Build command: npx @cloudflare/next-on-pages
+# Or use static export: next build && next export

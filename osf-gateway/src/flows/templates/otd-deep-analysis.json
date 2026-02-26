@@ -1,0 +1,266 @@
+{
+  "id": "otd-deep-analysis",
+  "name": "OTD Deep Analysis",
+  "description": "Multi-Agent OTD-Optimierung: 4 Spezialisten analysieren parallel, ein Moderator identifiziert Luecken, Optimist vs. Realist debattieren, und ein priorisierter Aktionsplan wird erstellt. 20 Nodes, 4 Phasen.",
+  "icon": "📊",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "otd-tab",
+      "type": "tab",
+      "label": "OTD Deep Analysis",
+      "disabled": false,
+      "info": "Multi-Agent OTD Deep Analysis Flow\n\n4 Phasen:\n1. Specialist Analysis (4 Agents)\n2. Moderator Discussion\n3. Multi-Perspective Synthesis\n4. Action Plan & Report\n\n20 Nodes, vollautomatisch."
+    },
+    {
+      "id": "otd-comment-p1",
+      "type": "comment",
+      "z": "otd-tab",
+      "name": "═══ PHASE 1: Specialist Analysis ═══",
+      "info": "4 Fachagenten analysieren die Fabrik aus ihrer jeweiligen Perspektive. Jeder Agent hat Zugriff auf spezialisierte MCP-Tools.",
+      "x": 280,
+      "y": 40,
+      "wires": []
+    },
+    {
+      "id": "otd-n01",
+      "type": "osf-agent",
+      "z": "otd-tab",
+      "name": "1. OTD & Order Analyst",
+      "agentId": "deadline-agent",
+      "passContext": false,
+      "maxIterations": 8,
+      "x": 200,
+      "y": 100,
+      "wires": [["otd-n02"]]
+    },
+    {
+      "id": "otd-n02",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "OTD Findings Compiled",
+      "prompt": "Du bist ein Berichts-Compiler. Fasse die OTD-Analyse strukturiert zusammen:\n\n## OTD Specialist Report\n\n### Aktuelle OTD-Rate\n- Gesamt-OTD und pro Kunde\n\n### Gefaehrdete Auftraege\n- Liste mit Deadlines, Kunden, Risikogruenden\n\n### Top 3 Kritische Probleme\n- Priorisiert nach Impact\n\n### Identifizierte Ursachen\n- Warum werden Termine nicht gehalten?\n\nRohdaten der OTD-Analyse:\n{{input}}",
+      "x": 500,
+      "y": 100,
+      "wires": [["otd-n03"]]
+    },
+    {
+      "id": "otd-n03",
+      "type": "osf-agent",
+      "z": "otd-tab",
+      "name": "2. Capacity Analyst",
+      "agentId": "capacity-agent",
+      "passContext": true,
+      "maxIterations": 8,
+      "x": 800,
+      "y": 100,
+      "wires": [["otd-n04"]]
+    },
+    {
+      "id": "otd-n04",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Capacity Findings Compiled",
+      "prompt": "Du bist ein Berichts-Compiler. Du hast die bisherige OTD-Analyse UND neue Kapazitaetsdaten erhalten. Erstelle einen kombinierten Bericht:\n\n## Capacity Specialist Report\n\n### Maschinenauslastung\n- Uebersicht aller Maschinen, Auslastung in %\n\n### Engpaesse\n- Maschinen >90% Auslastung\n- Blockierte Auftraege\n\n### OEE-Probleme\n- Maschinen mit niedrigem OEE (<85%)\n- Aufschluesselung: Verfuegbarkeit, Leistung, Qualitaet\n\n### Zusammenhang mit OTD\n- Welche Kapazitaetsprobleme verursachen Lieferverzoegerungen?\n\n---\nBisherige Analyse + Kapazitaetsdaten:\n{{input}}",
+      "x": 1100,
+      "y": 100,
+      "wires": [["otd-n05"]]
+    },
+    {
+      "id": "otd-n05",
+      "type": "osf-agent",
+      "z": "otd-tab",
+      "name": "3. Material Analyst",
+      "agentId": "material-agent",
+      "passContext": true,
+      "maxIterations": 8,
+      "x": 200,
+      "y": 240,
+      "wires": [["otd-n06"]]
+    },
+    {
+      "id": "otd-n06",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Material Findings Compiled",
+      "prompt": "Du bist ein Berichts-Compiler. Du hast OTD- und Kapazitaetsanalysen sowie neue Materialdaten. Erstelle einen kombinierten Materialbericht:\n\n## Material Specialist Report\n\n### Bestandssituation\n- Niedrigbestaende und kritische Artikel\n- Baugruppen-Engpaesse\n\n### Blockierte Auftraege\n- Auftraege die wegen Materialmangel blockiert sind\n\n### Offene Bestellungen\n- Ausstehende Purchase Orders\n- Erwartete Liefertermine\n\n### Impact auf OTD\n- Welche Materialengpaesse verursachen Lieferverzoegerungen?\n- Zusammenhang: Material → Kapazitaet → OTD\n\n---\nBisherige Analysen + Materialdaten:\n{{input}}",
+      "x": 500,
+      "y": 240,
+      "wires": [["otd-n07"]]
+    },
+    {
+      "id": "otd-n07",
+      "type": "osf-agent",
+      "z": "otd-tab",
+      "name": "4. Quality Analyst",
+      "agentId": "quality-guard",
+      "passContext": true,
+      "maxIterations": 8,
+      "x": 800,
+      "y": 240,
+      "wires": [["otd-n08"]]
+    },
+    {
+      "id": "otd-n08",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Quality Findings Compiled",
+      "prompt": "Du bist ein Berichts-Compiler. Du hast alle bisherigen Analysen (OTD, Kapazitaet, Material) und neue Qualitaetsdaten. Erstelle den Quality Report:\n\n## Quality Specialist Report\n\n### SPC Status\n- Aktive SPC-Alarme\n- Betroffene Merkmale und Maschinen\n\n### Prozessfaehigkeit\n- CPK-Werte <1.33 (kritisch)\n- CPK-Werte <1.67 (Warnung)\n\n### Ausschuss & Nacharbeit\n- Ausschussraten pro Maschine\n- Nacharbeitsquoten\n\n### Qualitaetsnotifikationen\n- Offene QM-Meldungen\n\n### Impact auf OTD\n- Qualitaetsprobleme die zu Nacharbeit und damit Verzoegerungen fuehren\n\n---\nAlle bisherigen Analysen + Qualitaetsdaten:\n{{input}}",
+      "x": 1100,
+      "y": 240,
+      "wires": [["otd-n09"]]
+    },
+    {
+      "id": "otd-comment-p2",
+      "type": "comment",
+      "z": "otd-tab",
+      "name": "═══ PHASE 2: Moderator Discussion ═══",
+      "info": "Der Moderator analysiert alle 4 Perspektiven, identifiziert Widersprueche und Luecken.",
+      "x": 280,
+      "y": 340,
+      "wires": []
+    },
+    {
+      "id": "otd-n09",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Moderator: Cross-Domain Analysis",
+      "prompt": "Du bist der MODERATOR einer Expertenrunde mit 4 Fachspezialisten (OTD, Kapazitaet, Material, Qualitaet). Du hast alle 4 Berichte erhalten.\n\nDeine Aufgabe:\n\n## Cross-Domain Analysis\n\n### 1. Widersprueche\nIdentifiziere Aussagen die sich zwischen den Perspektiven widersprechen. Zum Beispiel: OTD-Analyst sagt Kapazitaet ist OK, aber Capacity-Analyst zeigt Engpaesse.\n\n### 2. Versteckte Zusammenhaenge\nFinde Kausalketten ueber Domaenen hinweg:\n- Material → Kapazitaet → OTD Ketten\n- Qualitaet → Nacharbeit → Kapazitaet → OTD Ketten\n- Andere Cross-Domain Effekte\n\n### 3. Blinde Flecken\nWas wurde von keinem Spezialisten angesprochen?\n- Schichtplanung?\n- Wartungszyklen?\n- Saisonale Effekte?\n- Lieferanten-Performance?\n\n### 4. Bewertung der Datenlage\n- Wo sind die Daten solide?\n- Wo fehlen Informationen?\n- Wo widersprechen sich die Daten?\n\nSei kritisch und gruendlich. Nenne konkrete Beispiele.\n\n---\nAlle Spezialisten-Berichte:\n{{input}}",
+      "x": 200,
+      "y": 400,
+      "wires": [["otd-n10"]]
+    },
+    {
+      "id": "otd-n10",
+      "type": "osf-decision",
+      "z": "otd-tab",
+      "name": "Critical Gaps Detected?",
+      "prompt": "Basierend auf der Moderator-Analyse: Wurden KRITISCHE Luecken oder Widersprueche gefunden, die eine zusaetzliche Tiefenanalyse erfordern?\n\nAntworte NUR mit 'Yes' oder 'No'.\n\nKategorien: Yes, No\n\nInput:\n{{input}}",
+      "outputLabels": ["Yes - Deep Dive needed", "No - Proceed to Synthesis"],
+      "outputs": 2,
+      "x": 540,
+      "y": 400,
+      "wires": [["otd-n11"], ["otd-n12"]]
+    },
+    {
+      "id": "otd-n11",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Gap Deep-Dive Analysis",
+      "prompt": "Der Moderator hat KRITISCHE LUECKEN in der Analyse identifiziert. Fuehre eine Tiefenanalyse durch:\n\n## Gap Deep-Dive\n\n### Fuer jeden identifizierten blinden Fleck:\n1. **Was fehlt?** — Welche Information/Perspektive fehlt?\n2. **Warum ist es relevant?** — Welchen Impact koennte es auf OTD haben?\n3. **Hypothese** — Was ist die wahrscheinlichste Erklaerung?\n4. **Handlungsempfehlung** — Wie koennen wir die Luecke schliessen?\n\n### Fuer jeden Widerspruch:\n1. **Perspektive A sagt:** ...\n2. **Perspektive B sagt:** ...\n3. **Wahrscheinliche Wahrheit:** ...\n4. **Empfohlene Verifikation:** ...\n\nFasse abschliessend zusammen, wie die Luecken/Widersprueche das Gesamtbild veraendern.\n\n---\nModerator-Analyse:\n{{input}}",
+      "x": 860,
+      "y": 400,
+      "wires": [["otd-n12"]]
+    },
+    {
+      "id": "otd-comment-p3",
+      "type": "comment",
+      "z": "otd-tab",
+      "name": "═══ PHASE 3: Optimist vs. Realist Debate ═══",
+      "info": "Zwei Perspektiven debattieren die Situation: ein Optimist und ein Realist. Der Konsens-Builder findet die goldene Mitte.",
+      "x": 280,
+      "y": 500,
+      "wires": []
+    },
+    {
+      "id": "otd-n12",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Optimist Perspective",
+      "prompt": "Du bist der OPTIMIST in einer Expertenrunde. Du siehst die positive Seite und Chancen.\n\nBasierend auf der gesamten Analyse (4 Spezialisten + Moderator):\n\n## Optimist's View\n\n### Positive Signale\n- Was laeuft gut in der Fabrik?\n- Welche KPIs sind im Zielbereich?\n\n### Chancen\n- Welche Quick Wins sind moeglich?\n- Wo kann mit wenig Aufwand viel erreicht werden?\n\n### Positive Prognose\n- Wenn die empfohlenen Massnahmen umgesetzt werden, was ist realistisch erreichbar?\n- Zeitrahmen fuer Verbesserungen?\n\n### Motivierende Faktoren\n- Was sollte das Team wissen um motiviert zu bleiben?\n\nSei optimistisch aber nicht naiv. Begruende mit Daten.\n\n---\nGesamte Analyse:\n{{input}}",
+      "x": 200,
+      "y": 560,
+      "wires": [["otd-n13"]]
+    },
+    {
+      "id": "otd-n13",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Realist Perspective",
+      "prompt": "Du bist der REALIST in einer Expertenrunde. Du siehst die Risiken und worst-case Szenarien.\n\nBasierend auf der gesamten Analyse + der optimistischen Sicht:\n\n## Realist's View\n\n### Warnzeichen\n- Welche Trends sind besorgniserregend?\n- Wo drohen Eskalationen wenn nichts passiert?\n\n### Risiken\n- Was koennte schiefgehen bei der Umsetzung?\n- Welche externen Faktoren koennten die Situation verschlechtern?\n\n### Worst-Case Szenario\n- Was passiert wenn KEINE Massnahmen ergriffen werden?\n- Zeitrahmen bis zum Problem?\n\n### Realitaetscheck des Optimisten\n- Wo ist der Optimist zu optimistisch?\n- Welche Quick-Wins sind in Wirklichkeit schwieriger?\n\nSei ehrlich und direkt. Nenne konkrete Zahlen und Risiken.\n\n---\nAnalyse + Optimist's View:\n{{input}}",
+      "x": 500,
+      "y": 560,
+      "wires": [["otd-n14"]]
+    },
+    {
+      "id": "otd-n14",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Optimist vs. Realist Debate",
+      "prompt": "Du bist der DEBATTENLEITER. Optimist und Realist haben ihre Sichtweisen dargelegt. Fuehre eine strukturierte Debatte:\n\n## Debate Summary\n\n### Punkt 1: OTD-Verbesserungspotenzial\n- **Optimist sagt:** ...\n- **Realist sagt:** ...\n- **Fazit:** ...\n\n### Punkt 2: Quick Wins\n- **Optimist sagt:** ...\n- **Realist sagt:** ...\n- **Fazit:** ...\n\n### Punkt 3: Ressourcenbedarf\n- **Optimist sagt:** ...\n- **Realist sagt:** ...\n- **Fazit:** ...\n\n### Punkt 4: Zeitrahmen\n- **Optimist sagt:** ...\n- **Realist sagt:** ...\n- **Fazit:** ...\n\n### Kernfrage: Ist die Situation dringend oder manageable?\n- Argumentiere beide Seiten\n- Dein Urteil mit Begruendung\n\n---\nOptimist + Realist Views:\n{{input}}",
+      "x": 800,
+      "y": 560,
+      "wires": [["otd-n15"]]
+    },
+    {
+      "id": "otd-n15",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Consensus Builder",
+      "prompt": "Du bist der KONSENS-BUILDER. Nach der Debatte zwischen Optimist und Realist, finde die goldene Mitte:\n\n## Consensus\n\n### Gemeinsame Erkenntnisse\n- Worauf sind sich beide einig?\n\n### Abgewogene Position\n- Fuer jeden strittigen Punkt: die ausgewogene Sichtweise\n\n### Priorisierung\n- Was ist WIRKLICH dringend? (Realist's Warnung beruecksichtigen)\n- Was ist eine echte Chance? (Optimist's Ideen beruecksichtigen)\n\n### Realistische Ziele\n- Kurzfristig (1 Woche): Was ist machbar?\n- Mittelfristig (1 Monat): Was ist erreichbar?\n- Langfristig (1 Quartal): Was ist die Vision?\n\n---\nDebatte:\n{{input}}",
+      "x": 1100,
+      "y": 560,
+      "wires": [["otd-n16"]]
+    },
+    {
+      "id": "otd-comment-p4",
+      "type": "comment",
+      "z": "otd-tab",
+      "name": "═══ PHASE 4: Action Plan & Executive Report ═══",
+      "info": "Aus dem Konsens wird ein priorisierter Aktionsplan, eine Risikobewertung und ein Executive Summary erstellt.",
+      "x": 280,
+      "y": 660,
+      "wires": []
+    },
+    {
+      "id": "otd-n16",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Prioritized Action Plan",
+      "prompt": "Erstelle einen priorisierten Massnahmenkatalog basierend auf dem Konsens:\n\n## Priorisierter Aktionsplan\n\n### SOFORT (naechste 2 Stunden)\n| # | Massnahme | Bereich | Verantwortlich | Erwarteter Impact |\n|---|-----------|---------|----------------|-------------------|\n| 1 | ... | ... | ... | ... |\n\n### HEUTE (bis Schichtende)\n| # | Massnahme | Bereich | Verantwortlich | Erwarteter Impact |\n|---|-----------|---------|----------------|-------------------|\n| 1 | ... | ... | ... | ... |\n\n### DIESE WOCHE\n| # | Massnahme | Bereich | Verantwortlich | Erwarteter Impact |\n|---|-----------|---------|----------------|-------------------|\n| 1 | ... | ... | ... | ... |\n\n### NAECHSTE WOCHE\n| # | Massnahme | Bereich | Verantwortlich | Erwarteter Impact |\n|---|-----------|---------|----------------|-------------------|\n| 1 | ... | ... | ... | ... |\n\nFuer jede Massnahme: konkrete Aktion, nicht vage Empfehlung. Nenne Maschinennummern, Auftragsnummern, Artikelnummern.\n\n---\nKonsens:\n{{input}}",
+      "x": 200,
+      "y": 720,
+      "wires": [["otd-n17"]]
+    },
+    {
+      "id": "otd-n17",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Risk Assessment Matrix",
+      "prompt": "Erstelle eine Risikobewertung fuer die geplanten Massnahmen:\n\n## Risk Assessment Matrix\n\n### Fuer jede SOFORT/HEUTE Massnahme:\n| Massnahme | Eintrittswahrscheinlichkeit | Impact | Risiko-Score | Mitigation |\n|-----------|----------------------------|--------|-------------|------------|\n| ... | Hoch/Mittel/Niedrig | Hoch/Mittel/Niedrig | H/M/L | ... |\n\n### Umsetzungsrisiken\n- Ressourcenengpaesse bei der Umsetzung?\n- Konflikte zwischen Massnahmen?\n- Abhaengigkeiten die beachtet werden muessen?\n\n### Eskalationskriterien\n- Bei welchen Schwellwerten muss eskaliert werden?\n- Wer ist Eskalationsempfaenger?\n\n---\nAktionsplan:\n{{input}}",
+      "x": 500,
+      "y": 720,
+      "wires": [["otd-n18"]]
+    },
+    {
+      "id": "otd-n18",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Resource Allocation",
+      "prompt": "Erstelle einen Ressourcenplan fuer die Massnahmen:\n\n## Resource Allocation\n\n### Personalbedarf\n| Massnahme | Rolle/Abteilung | Aufwand (Stunden) | Verfuegbarkeit |\n|-----------|-----------------|-------------------|----------------|\n| ... | ... | ... | ... |\n\n### Maschinenbedarf\n- Welche Maschinen muessen umgeplant werden?\n- Welche Wartungsfenster koennen genutzt werden?\n\n### Material/Tooling\n- Zusaetzliches Material benoetigt?\n- Werkzeugwechsel noetig?\n\n### Budget-Impact\n- Geschaetzte Kosten der Sofort-Massnahmen\n- ROI-Einschaetzung\n\n---\nAktionsplan + Risiken:\n{{input}}",
+      "x": 800,
+      "y": 720,
+      "wires": [["otd-n19"]]
+    },
+    {
+      "id": "otd-n19",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Final Comprehensive Report",
+      "prompt": "Erstelle den vollstaendigen Abschlussbericht der OTD Deep Analysis:\n\n## OTD Deep Analysis — Abschlussbericht\n\n### 1. Management Summary\n- OTD-Status in einem Satz\n- Kritischstes Problem\n- Wichtigste Massnahme\n\n### 2. Analyse-Ergebnisse\n- OTD: Kernbefunde\n- Kapazitaet: Kernbefunde\n- Material: Kernbefunde\n- Qualitaet: Kernbefunde\n\n### 3. Cross-Domain Erkenntnisse\n- Wichtigste Zusammenhaenge\n- Identifizierte Luecken\n\n### 4. Aktionsplan (kompakt)\n- SOFORT: Top 3 Massnahmen\n- HEUTE: Top 3 Massnahmen\n- WOCHE: Top 3 Massnahmen\n\n### 5. Risiken\n- Top 3 Risiken mit Mitigation\n\n### 6. KPI-Ziele\n- OTD-Ziel: aktuell → Ziel in 1 Woche → Ziel in 1 Monat\n- OEE-Ziel: aktuell → Ziel\n- Ausschussrate: aktuell → Ziel\n\n---\nAlle Analysen, Aktionsplan, Risiken, Ressourcen:\n{{input}}",
+      "x": 1100,
+      "y": 720,
+      "wires": [["otd-n20"]]
+    },
+    {
+      "id": "otd-n20",
+      "type": "osf-prompt",
+      "z": "otd-tab",
+      "name": "Executive Summary",
+      "prompt": "Erstelle ein praegnantes Executive Summary (max. 500 Woerter) fuer das Management:\n\n## Executive Summary — OTD Deep Analysis\n\n**Datum:** Heute\n**Analyse-Typ:** Multi-Agent OTD Deep Analysis (4 Spezialisten, Moderator, Optimist/Realist Debatte)\n\n### Status: [GRUEN/GELB/ROT]\n\n### Key Metrics\n- OTD-Rate: X% (Ziel: 95%)\n- OEE Durchschnitt: X%\n- Gefaehrdete Auftraege: X\n- Kritische Materialengpaesse: X\n\n### Top 3 Sofort-Massnahmen\n1. ...\n2. ...\n3. ...\n\n### Prognose\n- Bei Umsetzung aller Massnahmen: OTD +X% in Y Tagen\n- Ohne Massnahmen: Risiko von X weiteren verspaeteten Auftraegen\n\n### Entscheidungsbedarf\n- Was muss das Management entscheiden?\n\n---\nBasis: Vollstaendiger Analysebericht\n{{input}}",
+      "x": 200,
+      "y": 860,
+      "wires": []
+    }
+  ]
+}

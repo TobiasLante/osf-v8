@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✨ Diva Assistant ✨</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', 'Times New Roman', serif;
+            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 50%, #ffecd2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 30px;
+            box-shadow: 0 20px 60px rgba(255, 105, 180, 0.4);
+            overflow: hidden;
+            border: 3px solid #ff69b4;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #ff1493, #ff69b4, #ffc0cb);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-bottom: 3px solid #ff1493;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            letter-spacing: 2px;
+        }
+
+        .header .crown {
+            font-size: 3em;
+            animation: sparkle 2s infinite;
+        }
+
+        @keyframes sparkle {
+            0%, 100% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.2) rotate(10deg); }
+        }
+
+        .header p {
+            font-style: italic;
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .messages {
+            height: 500px;
+            overflow-y: auto;
+            padding: 30px;
+            background: linear-gradient(to bottom, #fff5f8, #ffffff);
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 18px 24px;
+            border-radius: 25px;
+            position: relative;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #ff1493, #ff69b4);
+            color: white;
+            border-bottom-right-radius: 5px;
+            font-weight: 500;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            border: 2px solid #ffc0cb;
+            border-bottom-left-radius: 5px;
+        }
+
+        .message-content::before {
+            content: '';
+            position: absolute;
+            width: 15px;
+            height: 15px;
+        }
+
+        .message.user .message-content::before {
+            right: -5px;
+            bottom: 0;
+            background: linear-gradient(135deg, #ff1493, #ff69b4);
+            border-bottom-right-radius: 25px;
+        }
+
+        .message.assistant .message-content::before {
+            left: -5px;
+            bottom: 0;
+            background: white;
+            border: 2px solid #ffc0cb;
+            border-top: none;
+            border-right: none;
+            border-bottom-left-radius: 25px;
+        }
+
+        .input-container {
+            padding: 25px;
+            background: linear-gradient(to top, #fff0f5, white);
+            border-top: 2px solid #ffc0cb;
+            display: flex;
+            gap: 15px;
+        }
+
+        #userInput {
+            flex: 1;
+            padding: 18px 25px;
+            border: 3px solid #ff69b4;
+            border-radius: 30px;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s;
+            background: white;
+            font-family: 'Georgia', serif;
+        }
+
+        #userInput:focus {
+            border-color: #ff1493;
+            box-shadow: 0 0 20px rgba(255, 105, 180, 0.3);
+            transform: scale(1.02);
+        }
+
+        #sendButton {
+            padding: 18px 35px;
+            background: linear-gradient(135deg, #ff1493, #ff69b4);
+            color: white;
+            border: none;
+            border-radius: 30px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(255, 20, 147, 0.4);
+            font-family: 'Georgia', serif;
+            letter-spacing: 1px;
+        }
+
+        #sendButton:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 20, 147, 0.6);
+        }
+
+        #sendButton:active {
+            transform: translateY(0);
+        }
+
+        #sendButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #ff69b4;
+            padding: 15px;
+            font-style: italic;
+            font-size: 1.1em;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .sparkles {
+            position: fixed;
+            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+        }
+
+        .sparkle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: radial-gradient(circle, #fff, #ff69b4);
+            border-radius: 50%;
+            animation: float 3s infinite;
+            opacity: 0.6;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0; }
+            50% { opacity: 0.8; }
+            100% { transform: translateY(-100vh) rotate(360deg); opacity: 0; }
+        }
+
+        /* Scrollbar styling */
+        .messages::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .messages::-webkit-scrollbar-track {
+            background: #fff0f5;
+            border-radius: 10px;
+        }
+
+        .messages::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #ff1493, #ff69b4);
+            border-radius: 10px;
+        }
+
+        .messages::-webkit-scrollbar-thumb:hover {
+            background: #ff1493;
+        }
+    </style>
+</head>
+<body>
+    <div class="sparkles" id="sparkles"></div>
+    
+    <div class="chat-container">
+        <div class="header">
+            <div class="crown">👑</div>
+            <h1>✨ Diva Assistant ✨</h1>
+            <p>Your fabulous AI companion</p>
+        </div>
+
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="message-content">
+                    💕 Hallo Darling! Ich bin deine persönliche Diva-Assistentin. Wie kann ich dir heute helfen? 💅✨
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            ✨ Die Diva denkt nach... 💭
+        </div>
+
+        <div class="input-container">
+            <input 
+                type="text" 
+                id="userInput" 
+                placeholder="Frag mich etwas Fabelhaftes... 💖"
+                autocomplete="off"
+            >
+            <button id="sendButton">Senden 💌</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://192.168.178.120:8000/v1/chat/completions';
+        
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+        const loading = document.getElementById('loading');
+        const sparklesContainer = document.getElementById('sparkles');
+
+        let conversationHistory = [];
+
+        // Create floating sparkles
+        function createSparkle() {
+            const sparkle = document.createElement('div');
+            sparkle.className = 'sparkle';
+            sparkle.style.left = Math.random() * 100 + '%';
+            sparkle.style.animationDelay = Math.random() * 3 + 's';
+            sparkle.style.animationDuration = (Math.random() * 2 + 2) + 's';
+            sparklesContainer.appendChild(sparkle);
+            
+            setTimeout(() => sparkle.remove(), 5000);
+        }
+
+        setInterval(createSparkle, 500);
+
+        function addMessage(role, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = content;
+            
+            messageDiv.appendChild(contentDiv);
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            addMessage('user', message);
+            userInput.value = '';
+            sendButton.disabled = true;
+            loading.classList.add('show');
+
+            conversationHistory.push({
+                role: 'user',
+                content: message
+            });
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: 'n8n-assistant',
+                        messages: conversationHistory
+                    })
+                });
+
+                const data = await response.json();
+                const assistantMessage = data.choices[0].message.content;
+
+                conversationHistory.push({
+                    role: 'assistant',
+                    content: assistantMessage
+                });
+
+                addMessage('assistant', assistantMessage);
+            } catch (error) {
+                addMessage('assistant', '💔 Oh nein! Etwas ist schiefgelaufen. Versuch es noch einmal, Schatz! ✨');
+                console.error('Error:', error);
+            } finally {
+                loading.classList.remove('show');
+                sendButton.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Focus input on load
+        userInput.focus();
+    </script>
+</body>
+</html>

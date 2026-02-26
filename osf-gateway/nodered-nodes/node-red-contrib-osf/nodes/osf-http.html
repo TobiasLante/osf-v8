@@ -1,0 +1,69 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-http', {
+    category: 'OSF',
+    color: '#F57C00',
+    defaults: {
+      name: { value: '' },
+      url: { value: '' },
+      method: { value: 'GET' },
+      returnJson: { value: true },
+      authType: { value: 'none' },
+      authValue: { value: '' },
+      timeout: { value: 30 }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-globe',
+    label: function() {
+      return this.name || this.method + ' ' + (this.url ? this.url.slice(0, 30) : 'HTTP');
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-http">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-method"><i class="fa fa-exchange"></i> Method</label>
+    <select id="node-input-method" style="width:120px">
+      <option value="GET">GET</option>
+      <option value="POST">POST</option>
+      <option value="PUT">PUT</option>
+      <option value="PATCH">PATCH</option>
+      <option value="DELETE">DELETE</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-url"><i class="fa fa-globe"></i> URL</label>
+    <input type="text" id="node-input-url" placeholder="https://api.example.com/{{path}}" style="width:100%">
+  </div>
+  <div class="form-row">
+    <label for="node-input-authType"><i class="fa fa-lock"></i> Auth</label>
+    <select id="node-input-authType" style="width:150px">
+      <option value="none">None</option>
+      <option value="bearer">Bearer Token</option>
+      <option value="api-key">API Key</option>
+    </select>
+    <input type="text" id="node-input-authValue" placeholder="Token / Key" style="width:calc(100% - 170px); margin-left:8px">
+  </div>
+  <div class="form-row">
+    <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
+    <input type="number" id="node-input-timeout" min="1" max="120" style="width:100px">
+  </div>
+  <div class="form-row">
+    <label for="node-input-returnJson"><i class="fa fa-code"></i> JSON Response</label>
+    <input type="checkbox" id="node-input-returnJson" style="width:auto">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-http">
+  <p>Makes HTTP requests to external APIs.</p>
+  <h3>URL Templates</h3>
+  <p>Use <code>{{field}}</code> or <code>${field}</code> in the URL to inject values from the input data.</p>
+  <h3>Body</h3>
+  <p>For POST/PUT/PATCH, the input payload is sent as the request body (JSON).</p>
+  <h3>Authentication</h3>
+  <p>Supports Bearer Token and API Key authentication headers.</p>
+</script>

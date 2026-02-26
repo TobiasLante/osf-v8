@@ -1,0 +1,40 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-sub-flow', {
+    category: 'OSF',
+    color: '#FFB74D',
+    defaults: {
+      name: { value: '' },
+      flowId: { value: '', required: true },
+      maxDepth: { value: 3 }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-share-alt',
+    label: function() {
+      return this.name || 'Sub-Flow';
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-sub-flow">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-flowId"><i class="fa fa-share-alt"></i> Flow ID</label>
+    <input type="text" id="node-input-flowId" placeholder="UUID of the target flow">
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxDepth"><i class="fa fa-level-down"></i> Max Depth</label>
+    <input type="number" id="node-input-maxDepth" min="1" max="10" style="width:80px" value="3">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-sub-flow">
+  <p>Calls another OSF flow as a sub-flow and returns its output.</p>
+  <p>The input payload is passed as input to the sub-flow's entry nodes.
+  The sub-flow's final output becomes this node's output.</p>
+  <h3>Max Depth</h3>
+  <p>Limits recursion to prevent infinite loops when sub-flows call each other.</p>
+</script>

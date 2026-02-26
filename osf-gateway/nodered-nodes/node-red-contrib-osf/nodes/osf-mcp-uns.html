@@ -1,0 +1,51 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-mcp-uns', {
+    category: 'OSF',
+    color: '#8E44AD',
+    defaults: {
+      name: { value: '' },
+      toolName: { value: '', required: true },
+      arguments: { value: '{}' }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-rss',
+    label: function() {
+      return this.name || this.toolName || 'UNS Tool';
+    },
+    oneditprepare: function() {
+      var select = $('#node-input-toolName');
+      var current = this.toolName;
+      select.empty().append('<option value="">Loading...</option>');
+      $.getJSON('/flows/api/tools/uns', function(data) {
+        select.empty().append('<option value="">— Select Tool —</option>');
+        (data.tools || []).forEach(function(t) {
+          var opt = $('<option></option>').val(t.name).text(t.name + (t.description ? ' — ' + t.description.slice(0, 60) : ''));
+          if (t.name === current) opt.attr('selected', 'selected');
+          select.append(opt);
+        });
+      }).fail(function() {
+        select.empty().append('<option value="">Failed to load UNS tools</option>');
+      });
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-mcp-uns">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-toolName"><i class="fa fa-rss"></i> UNS Tool</label>
+    <select id="node-input-toolName" style="width:70%"></select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-arguments"><i class="fa fa-code"></i> Arguments (JSON)</label>
+    <textarea id="node-input-arguments" rows="4" style="width:100%;font-family:monospace" placeholder='{"machine": "SGM-001"}'></textarea>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-mcp-uns">
+  <p>Calls a UNS (Unified Namespace) MCP tool — Echtzeit-Maschinendaten via MQTT: Status, Werte, Alerts, History, Vergleiche.</p>
+</script>

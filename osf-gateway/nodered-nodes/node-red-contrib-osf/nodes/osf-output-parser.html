@@ -1,0 +1,53 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-output-parser', {
+    category: 'OSF',
+    color: '#F57C00',
+    defaults: {
+      name: { value: '' },
+      schema: { value: '{\n  "type": "object",\n  "required": ["result"],\n  "properties": {\n    "result": { "type": "string" }\n  }\n}' },
+      maxRetries: { value: 2 }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-check-square-o',
+    label: function() {
+      return this.name || 'Output Parser';
+    },
+    oneditprepare: function() {
+      var ta = document.getElementById('node-input-schema');
+      if (ta) ta.style.fontFamily = 'monospace';
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-output-parser">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-schema" style="width:100%; margin-bottom:4px"><i class="fa fa-list-alt"></i> JSON Schema</label>
+    <textarea id="node-input-schema" rows="10" style="width:100%; font-family:monospace; font-size:13px"></textarea>
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxRetries"><i class="fa fa-repeat"></i> Max Retries</label>
+    <input type="number" id="node-input-maxRetries" min="0" max="5" style="width:80px" value="2">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-output-parser">
+  <p>Validates LLM output against a JSON schema. If parsing fails, automatically
+  asks the LLM to fix the output (up to <b>Max Retries</b> times).</p>
+  <h3>JSON Schema</h3>
+  <p>Define the expected output structure. Supports <code>required</code> fields
+  and basic <code>type</code> checking (string, number, boolean, array, object).</p>
+  <h3>Example Schema</h3>
+  <pre>{
+  "required": ["status", "issues"],
+  "properties": {
+    "status": { "type": "string" },
+    "issues": { "type": "array" },
+    "score": { "type": "number" }
+  }
+}</pre>
+</script>

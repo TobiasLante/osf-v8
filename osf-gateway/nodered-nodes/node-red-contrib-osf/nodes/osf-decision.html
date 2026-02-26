@@ -1,0 +1,89 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-decision', {
+    category: 'OSF',
+    color: '#FFB74D',
+    defaults: {
+      name: { value: '' },
+      field: { value: '' },
+      prompt: { value: 'Classify the following input into one of the categories below. Respond with ONLY the category name, nothing else.\n\nCategories: {{labels}}\n\nInput:\n{{input}}', required: true },
+      outputLabels: { value: ['Yes', 'No'] }
+    },
+    inputs: 1,
+    outputs: 2,
+    outputLabels: function(index) {
+      return (this.outputLabels || ['Yes', 'No'])[index] || 'Output ' + (index + 1);
+    },
+    icon: 'font-awesome/fa-code-fork',
+    label: function() {
+      return this.name || 'Decision';
+    },
+    oneditprepare: function() {
+      var labels = this.outputLabels || ['Yes', 'No'];
+      var container = $('#osf-decision-labels');
+
+      function renderLabels() {
+        container.empty();
+        labels.forEach(function(label, i) {
+          var row = $('<div class="form-row" style="display:flex;align-items:center;gap:8px"></div>');
+          row.append('<span style="min-width:20px">' + (i + 1) + '.</span>');
+          var input = $('<input type="text" style="flex:1">').val(label);
+          input.on('change', function() { labels[i] = $(this).val(); });
+          row.append(input);
+          if (labels.length > 2) {
+            var btn = $('<button class="red-ui-button red-ui-button-small" type="button"><i class="fa fa-trash"></i></button>');
+            btn.on('click', function() { labels.splice(i, 1); renderLabels(); });
+            row.append(btn);
+          }
+          container.append(row);
+        });
+      }
+
+      renderLabels();
+
+      $('#osf-decision-add').on('click', function() {
+        labels.push('Label ' + (labels.length + 1));
+        renderLabels();
+      });
+    },
+    oneditsave: function() {
+      var labels = [];
+      $('#osf-decision-labels input[type=text]').each(function() {
+        var v = $(this).val().trim();
+        if (v) labels.push(v);
+      });
+      this.outputLabels = labels;
+      this.outputs = labels.length;
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-decision">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-field"><i class="fa fa-key"></i> Field (fast path)</label>
+    <input type="text" id="node-input-field" placeholder="e.g. status or result.ok (empty = use LLM)">
+  </div>
+  <div class="form-row">
+    <label for="node-input-prompt"><i class="fa fa-question-circle"></i> Classification Prompt</label>
+    <textarea id="node-input-prompt" rows="5" style="width:100%;font-family:monospace"></textarea>
+  </div>
+  <div class="form-row">
+    <label><i class="fa fa-list"></i> Output Labels</label>
+    <div id="osf-decision-labels"></div>
+    <button id="osf-decision-add" class="red-ui-button red-ui-button-small" type="button" style="margin-top:4px">
+      <i class="fa fa-plus"></i> Add Output
+    </button>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-decision">
+  <p>Routes input to different outputs based on classification.</p>
+  <p><b>Field (fast path):</b> Set a JSON field path (e.g. <code>status</code> or <code>result.ok</code>)
+  to route based on the field value <b>without calling the LLM</b>. Boolean values
+  (true/yes/ok) route to the first output, (false/no) to the second. Leave empty to use LLM classification.</p>
+  <p><b>LLM mode:</b> Use <code>{{input}}</code> for the previous node's output and
+  <code>{{labels}}</code> for the comma-separated list of labels.</p>
+</script>

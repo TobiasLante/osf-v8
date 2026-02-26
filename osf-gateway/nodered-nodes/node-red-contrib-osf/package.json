@@ -1,0 +1,28 @@
+{
+  "name": "node-red-contrib-osf",
+  "version": "1.0.0",
+  "description": "OpenShopFloor custom nodes for visual flow editing",
+  "node-red": {
+    "nodes": {
+      "osf-agent": "nodes/osf-agent.js",
+      "osf-prompt": "nodes/osf-prompt.js",
+      "osf-mcp-erp": "nodes/osf-mcp-erp.js",
+      "osf-mcp-fertigung": "nodes/osf-mcp-fertigung.js",
+      "osf-mcp-qms": "nodes/osf-mcp-qms.js",
+      "osf-mcp-tms": "nodes/osf-mcp-tms.js",
+      "osf-mcp-oee": "nodes/osf-mcp-oee.js",
+      "osf-mcp-uns": "nodes/osf-mcp-uns.js",
+      "osf-mcp-kg": "nodes/osf-mcp-kg.js",
+      "osf-decision": "nodes/osf-decision.js",
+      "osf-human-input": "nodes/osf-human-input.js",
+      "mcp-tool": "nodes/mcp-tool.js",
+      "osf-ts": "nodes/osf-ts.js",
+      "osf-context": "nodes/osf-context.js",
+      "osf-prompt-tpl": "nodes/osf-prompt-tpl.js",
+      "osf-llm": "nodes/osf-llm.js",
+      "osf-http": "nodes/osf-http.js",
+      "osf-sub-flow": "nodes/osf-sub-flow.js",
+      "osf-output-parser": "nodes/osf-output-parser.js"
+    }
+  }
+}

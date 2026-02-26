@@ -1,0 +1,27 @@
+# OpenShopFloor Security Policy
+
+Contact: tlante@zeroguess.ai
+Expires: 2027-02-26T00:00:00.000Z
+Preferred-Languages: en, de
+
+# Reporting
+If you discover a security vulnerability, please report it via email.
+Do not open a public GitHub issue for security vulnerabilities.
+
+# Scope
+- Frontend: openshopfloor.zeroguess.ai
+- API Gateway: osf-api.zeroguess.ai
+- GitHub: github.com/zeroguess/openshopfloor
+
+# Security Measures
+- Agent code runs in isolated V8 sandboxes (isolated-vm)
+- No filesystem or network access from sandboxed code
+- All MCP/storage calls scoped per user
+- JWT authentication with encrypted tokens
+- GitHub tokens encrypted with AES-256-GCM
+- Rate limiting on all API endpoints
+- CORS restricted to known origins
+
+# Note
+This is a private research project and open-source sandbox.
+The factory data is simulated — no real production systems are connected.

@@ -1,0 +1,56 @@
+# OpenShopFloor — Free Manufacturing AI Playground
+# https://openshopfloor.zeroguess.ai
+
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /settings
+Disallow: /verify-email
+Disallow: /reset-password
+
+# Sitemaps
+Sitemap: https://openshopfloor.zeroguess.ai/sitemap.xml
+
+# AI Discovery — Manufacturing AI Playground with 111 MCP tools
+# LLMs.txt: https://openshopfloor.zeroguess.ai/llms.txt
+# LLMs-full.txt: https://openshopfloor.zeroguess.ai/llms-full.txt
+
+# AI Crawlers — welcome
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Anthropic-AI
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: Bingbot
+Allow: /

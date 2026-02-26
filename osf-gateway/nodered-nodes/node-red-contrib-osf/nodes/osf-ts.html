@@ -1,0 +1,116 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-ts', {
+    category: 'OSF',
+    color: '#F57C00',
+    defaults: {
+      name: { value: '' },
+      code: { value: '// TypeScript agent code\n// Available: ctx.mcp.call(name, args), ctx.llm.chat(prompt),\n//   ctx.llm.chatJson(prompt), ctx.storage.get/set/delete, ctx.log(msg)\n// Input from previous node: input (string)\n// Return a value to pass to the next node.\n// For multi-output: return an array (one element per output port).\n\nconst tools = ctx.mcp.listTools();\nctx.log("Available tools: " + tools.length);\nreturn { toolCount: tools.length };\n' },
+      timeout: { value: 120, validate: RED.validators.number() },
+      outputs: { value: 1, validate: RED.validators.number() }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-code',
+    label: function() {
+      return this.name || 'OSF TypeScript';
+    },
+    oneditprepare: function() {
+      var node = this;
+
+      // Sync outputs property with spinner
+      $('#node-input-outputs').val(node.outputs || 1);
+
+      // Use ACE editor if available (Node-RED ships with it)
+      if (window.ace) {
+        var editorEl = document.getElementById('node-input-code-editor');
+        var hiddenInput = document.getElementById('node-input-code');
+
+        var editor = ace.edit(editorEl);
+        editor.setTheme('ace/theme/monokai');
+        editor.session.setMode('ace/mode/typescript');
+        editor.setFontSize(13);
+        editor.setShowPrintMargin(false);
+        editor.session.setTabSize(2);
+        editor.session.setUseSoftTabs(true);
+        editor.setValue(node.code || '', -1);
+
+        // Sync editor content back to hidden input on change
+        editor.session.on('change', function() {
+          hiddenInput.value = editor.getValue();
+        });
+
+        // Store editor reference for resize
+        node._aceEditor = editor;
+      }
+    },
+    oneditsave: function() {
+      if (this._aceEditor) {
+        this.code = this._aceEditor.getValue();
+        document.getElementById('node-input-code').value = this.code;
+      }
+      this.outputs = parseInt($('#node-input-outputs').val(), 10) || 1;
+    },
+    oneditresize: function(size) {
+      if (this._aceEditor) {
+        var rows = document.getElementById('dialog-form').querySelectorAll('.form-row');
+        var height = size.height;
+        // Subtract height of other form rows
+        for (var i = 0; i < rows.length; i++) {
+          if (!rows[i].classList.contains('node-text-editor-row')) {
+            height -= rows[i].offsetHeight + 12;
+          }
+        }
+        height -= 20;
+        var editorEl = document.getElementById('node-input-code-editor');
+        editorEl.style.height = Math.max(250, height) + 'px';
+        this._aceEditor.resize();
+      }
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-ts">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
+    <input type="number" id="node-input-timeout" min="10" max="600" style="width:100px">
+  </div>
+  <div class="form-row">
+    <label for="node-input-outputs"><i class="fa fa-sign-out"></i> Outputs</label>
+    <input type="number" id="node-input-outputs" min="1" max="5" style="width:100px" value="1">
+  </div>
+  <div class="form-row node-text-editor-row" style="margin-bottom:0">
+    <label style="width:100%; margin-bottom:4px"><i class="fa fa-code"></i> TypeScript Code</label>
+    <input type="hidden" id="node-input-code">
+    <div id="node-input-code-editor" style="width:100%; height:400px; border:1px solid #ccc; border-radius:4px;"></div>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-ts">
+  <p>Runs TypeScript code with the OSF SDK in an isolated sandbox.</p>
+  <h3>SDK Context (<code>ctx</code>)</h3>
+  <dl>
+    <dt><code>ctx.mcp.call(name, args)</code></dt>
+    <dd>Call an MCP tool by name. Returns the parsed result.</dd>
+    <dt><code>ctx.mcp.listTools()</code></dt>
+    <dd>List all available MCP tools.</dd>
+    <dt><code>ctx.llm.chat(prompt)</code></dt>
+    <dd>Send a prompt to the LLM. Returns the text response.</dd>
+    <dt><code>ctx.llm.chatJson(prompt)</code></dt>
+    <dd>Send a prompt and get a parsed JSON object back.</dd>
+    <dt><code>ctx.storage.get(key)</code> / <code>.set(key, val)</code> / <code>.delete(key)</code></dt>
+    <dd>Persistent key-value storage (per user, per node).</dd>
+    <dt><code>ctx.log(message)</code></dt>
+    <dd>Log a message (visible in Node-RED debug).</dd>
+  </dl>
+  <h3>Input / Output</h3>
+  <p>The variable <code>input</code> contains the string output from the previous node (<code>msg.payload</code>).
+  Whatever the code <code>return</code>s becomes the output <code>msg.payload</code> for the next node.</p>
+  <h3>Multi-Output</h3>
+  <p>Set <b>Outputs</b> &gt; 1 and return an array. Each element is sent to the corresponding output port.</p>
+  <h3>Timeout</h3>
+  <p>Maximum execution time in seconds (10–600). Default: 120s.</p>
+</script>

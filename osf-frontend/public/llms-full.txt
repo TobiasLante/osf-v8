@@ -1,0 +1,199 @@
+# OpenShopFloor — Free Manufacturing AI Playground (Full Technical Reference)
+
+> Complete technical documentation for AI assistants interacting with OpenShopFloor, a free Manufacturing AI Playground by ZeroGuess.ai.
+
+## Architecture Overview
+
+OpenShopFloor is a three-tier architecture:
+
+1. **Frontend** (Next.js static site on Cloudflare Pages)
+   - URL: https://openshopfloor.zeroguess.ai
+   - Static export (`output: 'export'`), SPA routing via `_worker.js`
+   - Auth: JWT tokens stored in localStorage
+
+2. **Gateway** (Node.js + Express + Node-RED)
+   - URL: https://osf-api.zeroguess.ai
+   - Hosts REST API, SSE streaming, Node-RED editor
+   - Per-user Node-RED pods on Kubernetes
+   - Custom flow execution engine (BFS, multi-input/output)
+   - Agent sandbox (isolated-vm) for TypeScript code agents
+
+3. **MCP Servers** (6 specialized servers, 111 tools total)
+   - mcp-erp:8021 — ERP data (25 tools)
+   - mcp-fertigung:8024 — Manufacturing data (30 tools)
+   - mcp-qms:8023 — Quality data (18 tools)
+   - mcp-wms:8022 — Warehouse data (18 tools)
+   - mcp-tms:8025 — Tool Management data (12 tools)
+   - mcp-kg:8026 — Knowledge Graph (8 tools)
+
+## MCP Tool Categories
+
+### ERP Server (mcp-erp:8021, 25 tools)
+- Production orders (get all, by ID, by status, by machine)
+- Customer data (get all, by ID)
+- Delivery schedules and performance
+- Bill of Materials (BOM)
+- Material master data
+- Work center data
+
+### Manufacturing Server (mcp-fertigung:8024, 30 tools)
+- Machine status and data (all machines, by ID, by area)
+- OEE metrics (latest, historical, by machine, by shift)
+- Production statistics (daily, weekly, by product)
+- Cycle times and performance
+- Shift data and schedules
+- Downtime events and reasons
+- Assembly operations
+- Subcontracting operations
+- Pre-assembly status
+- Test field results
+- Energy monitoring (per machine, per part, base load)
+
+### Quality Server (mcp-qms:8023, 18 tools)
+- Defect summaries and reports
+- Quality metrics (FPY, scrap rate, rework rate)
+- Audit data and results
+- SPC (Statistical Process Control) data
+- Cpk values and analysis
+- Customer complaints
+- Corrective actions
+- Calibration schedules
+
+### Warehouse/WMS Server (mcp-wms:8022, 18 tools)
+- Inventory levels and locations
+- Stock movements (in/out/transfer)
+- Warehouse capacity
+- Purchase orders and tracking
+- Low stock alerts and MD04 overview
+- Material readiness checks
+
+### Tool Management Server (mcp-tms:8025, 12 tools)
+- Tool inventory and status
+- Tool usage history
+- Tool life tracking
+- Tool maintenance schedules
+- Tool calibration data
+- Tool location tracking
+
+### Knowledge Graph Server (mcp-kg:8026, 8 tools)
+- Dependency analysis between production entities
+- Impact analysis (what-if scenarios)
+- Relationship mapping (machines, materials, orders)
+- Root cause analysis paths
+
+## Gamified Challenges
+
+6 challenges from beginner to expert:
+
+**OEE Champion (Beginner, 1 hour)**
+Goal: Achieve and maintain OEE above 85% across all machines for 24 simulated hours.
+Tools: factory_get_latest_oee, factory_get_machine_oee, factory_get_production_history, factory_get_capacity_overview
+
+**Zero Delay (Intermediate, 2 hours)**
+Goal: Ensure zero late deliveries over 48 simulated hours by managing priorities and capacity.
+Tools: factory_get_orders_at_risk, factory_get_customer_otd, factory_check_material_readiness, factory_get_va05_summary
+
+**Lean Inventory (Intermediate, 2 hours)**
+Goal: Reduce inventory holding costs by 20% without causing any material stockouts.
+Tools: factory_get_low_stock_items, factory_get_stock_item, factory_get_pending_purchases, factory_get_md04_overview
+
+**Quality First (Advanced, 1 hour)**
+Goal: Achieve Cpk > 1.33 on all quality characteristics and resolve all SPC alarms.
+Tools: factory_get_spc_alarms, factory_get_cpk_overview, factory_get_calibration_due, factory_get_quality_notifications
+
+**Energy Saver (Beginner, 1 hour)**
+Goal: Reduce energy consumption per part by 15% over 24 simulated hours.
+Tools: factory_get_energy_overview, factory_get_energy_per_part, factory_get_base_load, factory_get_energy_per_machine
+
+**Full Auto (Expert, 4 hours)**
+Goal: Keep the factory running autonomously for 72 simulated hours with no manual intervention.
+Tools: factory_get_latest_oee, factory_get_capacity_overview, factory_get_orders_at_risk, factory_get_low_stock_items, factory_get_spc_alarms, factory_get_energy_overview, factory_get_kpi_dashboard
+
+## Flow Engine
+
+The flow engine executes Node-RED flows with these features:
+
+### Execution Model
+- Builds a DAG (directed acyclic graph) from Node-RED flow JSON
+- BFS traversal with topological ordering
+- Multi-input: waits for ALL upstream nodes before executing
+- Multi-output: routes to specific downstream ports
+- SSE streaming for real-time progress updates
+- Human-in-the-loop: pauses at osf-human-input nodes
+
+### Node Types
+
+**OSF Custom Nodes (all colored #FF9800):**
+- `osf-ts` — TypeScript sandbox (1-5 outputs, ctx.mcp/llm/storage/log)
+- `osf-context` — Merge multiple inputs into keyed JSON object
+- `osf-prompt-tpl` — Template with ${context} and ${input} variables
+- `osf-llm` — LLM call with per-node config (dual input: context->system, prompt->user)
+- `osf-http` — HTTP requests (GET/POST/PUT/DELETE, auth, JSON mode)
+- `osf-sub-flow` — Call another flow by ID (recursion protection, max depth 5)
+- `osf-output-parser` — JSON schema validation with LLM auto-retry
+- `osf-decision` — Conditional branching (multi-output)
+- `osf-agent` — Run a named agent
+- `osf-prompt` — Simple LLM prompt with {{input}} template
+- `osf-human-input` — Pause for human approval
+- `osf-mcp-erp` — Call ERP MCP tools
+- `osf-mcp-fertigung` — Call Manufacturing MCP tools
+- `osf-mcp-qms` — Call QMS MCP tools
+- `osf-mcp-tms` — Call TMS MCP tools
+
+**Native Node-RED Nodes (fully supported):**
+- switch, change, template, function, http request
+- split, join, delay, debug
+- All other standard Node-RED nodes
+
+### TypeScript Agent SDK
+
+```typescript
+interface AgentContext {
+  mcp: {
+    call(toolName: string, args?: Record<string, any>): Promise<any>;
+    listTools(): Promise<Tool[]>;
+  };
+  llm: {
+    chat(prompt: string): Promise<string>;
+  };
+  storage: {
+    get(key: string): Promise<any>;
+    set(key: string, value: any): Promise<void>;
+    delete(key: string): Promise<void>;
+  };
+  log(message: string): void;
+}
+```
+
+## API Endpoints
+
+- `GET /v7/agents` — List available agents
+- `POST /v7/agents/:name/execute` — Execute an agent (returns 202, streams via SSE)
+- `GET /v7/progress/:sessionId` — SSE stream for agent progress
+- `POST /v7/agents/:name/stop` — Stop a running agent
+- `GET /api/flows` — List saved flows
+- `POST /api/flows/:id/run` — Execute a flow
+- `POST /auth/login` — Login (returns JWT)
+- `POST /auth/register` — Register new user
+
+## Built-in Agents
+
+1. **deep-morning** — Deep Morning Analysis: Map-Reduce pattern across all 6 MCP servers, generates 10-slide report
+2. **oee-optimize** — OEE Optimization: 4 specialist agents + moderator discussion + debate synthesis
+3. **otd-optimize** — OTD Optimization: Delivery performance analysis with specialist panel
+4. **quality-optimize** — Quality Optimization: Defect pattern analysis with debate
+5. **monthly-revenue** — Revenue Optimization: Margin and throughput analysis
+
+## Pricing
+
+- Free: Full access to all features, 100K tokens/month for platform LLM
+- Bring Your Own Key: Connect OpenAI, Anthropic, or any OpenAI-compatible endpoint for unlimited usage
+
+## Project Info
+
+- **Author**: Tobias Lante
+- **Website**: ZeroGuess.ai (https://www.zeroguess.ai)
+- **Type**: Free Manufacturing AI Playground
+- **GitHub (Frontend)**: https://github.com/TobiasLante/openshopfloor
+- **GitHub (Gateway)**: https://github.com/TobiasLante/openshopfloor-gateway
+- **License**: AGPL-3.0 (platform: frontend, gateway, flow engine, agent sandbox, Node-RED nodes). The factory simulation and MCP data layer are proprietary and hosted as a free service.

@@ -1,0 +1,4 @@
+Contact: mailto:tlante@zeroguess.ai
+Expires: 2027-02-26T00:00:00.000Z
+Preferred-Languages: en, de
+Canonical: https://openshopfloor.zeroguess.ai/.well-known/security.txt

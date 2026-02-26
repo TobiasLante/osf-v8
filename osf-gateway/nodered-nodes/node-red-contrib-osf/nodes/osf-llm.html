@@ -1,0 +1,80 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-llm', {
+    category: 'OSF',
+    color: '#FF9800',
+    defaults: {
+      name: { value: '' },
+      llmUrl: { value: '' },
+      llmModel: { value: '' },
+      temperature: { value: 0.3 },
+      jsonMode: { value: false }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-brain',
+    label: function() {
+      return this.name || 'LLM';
+    },
+    oneditprepare: function() {
+      var node = this;
+      $('#node-input-temperature-slider').on('input', function() {
+        var val = parseFloat($(this).val());
+        $('#node-input-temperature').val(val);
+        $('#osf-llm-temp-display').text(val.toFixed(1));
+      });
+      var temp = node.temperature || 0.3;
+      $('#node-input-temperature-slider').val(temp);
+      $('#node-input-temperature').val(temp);
+      $('#osf-llm-temp-display').text(parseFloat(temp).toFixed(1));
+    },
+    oneditsave: function() {
+      this.temperature = parseFloat($('#node-input-temperature').val()) || 0.3;
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-llm">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-llmUrl"><i class="fa fa-globe"></i> LLM URL</label>
+    <input type="text" id="node-input-llmUrl" placeholder="Leave empty for platform default">
+  </div>
+  <div class="form-row">
+    <label for="node-input-llmModel"><i class="fa fa-cube"></i> Model</label>
+    <input type="text" id="node-input-llmModel" placeholder="Leave empty for platform default">
+  </div>
+  <div class="form-row">
+    <label><i class="fa fa-thermometer-half"></i> Temperature <span id="osf-llm-temp-display">0.3</span></label>
+    <input type="range" id="node-input-temperature-slider" min="0" max="2" step="0.1" style="width:100%">
+    <input type="hidden" id="node-input-temperature">
+  </div>
+  <div class="form-row">
+    <label for="node-input-jsonMode"><i class="fa fa-code"></i> JSON Mode</label>
+    <input type="checkbox" id="node-input-jsonMode" style="width:auto; margin-right:8px">
+    <span>Force JSON output</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-llm">
+  <p>Sends messages to an LLM with per-node configuration.</p>
+  <h3>Dual Input (like n8n Agent Node)</h3>
+  <dl>
+    <dt>Memory / Context (from <code>osf-context</code>)</dt>
+    <dd>Sent as the <b>system</b> message — provides context and data for the LLM.</dd>
+    <dt>Prompt / User (from <code>osf-prompt-tpl</code>)</dt>
+    <dd>Sent as the <b>user</b> message — the actual instruction/question.</dd>
+  </dl>
+  <p>If only one input is connected, it is used as the user message.</p>
+  <h3>Configuration</h3>
+  <dl>
+    <dt>LLM URL / Model</dt>
+    <dd>Override the platform default. Leave empty to use the user's configured LLM.</dd>
+    <dt>Temperature</dt>
+    <dd>Controls randomness (0 = deterministic, 2 = very creative).</dd>
+    <dt>JSON Mode</dt>
+    <dd>When enabled, instructs the LLM to respond with valid JSON only.</dd>
+  </dl>
+</script>

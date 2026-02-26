@@ -1,0 +1,99 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-context', {
+    category: 'OSF',
+    color: '#FFB74D',
+    defaults: {
+      name: { value: '' },
+      collectCount: { value: 0 },
+      keyOverrides: { value: {} }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-object-group',
+    label: function() {
+      var base = this.name || 'Context';
+      if (this.collectCount > 0) base += ' (' + this.collectCount + ')';
+      return base;
+    },
+    oneditprepare: function() {
+      var node = this;
+      var overrides = node.keyOverrides || {};
+      var container = $('#osf-context-overrides');
+
+      function renderOverrides() {
+        container.empty();
+        var keys = Object.keys(overrides);
+        keys.forEach(function(nodeId) {
+          var row = $('<div class="form-row" style="display:flex;align-items:center;gap:8px"></div>');
+          var idInput = $('<input type="text" style="flex:1" placeholder="Node ID">').val(nodeId);
+          var keyInput = $('<input type="text" style="flex:1" placeholder="Custom Key">').val(overrides[nodeId]);
+          var btn = $('<button class="red-ui-button red-ui-button-small" type="button"><i class="fa fa-trash"></i></button>');
+          btn.on('click', function() { delete overrides[nodeId]; renderOverrides(); });
+          idInput.on('change', function() {
+            var oldId = nodeId;
+            var newId = $(this).val().trim();
+            if (newId && newId !== oldId) {
+              overrides[newId] = overrides[oldId];
+              delete overrides[oldId];
+              nodeId = newId;
+            }
+          });
+          keyInput.on('change', function() { overrides[nodeId] = $(this).val().trim(); });
+          row.append(idInput, keyInput, btn);
+          container.append(row);
+        });
+      }
+
+      renderOverrides();
+
+      $('#osf-context-add-override').on('click', function() {
+        overrides[''] = '';
+        renderOverrides();
+      });
+
+      node._overrides = overrides;
+    },
+    oneditsave: function() {
+      this.keyOverrides = this._overrides || {};
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-context">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-collectCount"><i class="fa fa-tasks"></i> Collect</label>
+    <input type="number" id="node-input-collectCount" min="0" placeholder="0 = pass-through" style="width:100px">
+    <span style="margin-left:8px;color:#888">inputs to collect (0 = pass-through)</span>
+  </div>
+  <div class="form-row">
+    <label><i class="fa fa-key"></i> Key Overrides</label>
+    <div id="osf-context-overrides"></div>
+    <button id="osf-context-add-override" class="red-ui-button red-ui-button-small" type="button" style="margin-top:4px">
+      <i class="fa fa-plus"></i> Add Override
+    </button>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-context">
+  <p>Aggregates outputs from multiple upstream nodes into a single JSON object.</p>
+
+  <h3>Collect Mode</h3>
+  <p>When <b>Collect</b> is set to a number greater than 0, the node waits for that many
+  incoming messages before outputting. Status shows progress (e.g., <code>3/13</code>).
+  Use this when multiple parallel nodes (e.g., MCP calls) feed into this context.</p>
+
+  <h3>Pass-Through Mode (default)</h3>
+  <p>When <b>Collect</b> is 0, each incoming message is passed through immediately.</p>
+
+  <h3>Keys</h3>
+  <p>Each upstream node's output becomes a key-value pair. The key is derived from the
+  upstream node's label (sanitized to snake_case). Use <b>Key Overrides</b> to assign custom keys.</p>
+
+  <h3>Output</h3>
+  <p>A JSON object with all upstream outputs merged. Example:</p>
+  <pre>{ "oee_overview": {...}, "open_orders": [...], "quality_report": {...} }</pre>
+</script>

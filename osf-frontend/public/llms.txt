@@ -1,0 +1,101 @@
+# OpenShopFloor — Free Manufacturing AI Playground
+
+> Build manufacturing AI agents in minutes. A free playground with a live factory simulation, 111 MCP tools, and gamified challenges.
+
+OpenShopFloor is a free Manufacturing AI Playground by ZeroGuess.ai. It provides a live factory simulation with 111 MCP (Model Context Protocol) tools across 6 servers, a visual Node-RED flow editor, a TypeScript agent SDK, and gamified challenges. Explore, experiment, and build your own manufacturing AI agents — all free.
+
+## What is this?
+
+OpenShopFloor simulates a mid-size manufacturing company with:
+- **ERP system** (production orders, customers, delivery schedules, BOM)
+- **Manufacturing Execution** (machines, OEE, cycle times, shift data)
+- **Quality Management** (defect reports, audits, SPC data)
+- **Warehouse Management** (inventory, stock movements, locations)
+- **Tool Management** (tool inventory, usage, maintenance)
+- **Knowledge Graph** (dependency analysis, impact analysis)
+
+All data is accessible via 111 MCP tools across 6 servers (ERP, Manufacturing, QMS, WMS, TMS, Knowledge Graph).
+
+## How to build agents
+
+### Option 1: Visual Flows (Node-RED)
+Build multi-step AI workflows by dragging and connecting nodes:
+- **osf-ts**: Run TypeScript code with MCP + LLM access (multi-output support)
+- **osf-context**: Merge data from multiple sources into one JSON object
+- **osf-prompt-tpl**: Build LLM prompts with ${context} and ${input} templates
+- **osf-llm**: Call an LLM with per-node config (URL, model, temperature, JSON mode)
+- **osf-http**: Make HTTP requests to external APIs
+- **osf-output-parser**: Validate JSON output against a schema with auto-retry
+- **osf-sub-flow**: Call another flow as a sub-routine
+- **osf-decision**: Conditional branching based on output
+- **osf-human-input**: Pause for human approval
+- All native Node-RED nodes (switch, change, template, function, etc.)
+
+### Option 2: Code Agents (TypeScript + GitHub)
+Write TypeScript agents in a GitHub repo and deploy with one click:
+
+```typescript
+export default async function main(ctx) {
+  const oee = await ctx.mcp.call('factory_get_latest_oee');
+  const analysis = await ctx.llm.chat(`Analyze OEE: ${JSON.stringify(oee)}`);
+  ctx.log(analysis);
+  return { analysis };
+}
+```
+
+SDK: `ctx.mcp.call(tool, args)`, `ctx.llm.chat(prompt)`, `ctx.storage.get/set/delete(key)`, `ctx.log(msg)`
+
+### Option 3: Built-in Agents
+Pre-built multi-agent systems:
+- Deep Morning Analysis (Map-Reduce across all MCP servers)
+- OEE Optimization (4 specialists + moderator debate)
+- OTD Optimization (delivery performance analysis)
+- Quality Optimization (defect pattern analysis)
+- Revenue Optimization (margin and throughput analysis)
+
+## Challenges
+
+6 gamified manufacturing AI challenges from beginner to expert:
+1. **OEE Champion** (Beginner): Achieve OEE > 85% across all machines for 24 simulated hours
+2. **Zero Delay** (Intermediate): Ensure zero late deliveries over 48 simulated hours
+3. **Lean Inventory** (Intermediate): Reduce inventory costs by 20% with zero stockouts
+4. **Quality First** (Advanced): Achieve Cpk > 1.33 on all characteristics, resolve all SPC alarms
+5. **Energy Saver** (Beginner): Reduce kWh per part by 15% over 24 simulated hours
+6. **Full Auto** (Expert): Keep the factory running autonomously for 72 simulated hours
+
+## MCP Servers
+
+| Server | Endpoint | Tools | Domain |
+|--------|----------|-------|--------|
+| mcp-erp | mcp-erp:8021 | 25 | Orders, customers, deliveries, BOM |
+| mcp-fertigung | mcp-fertigung:8024 | 30 | Machines, OEE, production, shifts |
+| mcp-qms | mcp-qms:8023 | 18 | Defects, audits, quality metrics |
+| mcp-wms | mcp-wms:8022 | 18 | Inventory, warehouse, tool management |
+| mcp-tms | mcp-tms:8025 | 12 | Tool inventory, life, maintenance |
+| mcp-kg | mcp-kg:8026 | 8 | Dependency analysis, impact analysis |
+
+## Tech Stack
+
+- **Frontend**: Next.js (static export on Cloudflare Pages)
+- **Gateway**: Node.js + Express + Node-RED (per-user pods)
+- **Flow Engine**: Custom BFS engine with multi-input/output, SSE streaming
+- **Agent Sandbox**: isolated-vm (V8 isolate)
+- **Database**: PostgreSQL
+- **Infrastructure**: Kubernetes (self-hosted)
+- **LLM**: Platform-provided or bring your own (OpenAI, Anthropic, local models)
+
+## Links
+
+- Website: https://openshopfloor.zeroguess.ai
+- GitHub: https://github.com/TobiasLante/openshopfloor
+- Discussions: https://github.com/TobiasLante/openshopfloor/discussions
+- Documentation: https://openshopfloor.zeroguess.ai/docs
+- Author: Tobias Lante (https://www.zeroguess.ai)
+- Full docs: https://openshopfloor.zeroguess.ai/llms-full.txt
+
+## License
+
+The platform (frontend, gateway, flow engine, agent sandbox, Node-RED nodes) is licensed under AGPL-3.0.
+The factory simulation that powers the 111 MCP tools is NOT open source — it is proprietary and hosted as a free service for experimentation. Users can connect their own data sources via MCP.
+
+A personal, non-commercial project by Tobias Lante (ZeroGuess.ai).

@@ -1,0 +1,39 @@
+services:
+  gateway:
+    build:
+      context: .
+    container_name: osf-gateway
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      MCP_URL_ERP: http://192.168.178.110:8020
+      MCP_URL_OEE: http://192.168.178.110:8020
+      MCP_URL_QMS: http://192.168.178.110:8020
+      MCP_URL_TMS: http://192.168.178.110:8020
+      MCP_URL_UNS: http://192.168.178.110:8025
+      MCP_URL_KG:  http://192.168.178.110:8020
+      MCP_URL:     http://192.168.178.110:8020
+      FACTORY_SIM_URL: http://192.168.178.110:8888
+      MQTT_EXPLORER_URL: http://192.168.178.111:4000
+      CORS_ORIGINS: "http://192.168.178.111:3000"
+      NR_DISABLED: "true"
+      LLM_URL_FREE: http://192.168.178.120:5002
+      LLM_URL_PREMIUM: http://192.168.178.120:5001
+    env_file:
+      - .env.gateway
+    ports:
+      - "8081:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

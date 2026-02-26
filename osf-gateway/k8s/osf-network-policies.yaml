@@ -1,0 +1,231 @@
+# ─── OSF Namespace Network Policies ─────────────────────────────────────────
+# Pattern: default-deny + explicit allow (same as demo namespace)
+
+# 1. Default deny ALL ingress + egress for all pods in osf namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: osf
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# 2. Allow DNS for all pods (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: osf
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# 3. Gateway INGRESS — from NR pods + external (NodePort/Cloudflare)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-gateway-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  # From NR pods within osf namespace
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-nodered
+    ports:
+    - protocol: TCP
+      port: 8080
+  # From external (Cloudflare tunnel, NodePort, other namespaces)
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8080
+
+---
+# 4. Gateway EGRESS — to Postgres, MCP/demo, LLM (external), NR pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-gateway-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-gateway
+  policyTypes:
+  - Egress
+  egress:
+  # To Postgres (within osf namespace)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: osf-postgres-new
+    ports:
+    - protocol: TCP
+      port: 5432
+  # To NR pods (push flows, health checks)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: osf-nodered
+    ports:
+    - protocol: TCP
+      port: 1880
+  # To factory namespace (v3 MCP servers + factory-sim)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: factory
+    ports:
+    - protocol: TCP
+      port: 8020
+    - protocol: TCP
+      port: 8025
+    - protocol: TCP
+      port: 8888
+  # To demo namespace (legacy v7-gateway, MQTT broker)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: demo
+    ports:
+    - protocol: TCP
+      port: 8020
+    - protocol: TCP
+      port: 8021
+    - protocol: TCP
+      port: 8022
+    - protocol: TCP
+      port: 8023
+    - protocol: TCP
+      port: 8024
+    - protocol: TCP
+      port: 8888
+  # To V7 gateway in demo namespace (port 30813 mapped internally)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: demo
+    ports:
+    - protocol: TCP
+      port: 3000
+    - protocol: TCP
+      port: 8080
+  # To LLM servers (external IP 192.168.178.120)
+  - to:
+    - ipBlock:
+        cidr: 192.168.178.120/32
+    ports:
+    - protocol: TCP
+      port: 5001
+    - protocol: TCP
+      port: 5002
+  # To K8s API server (pod-manager needs this for NR pod lifecycle)
+  # ClusterIP 10.152.183.1:443 + actual node endpoints on port 16443
+  - to:
+    - ipBlock:
+        cidr: 10.152.183.1/32
+    ports:
+    - protocol: TCP
+      port: 443
+  - to:
+    - ipBlock:
+        cidr: 192.168.178.0/24
+    ports:
+    - protocol: TCP
+      port: 16443
+  # To external HTTPS (Resend email API, GitHub API, etc.)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+# 5. Postgres INGRESS — only from gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-postgres-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-postgres-new
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - protocol: TCP
+      port: 5432
+
+---
+# 6. NR pods EGRESS — only to gateway (bridge HTTP mode)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-nodered-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-nodered
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - protocol: TCP
+      port: 8080
+
+---
+# 7. NR pods INGRESS — only from gateway (proxy, flow loading)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-nodered-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-nodered
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - protocol: TCP
+      port: 1880

@@ -1,0 +1,1253 @@
+{
+    "id": "oee-deep-analysis",
+    "name": "OEE Deep Analysis",
+    "description": "TEST VERSION: 1 debug node per node type + 5 native NR test nodes (change, function, switch, template, delay). Multi-Agent OEE-Optimierung.",
+    "icon": "📊",
+    "version": "1.0.0",
+    "nodes": [
+        {
+            "id": "oee-tab",
+            "type": "tab",
+            "label": "OEE Deep Analysis",
+            "disabled": false,
+            "info": "Multi-Agent OEE Deep Analysis\n\n7 Phasen:\n1. Daten laden (13 MCP-Tools)\n2. 4 Spezialisten-Analysen\n3. Moderator-Review\n4. Follow-Up (optional)\n5. Synthese\n6. Experten-Debatte\n7. Finale Synthese + Report"
+        },
+        {
+            "id": "oee-comment-p1",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 1: Daten laden (13 MCP-Tools) ═══",
+            "info": "Parallel 13 MCP-Tools von 4 Servern aufrufen, dann in osf-context aggregieren.",
+            "x": 300,
+            "y": 40,
+            "wires": []
+        },
+        {
+            "id": "oee-inject",
+            "type": "inject",
+            "z": "oee-tab",
+            "name": "Start Analysis",
+            "props": [],
+            "repeat": "",
+            "crontab": "",
+            "once": false,
+            "onceDelay": "",
+            "topic": "",
+            "x": 120,
+            "y": 120,
+            "wires": [
+                [
+                    "oee-mcp-01",
+                    "oee-mcp-02",
+                    "oee-mcp-03",
+                    "oee-mcp-04",
+                    "oee-mcp-05",
+                    "oee-mcp-06",
+                    "oee-mcp-07",
+                    "oee-mcp-08",
+                    "oee-mcp-09",
+                    "oee-mcp-10",
+                    "oee-mcp-11",
+                    "oee-mcp-12",
+                    "oee-mcp-13",
+                    "test-dbg-type-01"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-01",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "OEE Overview",
+            "toolName": "factory_get_latest_oee",
+            "arguments": "{}",
+            "x": 360,
+            "y": 80,
+            "wires": [
+                [
+                    "oee-ctx-data",
+                    "test-dbg-type-02"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-02",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Open Orders",
+            "toolName": "factory_get_customer_orders",
+            "arguments": "{\"status\":\"open\"}",
+            "x": 360,
+            "y": 120,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-03",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "All Machines",
+            "toolName": "factory_get_capacity_overview",
+            "arguments": "{}",
+            "x": 360,
+            "y": 160,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-04",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Shift Schedule",
+            "toolName": "factory_get_capacity_summary",
+            "arguments": "{}",
+            "x": 580,
+            "y": 80,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-05",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Production Orders",
+            "toolName": "factory_get_cm21_orders",
+            "arguments": "{}",
+            "x": 580,
+            "y": 120,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-06",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Downtimes",
+            "toolName": "factory_get_downtime_report",
+            "arguments": "{}",
+            "x": 580,
+            "y": 160,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-07",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Process Params",
+            "toolName": "factory_get_production_history",
+            "arguments": "{}",
+            "x": 580,
+            "y": 200,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-08",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Quality Notifications",
+            "toolName": "factory_get_quality_notifications",
+            "arguments": "{}",
+            "x": 800,
+            "y": 80,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-09",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "SPC Data",
+            "toolName": "factory_get_spc_alarms",
+            "arguments": "{}",
+            "x": 800,
+            "y": 120,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-10",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Audit Results",
+            "toolName": "factory_get_cpk_overview",
+            "arguments": "{}",
+            "x": 800,
+            "y": 160,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-11",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Inventory Overview",
+            "toolName": "factory_get_low_stock_items",
+            "arguments": "{}",
+            "x": 1020,
+            "y": 80,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-12",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Inventory Movements",
+            "toolName": "factory_get_pending_purchases",
+            "arguments": "{}",
+            "x": 1020,
+            "y": 120,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-mcp-13",
+            "type": "osf-mcp-erp",
+            "z": "oee-tab",
+            "name": "Tool Wear",
+            "toolName": "tms_get_critical",
+            "arguments": "{}",
+            "x": 1020,
+            "y": 160,
+            "wires": [
+                [
+                    "oee-ctx-data"
+                ]
+            ]
+        },
+        {
+            "id": "oee-ctx-data",
+            "type": "osf-context",
+            "z": "oee-tab",
+            "name": "All Factory Data",
+            "expectedInputs": 13,
+            "keyOverrides": {
+                "oee-mcp-01": "oee_overview",
+                "oee-mcp-02": "open_orders",
+                "oee-mcp-03": "machines",
+                "oee-mcp-04": "shift_schedule",
+                "oee-mcp-05": "production_orders",
+                "oee-mcp-06": "downtimes",
+                "oee-mcp-07": "process_params",
+                "oee-mcp-08": "quality_notifications",
+                "oee-mcp-09": "spc_data",
+                "oee-mcp-10": "audit_results",
+                "oee-mcp-11": "inventory",
+                "oee-mcp-12": "inventory_movements",
+                "oee-mcp-13": "tool_wear"
+            },
+            "x": 600,
+            "y": 300,
+            "wires": [
+                [
+                    "test-change-01",
+                    "oee-tpl-perf",
+                    "oee-tpl-qual",
+                    "oee-tpl-bott",
+                    "test-dbg-type-03"
+                ]
+            ],
+            "collectCount": 13
+        },
+        {
+            "id": "oee-comment-p2",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 2: 4 Spezialisten-Analysen ═══",
+            "info": "Jeder Spezialist bekommt gefilterten Kontext und erstellt JSON-Report.",
+            "x": 300,
+            "y": 380,
+            "wires": []
+        },
+        {
+            "id": "oee-tpl-avail",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Verfuegbarkeits-Kontext",
+            "template": "Du bist ein Verfuegbarkeits-Spezialist in einer Fertigungsumgebung.\n\nAnalysiere die folgenden Daten und erstelle einen strukturierten Bericht.\n\n## Dein Fachgebiet: Verfuegbarkeits-Analyst\n\n## Aktuelle Daten:\n\n### OEE-Uebersicht\n${context.oee_overview}\n\n### Maschinen (filtere auf Verfuegbarkeit < 85%)\n${context.machines}\n\n### Stillstaende\n${context.downtimes}\n\n### Schichtplan\n${context.shift_schedule}\n\n## Aufgabe:\n1. Analysiere die Zahlen kritisch — keine vagen Aussagen, konkrete Maschinenbezeichnungen und Werte\n2. Identifiziere die Top-3 kritischsten Findings mit Severity\n3. Gib konkrete, umsetzbare Empfehlungen mit Prioritaet\n4. Beachte Cross-Domain-Auswirkungen\n\nAntworte als JSON mit exakt dieser Struktur:\n{\"domain\":\"Verfuegbarkeit\",\"zahlenDatenFakten\":\"Kompakte Zusammenfassung\",\"kritischeFindings\":[{\"finding\":\"Beschreibung\",\"severity\":\"hoch|mittel|niedrig\",\"betroffenesSystem\":\"Maschine\",\"dpiImpact\":\"KPI-Auswirkung\"}],\"empfehlungen\":[{\"massnahme\":\"Konkrete Massnahme\",\"prioritaet\":\"sofort|heute|diese_woche\",\"erwarteteWirkung\":\"Verbesserung\",\"verantwortlich\":\"Rolle\"}],\"crossDomainHinweise\":[\"Hinweis\"]}",
+            "x": 180,
+            "y": 440,
+            "wires": [
+                [
+                    "oee-llm-avail",
+                    "test-dbg-type-04"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-avail",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Verfuegbarkeit",
+            "llmUrl": "http://192.168.178.120:5002",
+            "llmModel": "",
+            "temperature": 0.2,
+            "jsonMode": true,
+            "x": 380,
+            "y": 440,
+            "wires": [
+                [
+                    "oee-parse-avail",
+                    "test-dbg-type-05"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-avail",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Verfuegbarkeit",
+            "schema": "{\"type\":\"object\",\"required\":[\"domain\",\"kritischeFindings\",\"empfehlungen\"],\"properties\":{\"domain\":{\"type\":\"string\"},\"zahlenDatenFakten\":{\"type\":\"string\"},\"kritischeFindings\":{\"type\":\"array\"},\"empfehlungen\":{\"type\":\"array\"},\"crossDomainHinweise\":{\"type\":\"array\"}}}",
+            "maxRetries": 2,
+            "x": 580,
+            "y": 440,
+            "wires": [
+                [
+                    "oee-ctx-specs",
+                    "test-dbg-type-06"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-perf",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Leistungs-Kontext",
+            "template": "Du bist ein Leistungs-Spezialist in einer Fertigungsumgebung.\n\nAnalysiere die folgenden Daten und erstelle einen strukturierten Bericht.\n\n## Dein Fachgebiet: Leistungs-Analyst\n\n## Aktuelle Daten:\n\n### OEE-Uebersicht\n${context.oee_overview}\n\n### Maschinen (filtere auf Leistung < 90%)\n${context.machines}\n\n### Prozessparameter\n${context.process_params}\n\n### Fertigungsauftraege\n${context.production_orders}\n\n## Aufgabe:\n1. Analysiere die Zahlen kritisch — keine vagen Aussagen, konkrete Maschinenbezeichnungen und Werte\n2. Identifiziere die Top-3 kritischsten Findings mit Severity\n3. Gib konkrete, umsetzbare Empfehlungen mit Prioritaet\n4. Beachte Cross-Domain-Auswirkungen\n\nAntworte als JSON mit exakt dieser Struktur:\n{\"domain\":\"Leistung\",\"zahlenDatenFakten\":\"Kompakte Zusammenfassung\",\"kritischeFindings\":[{\"finding\":\"Beschreibung\",\"severity\":\"hoch|mittel|niedrig\",\"betroffenesSystem\":\"Maschine\",\"dpiImpact\":\"KPI-Auswirkung\"}],\"empfehlungen\":[{\"massnahme\":\"Konkrete Massnahme\",\"prioritaet\":\"sofort|heute|diese_woche\",\"erwarteteWirkung\":\"Verbesserung\",\"verantwortlich\":\"Rolle\"}],\"crossDomainHinweise\":[\"Hinweis\"]}",
+            "x": 180,
+            "y": 500,
+            "wires": [
+                [
+                    "oee-llm-perf"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-perf",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Leistung",
+            "llmUrl": "http://192.168.178.120:5002",
+            "llmModel": "",
+            "temperature": 0.2,
+            "jsonMode": true,
+            "x": 380,
+            "y": 500,
+            "wires": [
+                [
+                    "oee-parse-perf"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-perf",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Leistung",
+            "schema": "{\"type\":\"object\",\"required\":[\"domain\",\"kritischeFindings\",\"empfehlungen\"],\"properties\":{\"domain\":{\"type\":\"string\"},\"zahlenDatenFakten\":{\"type\":\"string\"},\"kritischeFindings\":{\"type\":\"array\"},\"empfehlungen\":{\"type\":\"array\"},\"crossDomainHinweise\":{\"type\":\"array\"}}}",
+            "maxRetries": 2,
+            "x": 580,
+            "y": 500,
+            "wires": [
+                [
+                    "oee-ctx-specs"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-qual",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Qualitaets-Kontext",
+            "template": "Du bist ein Qualitaets-Spezialist in einer Fertigungsumgebung.\n\nAnalysiere die folgenden Daten und erstelle einen strukturierten Bericht.\n\n## Dein Fachgebiet: Qualitaets-Analyst\n\n## Aktuelle Daten:\n\n### OEE-Uebersicht\n${context.oee_overview}\n\n### Maschinen (filtere auf Qualitaet < 95%)\n${context.machines}\n\n### Qualitaetsmeldungen\n${context.quality_notifications}\n\n### SPC-Daten\n${context.spc_data}\n\n### Audit-Ergebnisse\n${context.audit_results}\n\n## Aufgabe:\n1. Analysiere die Zahlen kritisch — keine vagen Aussagen, konkrete Maschinenbezeichnungen und Werte\n2. Identifiziere die Top-3 kritischsten Findings mit Severity\n3. Gib konkrete, umsetzbare Empfehlungen mit Prioritaet\n4. Beachte Cross-Domain-Auswirkungen\n\nAntworte als JSON mit exakt dieser Struktur:\n{\"domain\":\"Qualitaet\",\"zahlenDatenFakten\":\"Kompakte Zusammenfassung\",\"kritischeFindings\":[{\"finding\":\"Beschreibung\",\"severity\":\"hoch|mittel|niedrig\",\"betroffenesSystem\":\"Maschine\",\"dpiImpact\":\"KPI-Auswirkung\"}],\"empfehlungen\":[{\"massnahme\":\"Konkrete Massnahme\",\"prioritaet\":\"sofort|heute|diese_woche\",\"erwarteteWirkung\":\"Verbesserung\",\"verantwortlich\":\"Rolle\"}],\"crossDomainHinweise\":[\"Hinweis\"]}",
+            "x": 180,
+            "y": 560,
+            "wires": [
+                [
+                    "oee-llm-qual"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-qual",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Qualitaet",
+            "llmUrl": "http://192.168.178.120:5002",
+            "llmModel": "",
+            "temperature": 0.2,
+            "jsonMode": true,
+            "x": 380,
+            "y": 560,
+            "wires": [
+                [
+                    "oee-parse-qual"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-qual",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Qualitaet",
+            "schema": "{\"type\":\"object\",\"required\":[\"domain\",\"kritischeFindings\",\"empfehlungen\"],\"properties\":{\"domain\":{\"type\":\"string\"},\"zahlenDatenFakten\":{\"type\":\"string\"},\"kritischeFindings\":{\"type\":\"array\"},\"empfehlungen\":{\"type\":\"array\"},\"crossDomainHinweise\":{\"type\":\"array\"}}}",
+            "maxRetries": 2,
+            "x": 580,
+            "y": 560,
+            "wires": [
+                [
+                    "oee-ctx-specs"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-bott",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Engpass-Kontext",
+            "template": "Du bist ein Engpass-Spezialist in einer Fertigungsumgebung.\n\nAnalysiere die folgenden Daten und erstelle einen strukturierten Bericht.\n\n## Dein Fachgebiet: Engpass-Analyst\n\n## Aktuelle Daten:\n\n### OEE-Uebersicht\n${context.oee_overview}\n\n### Alle Maschinen (Bottom-8 OEE identifizieren)\n${context.machines}\n\n### Offene Auftraege\n${context.open_orders}\n\n### Lagerbestand\n${context.inventory}\n\n### Lagerbewegungen\n${context.inventory_movements}\n\n### Schichtplan\n${context.shift_schedule}\n\n### Werkzeugverschleiss\n${context.tool_wear}\n\n## Aufgabe:\n1. Analysiere die Zahlen kritisch — keine vagen Aussagen, konkrete Maschinenbezeichnungen und Werte\n2. Identifiziere die Top-3 kritischsten Findings mit Severity\n3. Gib konkrete, umsetzbare Empfehlungen mit Prioritaet\n4. Beachte Cross-Domain-Auswirkungen\n\nAntworte als JSON mit exakt dieser Struktur:\n{\"domain\":\"Engpass\",\"zahlenDatenFakten\":\"Kompakte Zusammenfassung\",\"kritischeFindings\":[{\"finding\":\"Beschreibung\",\"severity\":\"hoch|mittel|niedrig\",\"betroffenesSystem\":\"Maschine\",\"dpiImpact\":\"KPI-Auswirkung\"}],\"empfehlungen\":[{\"massnahme\":\"Konkrete Massnahme\",\"prioritaet\":\"sofort|heute|diese_woche\",\"erwarteteWirkung\":\"Verbesserung\",\"verantwortlich\":\"Rolle\"}],\"crossDomainHinweise\":[\"Hinweis\"]}",
+            "x": 180,
+            "y": 620,
+            "wires": [
+                [
+                    "oee-llm-bott"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-bott",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Engpass",
+            "llmUrl": "http://192.168.178.120:5002",
+            "llmModel": "",
+            "temperature": 0.2,
+            "jsonMode": true,
+            "x": 380,
+            "y": 620,
+            "wires": [
+                [
+                    "oee-parse-bott"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-bott",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Engpass",
+            "schema": "{\"type\":\"object\",\"required\":[\"domain\",\"kritischeFindings\",\"empfehlungen\"],\"properties\":{\"domain\":{\"type\":\"string\"},\"zahlenDatenFakten\":{\"type\":\"string\"},\"kritischeFindings\":{\"type\":\"array\"},\"empfehlungen\":{\"type\":\"array\"},\"crossDomainHinweise\":{\"type\":\"array\"}}}",
+            "maxRetries": 2,
+            "x": 580,
+            "y": 620,
+            "wires": [
+                [
+                    "oee-ctx-specs"
+                ]
+            ]
+        },
+        {
+            "id": "oee-ctx-specs",
+            "type": "osf-context",
+            "z": "oee-tab",
+            "name": "All Specialist Reports",
+            "expectedInputs": 4,
+            "keyOverrides": {
+                "oee-parse-avail": "verfuegbarkeit",
+                "oee-parse-perf": "leistung",
+                "oee-parse-qual": "qualitaet",
+                "oee-parse-bott": "engpass"
+            },
+            "x": 800,
+            "y": 530,
+            "wires": [
+                [
+                    "test-func-01"
+                ]
+            ],
+            "collectCount": 4
+        },
+        {
+            "id": "oee-comment-p3",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 3: Moderator-Review ═══",
+            "info": "Moderator prueft alle 4 Berichte auf Luecken, Widersprueche, Rueckfragen.",
+            "x": 300,
+            "y": 700,
+            "wires": []
+        },
+        {
+            "id": "oee-tpl-mod",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Moderator Prompt",
+            "template": "Du bist ein erfahrener Produktionsleiter und moderierst eine Expertenrunde zur OEE-Optimierung.\n\n## Spezialistenberichte:\n\n### Verfuegbarkeits-Analyst\n${context.verfuegbarkeit}\n\n### Leistungs-Analyst\n${context.leistung}\n\n### Qualitaets-Analyst\n${context.qualitaet}\n\n### Engpass-Analyst\n${context.engpass}\n\n## Aufgabe:\nPruefe die Berichte auf:\n1. Luecken — fehlen wichtige Aspekte?\n2. Widersprueche — widersprechen sich Spezialisten?\n3. Tiefergehende Fragen — was sollte nachgefragt werden?\n4. Fehlende Expertise — brauchen wir weitere Spezialisten?\n\nAntworte als JSON:\n{\"gaps\":[\"Identifizierte Luecke\"],\"contradictions\":[\"Widerspruch zwischen Spezialisten\"],\"followUpQuestions\":[{\"targetSpecialist\":\"Name des Spezialisten\",\"question\":\"Konkrete Frage\",\"neededData\":\"Zusaetzliche Daten\"}],\"recruitRequests\":[],\"preliminaryInsights\":[\"Vorlaeufige Erkenntnis\"],\"readyForSynthesis\":true}\n\nSetze readyForSynthesis auf true wenn die Berichte ausreichend sind, false wenn Follow-Up noetig ist.",
+            "x": 180,
+            "y": 760,
+            "wires": [
+                [
+                    "oee-llm-mod"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-mod",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Moderator",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.3,
+            "jsonMode": true,
+            "x": 380,
+            "y": 760,
+            "wires": [
+                [
+                    "oee-parse-mod"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-mod",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Moderator Review",
+            "schema": "{\"type\":\"object\",\"required\":[\"gaps\",\"preliminaryInsights\",\"readyForSynthesis\"],\"properties\":{\"gaps\":{\"type\":\"array\"},\"contradictions\":{\"type\":\"array\"},\"followUpQuestions\":{\"type\":\"array\"},\"recruitRequests\":{\"type\":\"array\"},\"preliminaryInsights\":{\"type\":\"array\"},\"readyForSynthesis\":{\"type\":\"boolean\"}}}",
+            "maxRetries": 2,
+            "x": 580,
+            "y": 760,
+            "wires": [
+                [
+                    "test-switch-01"
+                ]
+            ]
+        },
+        {
+            "id": "oee-comment-p4",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 4: Follow-Up (bedingt) ═══",
+            "info": "Falls Moderator readyForSynthesis=false: Tiefenanalyse. Sonst direkt zur Synthese.",
+            "x": 300,
+            "y": 840,
+            "wires": []
+        },
+        {
+            "id": "oee-decision",
+            "type": "function",
+            "z": "oee-tab",
+            "name": "Ready for Synthesis?",
+            "func": "try { var review = JSON.parse(msg.payload || '{}'); if (review.readyForSynthesis === true) { return [msg, null]; } else { return [null, msg]; } } catch(e) { return [msg, null]; }",
+            "outputs": 2,
+            "x": 800,
+            "y": 760,
+            "wires": [
+                [
+                    "oee-ctx-synth",
+                    "test-dbg-type-07"
+                ],
+                [
+                    "oee-tpl-followup"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-followup",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Follow-Up Deep Dive",
+            "template": "Der Moderator hat KRITISCHE LUECKEN in der Analyse identifiziert. Fuehre eine Tiefenanalyse durch:\n\n## Moderator-Feedback:\n${context}\n\n## Fuer jeden identifizierten blinden Fleck:\n1. Was fehlt? Welche Information/Perspektive fehlt?\n2. Warum ist es relevant? Welchen Impact koennte es auf OEE haben?\n3. Hypothese: Was ist die wahrscheinlichste Erklaerung?\n4. Handlungsempfehlung: Wie koennen wir die Luecke schliessen?\n\n## Fuer jeden Widerspruch:\n1. Perspektive A sagt: ...\n2. Perspektive B sagt: ...\n3. Wahrscheinliche Wahrheit: ...\n4. Empfohlene Verifikation: ...\n\nFasse zusammen wie die Luecken/Widersprueche das Gesamtbild veraendern.\nAntworte als Fliesstext (kein JSON).",
+            "x": 1020,
+            "y": 830,
+            "wires": [
+                [
+                    "oee-llm-followup"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-followup",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Follow-Up",
+            "llmUrl": "http://192.168.178.120:5002",
+            "llmModel": "",
+            "temperature": 0.3,
+            "jsonMode": false,
+            "x": 1020,
+            "y": 890,
+            "wires": [
+                [
+                    "oee-ctx-synth"
+                ]
+            ]
+        },
+        {
+            "id": "oee-ctx-synth",
+            "type": "osf-context",
+            "z": "oee-tab",
+            "name": "Synthesis Input",
+            "expectedInputs": 0,
+            "keyOverrides": {},
+            "x": 180,
+            "y": 950,
+            "wires": [
+                [
+                    "test-template-01"
+                ]
+            ]
+        },
+        {
+            "id": "oee-comment-p5",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 5: Synthese ═══",
+            "info": "Konsolidierte Synthese mit Executive Summary, Cross-Domain Korrelationen, Action Plan, Risiken.",
+            "x": 300,
+            "y": 920,
+            "wires": []
+        },
+        {
+            "id": "oee-tpl-synth",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Synthesis Prompt",
+            "template": "Du bist der Produktionsleiter und fasst die Ergebnisse der Expertenrunde zusammen.\n\n## Alle Spezialistenberichte und Moderator-Erkenntnisse:\n${context}\n\n## Aufgabe:\nErstelle eine konsolidierte Synthese mit:\n1. Executive Summary (3-5 Saetze)\n2. Cross-Domain Korrelationen (Zusammenhaenge zwischen Bereichen)\n3. Priorisierter Action Plan (sofort/heute/diese_woche)\n4. Risiko-Bewertung\n\nAntworte als JSON:\n{\"executiveSummary\":\"Zusammenfassung\",\"crossDomainCorrelations\":[\"Korrelation 1\",\"Korrelation 2\"],\"actionPlan\":[{\"action\":\"Konkrete Massnahme\",\"priority\":\"sofort|heute|diese_woche\",\"responsible\":\"Verantwortlich\",\"expectedImpact\":\"Erwartete Wirkung\",\"deadline\":\"Zeitrahmen\"}],\"risks\":[{\"risk\":\"Risikobeschreibung\",\"probability\":\"hoch|mittel|niedrig\",\"impact\":\"hoch|mittel|niedrig\",\"mitigation\":\"Gegenmassnahme\"}]}",
+            "x": 380,
+            "y": 950,
+            "wires": [
+                [
+                    "oee-llm-synth"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-synth",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Synthese",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.3,
+            "jsonMode": true,
+            "x": 580,
+            "y": 950,
+            "wires": [
+                [
+                    "oee-parse-synth"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-synth",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Synthese",
+            "schema": "{\"type\":\"object\",\"required\":[\"executiveSummary\",\"actionPlan\"],\"properties\":{\"executiveSummary\":{\"type\":\"string\"},\"crossDomainCorrelations\":{\"type\":\"array\"},\"actionPlan\":{\"type\":\"array\"},\"risks\":{\"type\":\"array\"}}}",
+            "maxRetries": 2,
+            "x": 780,
+            "y": 950,
+            "wires": [
+                [
+                    "oee-tpl-debate-avail",
+                    "oee-tpl-debate-perf",
+                    "oee-tpl-debate-qual",
+                    "oee-tpl-debate-bott"
+                ]
+            ]
+        },
+        {
+            "id": "oee-comment-p6",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 6: Experten-Debatte ═══",
+            "info": "Jeder Spezialist kritisiert den Action Plan aus seiner Fachperspektive.",
+            "x": 300,
+            "y": 1040,
+            "wires": []
+        },
+        {
+            "id": "oee-tpl-debate-avail",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Debatte: Verfuegbarkeit",
+            "template": "Du bist der Verfuegbarkeits-Spezialist. Pruefe den folgenden Action Plan kritisch aus deiner Fachperspektive.\n\n## Vorgeschlagener Action Plan:\n${context}\n\n## Aufgabe:\n1. Bewerte jeden Punkt aus deiner Expertensicht\n2. Identifiziere Risiken oder fehlende Aspekte\n3. Schlage Alternativen vor wo noetig\n\nAntworte als JSON:\n{\"overallAssessment\":\"Gesamtbewertung in 2-3 Saetzen\",\"critiques\":[{\"item\":\"Welcher Action-Punkt\",\"concern\":\"Dein Einwand\",\"alternativeSuggestion\":\"Alternativvorschlag\",\"importance\":\"hoch|mittel|niedrig\"}],\"agreements\":[\"Punkt dem du zustimmst\"],\"missingAspects\":[\"Was fehlt im Plan\"]}",
+            "x": 180,
+            "y": 1100,
+            "wires": [
+                [
+                    "oee-llm-debate-avail"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-debate-avail",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Debatte V",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.4,
+            "jsonMode": true,
+            "x": 380,
+            "y": 1100,
+            "wires": [
+                [
+                    "oee-ctx-debate"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-debate-perf",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Debatte: Leistung",
+            "template": "Du bist der Leistungs-Spezialist. Pruefe den folgenden Action Plan kritisch aus deiner Fachperspektive.\n\n## Vorgeschlagener Action Plan:\n${context}\n\n## Aufgabe:\n1. Bewerte jeden Punkt aus deiner Expertensicht\n2. Identifiziere Risiken oder fehlende Aspekte\n3. Schlage Alternativen vor wo noetig\n\nAntworte als JSON:\n{\"overallAssessment\":\"Gesamtbewertung in 2-3 Saetzen\",\"critiques\":[{\"item\":\"Welcher Action-Punkt\",\"concern\":\"Dein Einwand\",\"alternativeSuggestion\":\"Alternativvorschlag\",\"importance\":\"hoch|mittel|niedrig\"}],\"agreements\":[\"Punkt dem du zustimmst\"],\"missingAspects\":[\"Was fehlt im Plan\"]}",
+            "x": 180,
+            "y": 1160,
+            "wires": [
+                [
+                    "oee-llm-debate-perf"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-debate-perf",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Debatte L",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.4,
+            "jsonMode": true,
+            "x": 380,
+            "y": 1160,
+            "wires": [
+                [
+                    "oee-ctx-debate"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-debate-qual",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Debatte: Qualitaet",
+            "template": "Du bist der Qualitaets-Spezialist. Pruefe den folgenden Action Plan kritisch aus deiner Fachperspektive.\n\n## Vorgeschlagener Action Plan:\n${context}\n\n## Aufgabe:\n1. Bewerte jeden Punkt aus deiner Expertensicht\n2. Identifiziere Risiken oder fehlende Aspekte\n3. Schlage Alternativen vor wo noetig\n\nAntworte als JSON:\n{\"overallAssessment\":\"Gesamtbewertung in 2-3 Saetzen\",\"critiques\":[{\"item\":\"Welcher Action-Punkt\",\"concern\":\"Dein Einwand\",\"alternativeSuggestion\":\"Alternativvorschlag\",\"importance\":\"hoch|mittel|niedrig\"}],\"agreements\":[\"Punkt dem du zustimmst\"],\"missingAspects\":[\"Was fehlt im Plan\"]}",
+            "x": 180,
+            "y": 1220,
+            "wires": [
+                [
+                    "oee-llm-debate-qual"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-debate-qual",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Debatte Q",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.4,
+            "jsonMode": true,
+            "x": 380,
+            "y": 1220,
+            "wires": [
+                [
+                    "oee-ctx-debate"
+                ]
+            ]
+        },
+        {
+            "id": "oee-tpl-debate-bott",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Debatte: Engpass",
+            "template": "Du bist der Engpass-Spezialist. Pruefe den folgenden Action Plan kritisch aus deiner Fachperspektive.\n\n## Vorgeschlagener Action Plan:\n${context}\n\n## Aufgabe:\n1. Bewerte jeden Punkt aus deiner Expertensicht\n2. Identifiziere Risiken oder fehlende Aspekte\n3. Schlage Alternativen vor wo noetig\n\nAntworte als JSON:\n{\"overallAssessment\":\"Gesamtbewertung in 2-3 Saetzen\",\"critiques\":[{\"item\":\"Welcher Action-Punkt\",\"concern\":\"Dein Einwand\",\"alternativeSuggestion\":\"Alternativvorschlag\",\"importance\":\"hoch|mittel|niedrig\"}],\"agreements\":[\"Punkt dem du zustimmst\"],\"missingAspects\":[\"Was fehlt im Plan\"]}",
+            "x": 180,
+            "y": 1280,
+            "wires": [
+                [
+                    "oee-llm-debate-bott"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-debate-bott",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Debatte E",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.4,
+            "jsonMode": true,
+            "x": 380,
+            "y": 1280,
+            "wires": [
+                [
+                    "oee-ctx-debate"
+                ]
+            ]
+        },
+        {
+            "id": "oee-ctx-debate",
+            "type": "osf-context",
+            "z": "oee-tab",
+            "name": "All Debate Critiques",
+            "expectedInputs": 4,
+            "keyOverrides": {
+                "oee-llm-debate-avail": "verfuegbarkeit_kritik",
+                "oee-llm-debate-perf": "leistung_kritik",
+                "oee-llm-debate-qual": "qualitaet_kritik",
+                "oee-llm-debate-bott": "engpass_kritik"
+            },
+            "x": 600,
+            "y": 1190,
+            "wires": [
+                [
+                    "test-delay-01"
+                ]
+            ],
+            "collectCount": 4
+        },
+        {
+            "id": "oee-comment-p7",
+            "type": "comment",
+            "z": "oee-tab",
+            "name": "═══ PHASE 7: Finale Synthese + Report ═══",
+            "info": "Action Plan ueberarbeiten basierend auf Debatte, HTML-Report generieren.",
+            "x": 300,
+            "y": 1360,
+            "wires": []
+        },
+        {
+            "id": "oee-tpl-final",
+            "type": "osf-prompt-tpl",
+            "z": "oee-tab",
+            "name": "Final Synthesis Prompt",
+            "template": "Du bist der Produktionsleiter und erstellst die finale Synthese nach der Expertendebatte.\n\n## Urspruenglicher Action Plan:\n${context}\n\n## Kritiken der Spezialisten:\n\n### Verfuegbarkeits-Analyst:\n${context.verfuegbarkeit_kritik}\n\n### Leistungs-Analyst:\n${context.leistung_kritik}\n\n### Qualitaets-Analyst:\n${context.qualitaet_kritik}\n\n### Engpass-Analyst:\n${context.engpass_kritik}\n\n## Aufgabe:\nErstelle den finalen, ueberarbeiteten Action Plan unter Beruecksichtigung aller Kritiken.\nBehalte gute Punkte bei, integriere berechtigte Kritik, verwerfe unbegruendete Einwaende.\n\nAntworte als JSON mit: executiveSummary, crossDomainCorrelations, actionPlan (array mit action/priority/responsible/expectedImpact/deadline), risks (array mit risk/probability/impact/mitigation).",
+            "x": 180,
+            "y": 1420,
+            "wires": [
+                [
+                    "oee-llm-final"
+                ]
+            ]
+        },
+        {
+            "id": "oee-llm-final",
+            "type": "osf-llm",
+            "z": "oee-tab",
+            "name": "LLM: Finale Synthese",
+            "llmUrl": "http://192.168.178.120:5001",
+            "llmModel": "",
+            "temperature": 0.3,
+            "jsonMode": true,
+            "x": 400,
+            "y": 1420,
+            "wires": [
+                [
+                    "oee-parse-final"
+                ]
+            ]
+        },
+        {
+            "id": "oee-parse-final",
+            "type": "osf-output-parser",
+            "z": "oee-tab",
+            "name": "Parse Final",
+            "schema": "{\"type\":\"object\",\"required\":[\"executiveSummary\",\"actionPlan\"],\"properties\":{\"executiveSummary\":{\"type\":\"string\"},\"crossDomainCorrelations\":{\"type\":\"array\"},\"actionPlan\":{\"type\":\"array\"},\"risks\":{\"type\":\"array\"}}}",
+            "maxRetries": 2,
+            "x": 620,
+            "y": 1420,
+            "wires": [
+                [
+                    "oee-ts-report"
+                ]
+            ]
+        },
+        {
+            "id": "oee-ts-report",
+            "type": "osf-ts",
+            "z": "oee-tab",
+            "name": "Generate HTML Report",
+            "code": "export default async function main(ctx) {\n  const synthesis = input;\n  const now = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\n\n  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n  const priorityBadge = (p) => p === 'sofort' ? 'badge-sofort' : p === 'heute' ? 'badge-heute' : 'badge-woche';\n\n  const actions = Array.isArray(synthesis?.actionPlan) ? synthesis.actionPlan : [];\n  const risks = Array.isArray(synthesis?.risks) ? synthesis.risks : [];\n  const correlations = Array.isArray(synthesis?.crossDomainCorrelations) ? synthesis.crossDomainCorrelations : [];\n\n  const html = `<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>OEE Optimierung - ${now}</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a0f; color: #e2e8f0; }\n  .slide { min-height: 100vh; padding: 3rem; display: flex; flex-direction: column; border-bottom: 1px solid #1e293b; }\n  h1 { font-size: 2.5rem; background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }\n  h2 { font-size: 1.8rem; color: #a78bfa; margin-bottom: 1.5rem; }\n  h3 { font-size: 1.2rem; color: #60a5fa; margin: 1rem 0 0.5rem; }\n  .card { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 1.5rem; margin: 0.5rem 0; }\n  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }\n  .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }\n  .badge-sofort { background: #f8717122; color: #f87171; border: 1px solid #f8717133; }\n  .badge-heute { background: #fbbf2422; color: #fbbf24; border: 1px solid #fbbf2433; }\n  .badge-woche { background: #60a5fa22; color: #60a5fa; border: 1px solid #60a5fa33; }\n  .badge-hoch { background: #f8717122; color: #f87171; }\n  .badge-mittel { background: #fbbf2422; color: #fbbf24; }\n  .badge-niedrig { background: #34d39922; color: #34d399; }\n  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }\n  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #1e293b; font-size: 0.9rem; }\n  th { color: #94a3b8; font-weight: 600; }\n  ul { padding-left: 1.5rem; }\n  li { margin: 0.3rem 0; }\n  .subtitle { color: #94a3b8; font-size: 1rem; margin-top: 0.5rem; }\n  .summary { background: #1e293b; border-left: 3px solid #a78bfa; padding: 1rem 1.5rem; border-radius: 0 8px 8px 0; margin: 1rem 0; line-height: 1.6; }\n  .green { color: #34d399; } .amber { color: #fbbf24; } .red { color: #f87171; }\n</style>\n</head>\n<body>\n\n<div class=\"slide\" style=\"justify-content:center;align-items:center;text-align:center;\">\n  <h1>OEE Optimierung</h1>\n  <p class=\"subtitle\">Multi-Agenten Deep Analysis — 4 Spezialisten + Moderator + Debatte</p>\n  <p style=\"color:#64748b;margin-top:1rem;font-size:0.85rem;\">${now} | OpenShopFloor Node-RED</p>\n</div>\n\n<div class=\"slide\">\n  <h2>Executive Summary</h2>\n  <div class=\"summary\">${esc(synthesis?.executiveSummary || 'Keine Zusammenfassung verfuegbar.')}</div>\n  <h3>Cross-Domain Korrelationen</h3>\n  <ul>${correlations.map((c) => '<li>' + esc(typeof c === 'string' ? c : JSON.stringify(c)) + '</li>').join('')}</ul>\n</div>\n\n<div class=\"slide\">\n  <h2>Action Plan</h2>\n  <table>\n    <tr><th>Prioritaet</th><th>Massnahme</th><th>Verantwortlich</th><th>Erwartete Wirkung</th><th>Deadline</th></tr>\n    ${actions.map((a) => '<tr><td><span class=\"badge ' + priorityBadge(a.priority || a.prioritaet || '') + '\">' + (a.priority || a.prioritaet || '-') + '</span></td><td>' + esc(a.action || a.massnahme || '') + '</td><td>' + esc(a.responsible || a.verantwortlich || '') + '</td><td>' + esc(a.expectedImpact || a.erwarteteWirkung || '') + '</td><td>' + esc(a.deadline || '') + '</td></tr>').join('')}\n  </table>\n</div>\n\n<div class=\"slide\">\n  <h2>Risiko-Bewertung</h2>\n  <div class=\"grid\">\n    ${risks.map((r) => '<div class=\"card\"><p style=\"font-weight:600;margin-bottom:0.5rem;\">' + esc(typeof r === 'string' ? r : r.risk || '') + '</p>' + (typeof r === 'object' ? '<p style=\"font-size:0.85rem;color:#94a3b8;\">Wahrscheinlichkeit: <span class=\"badge badge-' + (r.probability || 'mittel') + '\">' + (r.probability || '-') + '</span> Impact: <span class=\"badge badge-' + (r.impact || 'mittel') + '\">' + (r.impact || '-') + '</span></p>' + (r.mitigation ? '<p style=\"font-size:0.85rem;margin-top:0.5rem;\">Gegenmassnahme: ' + esc(r.mitigation) + '</p>' : '') : '') + '</div>').join('')}\n  </div>\n</div>\n\n</body></html>`;\n\n  ctx.log('HTML Report generated: ' + html.length + ' chars');\n  return html;\n}",
+            "timeout": 30,
+            "outputs": 1,
+            "x": 840,
+            "y": 1420,
+            "wires": [
+                [
+                    "oee-debug-final",
+                    "test-dbg-type-08"
+                ]
+            ]
+        },
+        {
+            "id": "oee-debug-final",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "Final Report Output",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "payload",
+            "targetType": "msg",
+            "statusVal": "Report fertig",
+            "statusType": "auto",
+            "x": 1060,
+            "y": 1420,
+            "wires": []
+        },
+        {
+            "id": "test-change-01",
+            "type": "change",
+            "z": "oee-tab",
+            "name": "TEST: Set Topic (change)",
+            "rules": [
+                {
+                    "t": "set",
+                    "p": "topic",
+                    "pt": "msg",
+                    "to": "oee-analysis",
+                    "tot": "str"
+                }
+            ],
+            "x": 400,
+            "y": 340,
+            "wires": [
+                [
+                    "oee-tpl-avail",
+                    "test-dbg-type-09"
+                ]
+            ]
+        },
+        {
+            "id": "test-func-01",
+            "type": "function",
+            "z": "oee-tab",
+            "name": "TEST: Passthrough (function)",
+            "func": "msg.testTimestamp = Date.now(); return msg;",
+            "outputs": 1,
+            "x": 600,
+            "y": 680,
+            "wires": [
+                [
+                    "oee-tpl-mod"
+                ]
+            ]
+        },
+        {
+            "id": "test-switch-01",
+            "type": "switch",
+            "z": "oee-tab",
+            "name": "TEST: Always Pass (switch)",
+            "property": "payload",
+            "propertyType": "msg",
+            "rules": [
+                {
+                    "t": "nnull"
+                }
+            ],
+            "checkall": "true",
+            "repair": false,
+            "outputs": 1,
+            "x": 700,
+            "y": 760,
+            "wires": [
+                [
+                    "oee-decision",
+                    "test-dbg-type-10"
+                ]
+            ]
+        },
+        {
+            "id": "test-template-01",
+            "type": "template",
+            "z": "oee-tab",
+            "name": "TEST: Mustache Passthrough",
+            "field": "payload",
+            "fieldType": "msg",
+            "format": "handlebars",
+            "syntax": "mustache",
+            "template": "{{{payload}}}",
+            "output": "str",
+            "x": 300,
+            "y": 950,
+            "wires": [
+                [
+                    "oee-tpl-synth",
+                    "test-dbg-type-11"
+                ]
+            ]
+        },
+        {
+            "id": "test-delay-01",
+            "type": "delay",
+            "z": "oee-tab",
+            "name": "TEST: 1ms Delay",
+            "pauseType": "delay",
+            "timeout": "1",
+            "timeoutUnits": "milliseconds",
+            "rate": "1",
+            "nbRateUnits": "1",
+            "rateUnits": "second",
+            "randomFirst": "1",
+            "randomLast": "5",
+            "randomUnits": "seconds",
+            "drop": false,
+            "allowrate": false,
+            "outputs": 1,
+            "x": 500,
+            "y": 1330,
+            "wires": [
+                [
+                    "oee-tpl-final",
+                    "test-dbg-type-12"
+                ]
+            ]
+        },
+        {
+            "id": "test-dbg-type-01",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: inject (Start Analysis)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 320,
+            "y": 150,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-02",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: osf-mcp-erp (OEE Overview)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 560,
+            "y": 110,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-03",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: osf-context (All Factory Data)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 800,
+            "y": 330,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-04",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: osf-prompt-tpl (Verfuegbarkeits-Kontext)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 380,
+            "y": 470,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-05",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: osf-llm (LLM: Verfuegbarkeit)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 580,
+            "y": 470,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-06",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: osf-output-parser (Parse Verfuegbarkeit)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 780,
+            "y": 470,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-07",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: function (Ready for Synthesis?)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 1000,
+            "y": 790,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-08",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: osf-ts (Generate HTML Report)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 1040,
+            "y": 1450,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-09",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: change (TEST: Set Topic (change))",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 600,
+            "y": 370,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-10",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: switch (TEST: Always Pass (switch))",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 900,
+            "y": 790,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-11",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: template (TEST: Mustache Passthrough)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 500,
+            "y": 980,
+            "wires": []
+        },
+        {
+            "id": "test-dbg-type-12",
+            "type": "debug",
+            "z": "oee-tab",
+            "name": "DBG-TYPE: delay (TEST: 1ms Delay)",
+            "active": true,
+            "tosidebar": true,
+            "console": false,
+            "tostatus": true,
+            "complete": "true",
+            "targetType": "msg",
+            "statusVal": "",
+            "statusType": "auto",
+            "x": 700,
+            "y": 1360,
+            "wires": []
+        }
+    ]
+}

@@ -1,0 +1,73 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-human-input', {
+    category: 'OSF',
+    color: '#FFB74D',
+    defaults: {
+      name: { value: '' },
+      prompt: { value: 'Please review and provide your input:', required: true },
+      options: { value: [] }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-hand-paper-o',
+    label: function() {
+      return this.name || 'Human Input';
+    },
+    oneditprepare: function() {
+      var options = this.options || [];
+      var container = $('#osf-human-options');
+
+      function renderOptions() {
+        container.empty();
+        options.forEach(function(opt, i) {
+          var row = $('<div class="form-row" style="display:flex;align-items:center;gap:8px"></div>');
+          var input = $('<input type="text" style="flex:1">').val(opt);
+          input.on('change', function() { options[i] = $(this).val(); });
+          row.append(input);
+          var btn = $('<button class="red-ui-button red-ui-button-small" type="button"><i class="fa fa-trash"></i></button>');
+          btn.on('click', function() { options.splice(i, 1); renderOptions(); });
+          row.append(btn);
+          container.append(row);
+        });
+      }
+
+      renderOptions();
+
+      $('#osf-human-add').on('click', function() {
+        options.push('');
+        renderOptions();
+      });
+    },
+    oneditsave: function() {
+      var opts = [];
+      $('#osf-human-options input[type=text]').each(function() {
+        var v = $(this).val().trim();
+        if (v) opts.push(v);
+      });
+      this.options = opts;
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-human-input">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-prompt"><i class="fa fa-question"></i> Prompt</label>
+    <textarea id="node-input-prompt" rows="3" style="width:100%"></textarea>
+  </div>
+  <div class="form-row">
+    <label><i class="fa fa-list-ol"></i> Options (optional)</label>
+    <div id="osf-human-options"></div>
+    <button id="osf-human-add" class="red-ui-button red-ui-button-small" type="button" style="margin-top:4px">
+      <i class="fa fa-plus"></i> Add Option
+    </button>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-human-input">
+  <p>Pauses flow execution and waits for human input.
+  Optionally provides predefined options for the user to choose from.</p>
+</script>

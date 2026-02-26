@@ -1,0 +1,48 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-prompt-tpl', {
+    category: 'OSF',
+    color: '#FF9800',
+    defaults: {
+      name: { value: '' },
+      template: { value: 'Analysiere die folgenden Daten und erstelle einen Bericht.\n\nKontext:\n${context}\n\nAnweisungen:\n- Fasse die wichtigsten Punkte zusammen\n- Identifiziere Probleme und Handlungsempfehlungen' }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-file-text-o',
+    label: function() {
+      return this.name || 'Prompt Template';
+    },
+    oneditprepare: function() {
+      // Auto-resize textarea
+      var ta = document.getElementById('node-input-template');
+      if (ta) {
+        ta.style.fontFamily = 'monospace';
+      }
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-prompt-tpl">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-template" style="width:100%; margin-bottom:4px"><i class="fa fa-file-text-o"></i> Prompt Template</label>
+    <textarea id="node-input-template" rows="12" style="width:100%; font-family:monospace; font-size:13px"></textarea>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-prompt-tpl">
+  <p>Creates a prompt from a template with variable substitution.</p>
+  <h3>Template Variables</h3>
+  <dl>
+    <dt><code>${context}</code></dt>
+    <dd>Replaced with the output from the previous node (upstream data).</dd>
+    <dt><code>${input}</code></dt>
+    <dd>Same as <code>${context}</code> — the upstream output.</dd>
+  </dl>
+  <h3>Usage</h3>
+  <p>Connect upstream data sources (e.g. via osf-context) to this node,
+  then connect the output to an osf-llm node as the user prompt.</p>
+</script>

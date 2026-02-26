@@ -1,0 +1,16 @@
+{
+  "name": "OpenShopFloor",
+  "short_name": "OSF",
+  "description": "Free Manufacturing AI Playground — build AI agents with 111 MCP tools and live factory data",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#ff9500",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

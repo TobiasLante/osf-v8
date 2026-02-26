@@ -1,0 +1,60 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-agent', {
+    category: 'OSF',
+    color: '#FF9800',
+    defaults: {
+      name: { value: '' },
+      agentId: { value: '', required: true },
+      passContext: { value: true },
+      maxIterations: { value: 6 }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-robot',
+    label: function() {
+      return this.name || this.agentId || 'OSF Agent';
+    },
+    oneditprepare: function() {
+      var select = $('#node-input-agentId');
+      var current = this.agentId;
+      select.empty().append('<option value="">Loading...</option>');
+      $.getJSON('/flows/api/agents', function(data) {
+        select.empty().append('<option value="">— Select Agent —</option>');
+        (data.agents || []).forEach(function(a) {
+          var opt = $('<option></option>').val(a.id).text(a.icon + ' ' + a.name);
+          if (a.id === current) opt.attr('selected', 'selected');
+          select.append(opt);
+        });
+      }).fail(function() {
+        select.empty().append('<option value="">Failed to load agents</option>');
+      });
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-agent">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-agentId"><i class="fa fa-robot"></i> Agent</label>
+    <select id="node-input-agentId" style="width:70%"></select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-passContext"><i class="fa fa-exchange"></i> Pass Context</label>
+    <input type="checkbox" id="node-input-passContext" style="width:auto">
+    <span>Forward previous output as context</span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxIterations"><i class="fa fa-repeat"></i> Max Iterations</label>
+    <input type="number" id="node-input-maxIterations" min="1" max="20" style="width:70px">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-agent">
+  <p>Runs an OSF Agent with tool calling. The agent will use MCP tools
+  to gather data and produce a final analysis.</p>
+  <p><b>Pass Context</b>: When enabled, the output from the previous node
+  is included as context for this agent.</p>
+</script>

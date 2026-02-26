@@ -1,0 +1,22 @@
+/* TEAM */
+
+Creator: Tobias Lante
+Site: https://www.zeroguess.ai
+Location: Germany
+
+/* TECHNOLOGY */
+
+Frontend: Next.js, React, Tailwind CSS
+Backend: Node.js, Express, Node-RED
+Infrastructure: Kubernetes, Cloudflare Pages
+Database: PostgreSQL
+AI: MCP (Model Context Protocol), self-hosted LLM
+Agent Sandbox: isolated-vm (V8)
+Flow Engine: Custom BFS with multi-input/output
+
+/* SITE */
+
+Last update: 2026-02-20
+Standards: HTML5, CSS3, ES2022
+Components: 91 MCP tools, 15+ Node-RED node types
+Language: English

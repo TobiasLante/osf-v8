@@ -1,0 +1,4767 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('v7_theme') || 'dark');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZeroGuess AI | Manufacturing Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/v6-design.css">
+    <style>
+        /* === CHAT PAGE — V6 Variable Aliases === */
+        :root {
+            --accent-primary: #ff9500;
+            --accent-secondary: #ff5722;
+            --accent-tertiary: #ff5722;
+            --accent-glow: rgba(255, 149, 0, 0.4);
+            --accent-subtle: rgba(255, 149, 0, 0.1);
+            --gradient-primary: linear-gradient(135deg, #ff9500, #ff5722);
+            --gradient-subtle: linear-gradient(135deg, rgba(255, 149, 0, 0.12), rgba(255, 87, 34, 0.12));
+            --status-success: var(--green);
+            --status-warning: var(--amber);
+            --status-error: var(--rose);
+            --status-info: var(--indigo);
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body { line-height: 1.5; }
+
+        /* === LAYOUT === */
+        .app {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            height: 100vh;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 32px;
+        }
+
+        /* === HEADER (v6 topbar style) === */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 56px;
+            padding: 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            position: relative;
+            width: 30px;
+            height: 30px;
+            border-radius: 9px;
+            background: var(--gradient-primary);
+            display: grid;
+            place-items: center;
+        }
+
+        .brand-logo svg {
+            width: 16px;
+            height: 16px;
+            color: white;
+        }
+
+        .brand-text {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-name {
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--text-0);
+            background: none;
+            -webkit-background-clip: unset;
+            -webkit-text-fill-color: unset;
+            background-clip: unset;
+        }
+
+        .brand-tagline {
+            font-size: 11px;
+            color: var(--text-2);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .version-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 6px;
+            background: rgba(255, 149, 0, 0.1);
+            color: var(--accent-primary);
+            border-radius: 4px;
+            letter-spacing: 0.02em;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-btn {
+            height: 34px;
+            padding: 0 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-1);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s;
+            text-decoration: none;
+        }
+
+        .header-btn:hover {
+            background: var(--surface-2);
+            border-color: var(--border-hover);
+            color: var(--text-0);
+        }
+
+        .header-btn.icon-only {
+            width: 34px;
+            padding: 0;
+            display: grid;
+            place-items: center;
+        }
+
+        .header-btn svg { width: 16px; height: 16px; }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-2);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .status-indicator {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .status-indicator.warning { background: var(--amber); }
+        .status-indicator.error { background: var(--rose); }
+
+        .status-text {
+            font-size: 11px;
+            color: var(--text-2);
+        }
+
+        /* === MAIN CONTENT === */
+        .main {
+            overflow-y: auto;
+            padding: 22px 0;
+            scroll-behavior: smooth;
+            z-index: 2;
+            position: relative;
+        }
+
+        /* === WELCOME STATE === */
+        .welcome {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh;
+            text-align: center;
+            animation: fadeUp 0.6s ease;
+        }
+
+        .welcome-visual {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin-bottom: 36px;
+        }
+
+        .welcome-orb {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: var(--gradient-primary);
+            animation: orb-pulse 4s ease-in-out infinite;
+            box-shadow: 0 0 40px var(--accent-glow);
+        }
+
+        @keyframes orb-pulse {
+            0%, 100% { transform: scale(1); opacity: 0.9; }
+            50% { transform: scale(1.06); opacity: 1; }
+        }
+
+        .welcome-orb::before {
+            content: '';
+            position: absolute;
+            inset: 10px;
+            border-radius: 50%;
+            background: var(--surface-0);
+        }
+
+        .welcome-icon {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .welcome-icon svg {
+            width: 42px;
+            height: 42px;
+            color: var(--accent-primary);
+        }
+
+        /* Orbital rings */
+        .orbital-ring {
+            position: absolute;
+            border-radius: 50%;
+            border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+        }
+
+        .orbital-ring:nth-child(1) {
+            inset: -20px;
+            animation: orbit 20s linear infinite;
+        }
+
+        .orbital-ring:nth-child(2) {
+            inset: -40px;
+            animation: orbit 30s linear infinite reverse;
+        }
+
+        .orbital-ring::before {
+            content: '';
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+        }
+
+        .orbital-ring:nth-child(1)::before {
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .orbital-ring:nth-child(2)::before {
+            bottom: 20%;
+            right: 0;
+        }
+
+        @keyframes orbit {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .welcome-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 14px;
+            color: var(--text-0);
+        }
+
+        .welcome-subtitle {
+            font-size: 1rem;
+            color: var(--text-1);
+            max-width: 500px;
+            margin-bottom: 40px;
+        }
+
+        /* Quick Actions Grid */
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            max-width: 900px;
+            width: 100%;
+        }
+
+        .quick-action {
+            position: relative;
+            padding: 24px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--surface-1);
+            cursor: pointer;
+            transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+            overflow: hidden;
+            text-align: left;
+            box-shadow: var(--shadow-card);
+        }
+
+        .quick-action:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .quick-action-icon {
+            position: relative;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: var(--surface-2);
+            display: grid;
+            place-items: center;
+            margin-bottom: 14px;
+            font-size: 20px;
+        }
+
+        .quick-action-title {
+            position: relative;
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            letter-spacing: -0.3px;
+        }
+
+        .quick-action-desc {
+            position: relative;
+            font-size: 12px;
+            color: var(--text-2);
+            line-height: 1.5;
+        }
+
+        .quick-action-badge {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            padding: 3px 8px;
+            border-radius: 20px;
+            background: rgba(255, 149, 0, 0.1);
+            border: 1px solid rgba(255, 149, 0, 0.25);
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--accent-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* === MESSAGES === */
+        .messages {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .message {
+            display: flex;
+            gap: 14px;
+            max-width: 900px;
+            animation: messageIn 0.4s ease;
+        }
+
+        @keyframes messageIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+            margin-left: auto;
+        }
+
+        .message-avatar {
+            flex-shrink: 0;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            font-size: 16px;
+        }
+
+        .message.assistant .message-avatar {
+            background: var(--gradient-primary);
+        }
+
+        .message.user .message-avatar {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+        }
+
+        .message-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .message-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .message-sender {
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: var(--text-2);
+        }
+
+        .message-content {
+            padding: 16px 20px;
+            border-radius: var(--radius-md);
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        .message.assistant .message-content {
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-top-left-radius: 4px;
+        }
+
+        .message.user .message-content {
+            background: color-mix(in srgb, var(--accent-primary) 8%, var(--surface-1));
+            border: 1px solid color-mix(in srgb, var(--accent-primary) 15%, transparent);
+            border-top-right-radius: 4px;
+        }
+
+        /* Light theme message overrides */
+        html[data-theme="light"] .message.assistant .message-content {
+            background: var(--surface-2);
+        }
+
+        html[data-theme="light"] .message.user .message-content {
+            background: color-mix(in srgb, var(--accent-primary) 6%, var(--surface-1));
+            border-color: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+        }
+
+        /* Message content formatting */
+        .message-content h1, .message-content h2, .message-content h3 {
+            margin: 18px 0 8px 0;
+            font-weight: 700;
+        }
+
+        .message-content h1:first-child, .message-content h2:first-child, .message-content h3:first-child {
+            margin-top: 0;
+        }
+
+        .message-content h1 { font-size: 1.3rem; }
+        .message-content h2 { font-size: 1.15rem; color: var(--accent-primary); }
+        .message-content h3 { font-size: 1rem; }
+
+        .message-content p { margin: 8px 0; }
+        .message-content p:first-child { margin-top: 0; }
+        .message-content p:last-child { margin-bottom: 0; }
+
+        .message-content ul, .message-content ol {
+            margin: 8px 0;
+            padding-left: 22px;
+        }
+
+        .message-content li { margin: 4px 0; }
+
+        .message-content code {
+            font-family: 'JetBrains Mono', monospace;
+            background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: var(--accent-primary);
+        }
+
+        .message-content pre {
+            background: var(--surface-0);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            margin: 12px 0;
+            overflow-x: auto;
+        }
+
+        .message-content pre code {
+            background: none;
+            padding: 0;
+            color: var(--text-0);
+        }
+
+        .message-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+
+        .message-content th, .message-content td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .message-content th {
+            font-weight: 600;
+            color: var(--text-1);
+            background: var(--surface-2);
+        }
+
+        .message-content strong {
+            color: var(--text-0);
+            font-weight: 600;
+        }
+
+        .message-content em {
+            color: var(--text-1);
+        }
+
+        .message-content a,
+        .message-content .report-link {
+            color: var(--accent-primary);
+            text-decoration: none;
+            border-bottom: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
+            padding-bottom: 1px;
+            transition: all 0.15s;
+        }
+
+        .message-content a:hover,
+        .message-content .report-link:hover {
+            color: var(--text-0);
+            border-bottom-color: var(--accent-primary);
+        }
+
+        /* Typing indicator */
+        .typing {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 16px 20px;
+        }
+
+        .typing-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            animation: typing-bounce 1.4s ease-in-out infinite;
+        }
+
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing-bounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+
+        /* === INPUT AREA === */
+        .input-area {
+            padding: 18px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        /* === DASHBOARD PILLS === */
+        .dashboard-accordion {
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 4px;
+            position: relative;
+        }
+
+        .accord-section {
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            overflow: visible;
+            transition: all 0.15s;
+            display: inline-flex;
+            flex-direction: column;
+        }
+
+        .accord-section.open {
+            border-color: var(--accent-primary);
+            background: rgba(255, 149, 0, 0.08);
+        }
+
+        .accord-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: transparent;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+
+        .accord-header:hover {
+            background: var(--surface-2);
+        }
+
+        .accord-section.open .accord-header {
+            background: rgba(255, 149, 0, 0.08);
+            color: var(--accent-primary);
+        }
+
+        .accord-header-left {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-1);
+        }
+
+        .accord-section.open .accord-header-left {
+            color: var(--accent-primary);
+        }
+
+        .accord-header-left .accord-icon {
+            font-size: 13px;
+        }
+
+        .accord-chevron {
+            display: none;
+        }
+
+        .accord-body {
+            display: none;
+        }
+
+        /* Expand panel below pills */
+        .accord-expand-panel {
+            display: none;
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-top: 6px;
+            gap: 6px;
+            flex-wrap: wrap;
+            animation: pillExpand 0.2s ease;
+        }
+
+        .accord-expand-panel.open {
+            display: flex;
+        }
+
+        @keyframes pillExpand {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .accord-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-1);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .accord-btn:hover:not(:disabled) {
+            background: var(--surface-2);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .accord-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        .accord-btn .btn-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .btn-dot.green { background: var(--green); }
+        .btn-dot.blue { background: var(--indigo); }
+        .btn-dot.orange { background: var(--amber); }
+
+        /* LLM Config Panel (inside expand panel) */
+        .llm-config-body {
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+            width: 100%;
+        }
+
+        .llm-config-body.open {
+            display: flex;
+        }
+
+        .llm-radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .llm-radio {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .llm-radio:hover {
+            background: var(--surface-2);
+        }
+
+        .llm-radio.selected {
+            border-color: var(--accent-primary);
+            background: rgba(255, 149, 0, 0.08);
+        }
+
+        .llm-radio input[type="radio"] {
+            accent-color: var(--accent-primary);
+            margin: 0;
+        }
+
+        .llm-radio-label {
+            flex: 1;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-1);
+        }
+
+        .llm-radio.selected .llm-radio-label {
+            color: var(--text-0);
+        }
+
+        .llm-radio-meta {
+            font-size: 11px;
+            color: var(--text-2);
+        }
+
+        .llm-saved {
+            font-size: 11px;
+            color: var(--green);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .llm-saved.show {
+            opacity: 1;
+        }
+
+        /* LLM Config disabled for external users */
+        .llm-config-body.disabled {
+            opacity: 0.45;
+            pointer-events: none;
+            position: relative;
+        }
+
+        .llm-config-body.disabled .llm-radio {
+            cursor: not-allowed;
+        }
+
+        .llm-external-hint {
+            font-size: 11px;
+            color: var(--text-2);
+            padding: 4px 0;
+            display: none;
+        }
+
+        .llm-external-hint.show {
+            display: block;
+        }
+
+        /* Input wrapper */
+        .input-wrapper {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+        }
+
+        .input-container {
+            flex: 1;
+            position: relative;
+        }
+
+        .input-glow {
+            position: absolute;
+            inset: -2px;
+            border-radius: calc(var(--radius-md) + 2px);
+            background: var(--gradient-primary);
+            opacity: 0;
+            filter: blur(8px);
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        .input-container:focus-within .input-glow {
+            opacity: 0.15;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 14px 20px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            background: var(--surface-1);
+            color: var(--text-0);
+            font-family: inherit;
+            font-size: 14px;
+            resize: none;
+            min-height: 52px;
+            max-height: 200px;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            background: var(--surface-2);
+        }
+
+        .input-field::placeholder {
+            color: var(--text-2);
+        }
+
+        .send-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: var(--radius-md);
+            border: none;
+            background: var(--gradient-primary);
+            color: white;
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+            transition: all 0.15s;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            opacity: 0.85;
+        }
+
+        .send-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .send-btn.stop-mode {
+            background: var(--rose);
+            opacity: 1;
+            cursor: pointer;
+            animation: stopPulse 2s ease-in-out infinite;
+        }
+
+        .send-btn.stop-mode:hover {
+            opacity: 0.85;
+        }
+
+        @keyframes stopPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(244, 63, 94, 0); }
+        }
+
+        .send-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Status bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding-top: 10px;
+            font-size: 11px;
+            color: var(--text-2);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* === RESPONSIVE === */
+        @media (max-width: 900px) {
+            .quick-actions {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .app {
+                padding: 0 16px;
+            }
+
+            .quick-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .welcome-title {
+                font-size: 1.6rem;
+            }
+
+            .brand-tagline {
+                display: none;
+            }
+
+            .accord-expand-panel {
+                flex-wrap: wrap;
+            }
+
+            .accord-btn {
+                font-size: 11px;
+                padding: 5px 10px;
+            }
+
+            .accord-header {
+                padding: 5px 10px;
+                font-size: 11px;
+            }
+        }
+
+        /* === MODAL === */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 28px;
+            width: 100%;
+            max-width: 400px;
+            transform: scale(0.95);
+            transition: transform 0.2s ease;
+            box-shadow: var(--shadow-hover);
+        }
+
+        .modal-overlay.open .modal {
+            transform: scale(1);
+        }
+
+        .modal-title {
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .modal-desc {
+            font-size: 13px;
+            color: var(--text-1);
+            margin-bottom: 20px;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text-0);
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .modal-machines {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+
+        .modal-machine-btn {
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-1);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .modal-machine-btn:hover {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .modal-machine-btn.selected {
+            background: rgba(255, 149, 0, 0.08);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 10px;
+            border: none;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .modal-btn-cancel {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-1);
+        }
+
+        .modal-btn-cancel:hover {
+            background: var(--surface-2);
+        }
+
+        .modal-btn-confirm {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .modal-btn-confirm:hover {
+            opacity: 0.85;
+        }
+
+        /* === STREAMING TOGGLE BUTTON === */
+        .streaming-toggle {
+            position: relative;
+        }
+
+        .streaming-toggle .toggle-indicator {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .streaming-toggle:not(.active) .toggle-indicator {
+            background: var(--text-2);
+        }
+
+        /* === PROGRESS PANEL === */
+        .progress-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 25%;
+            min-width: 320px;
+            max-width: 480px;
+            height: 100vh;
+            background: var(--surface-1);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 500;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .progress-panel.open {
+            transform: translateX(0);
+        }
+
+        .progress-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface-2);
+        }
+
+        .progress-panel-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--accent-primary);
+        }
+
+        .progress-panel-title svg {
+            color: var(--accent-primary);
+        }
+
+        .progress-panel-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .progress-panel-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-2);
+            cursor: pointer;
+            display: grid;
+            place-items: center;
+            transition: all 0.15s;
+        }
+
+        .progress-panel-btn:hover {
+            background: var(--surface-3);
+            color: var(--text-0);
+            border-color: var(--border-hover);
+        }
+
+        .progress-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .progress-status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: var(--surface-2);
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            gap: 12px;
+        }
+
+        .progress-status-phase {
+            color: var(--text-secondary);
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .progress-status-timer {
+            font-variant-numeric: tabular-nums;
+            color: var(--accent-primary);
+            font-weight: 600;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .progress-status-bar.active .progress-status-phase::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            margin-right: 8px;
+            animation: statusPulse 1.5s ease-in-out infinite;
+        }
+
+        .progress-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            height: 200px;
+            color: var(--text-2);
+            font-size: 13px;
+        }
+
+        /* === PROGRESS EVENTS === */
+        .progress-event {
+            display: flex;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            animation: eventFadeIn 0.3s ease;
+        }
+
+        @keyframes eventFadeIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .progress-event-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: grid;
+            place-items: center;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .progress-event-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .progress-event-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .progress-event-type {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .progress-event-time {
+            font-size: 10px;
+            color: var(--text-2);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .progress-event-message {
+            font-size: 13px;
+            color: var(--text-1);
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .progress-event-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .progress-event-meta .meta-item {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: var(--surface-3);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-2);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .progress-event-details {
+            margin-top: 8px;
+            border-radius: 6px;
+            background: var(--surface-0);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .progress-event-details summary {
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-1);
+            cursor: pointer;
+            background: var(--surface-2);
+            border-bottom: 1px solid var(--border);
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .progress-event-details summary:hover {
+            background: var(--surface-3);
+        }
+
+        .progress-event-details summary::before {
+            content: '\25B6';
+            font-size: 8px;
+            transition: transform 0.2s ease;
+        }
+
+        .progress-event-details[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .progress-event-details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .progress-event-details pre {
+            margin: 0;
+            padding: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-2);
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+
+        /* Event type colors */
+        .progress-event.type-init .progress-event-icon { background: rgba(0, 212, 255, 0.2); color: var(--accent-primary); }
+        .progress-event.type-init .progress-event-type { background: rgba(0, 212, 255, 0.15); color: var(--accent-primary); }
+
+        .progress-event.type-api_request .progress-event-icon { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+        .progress-event.type-api_request .progress-event-type { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+
+        .progress-event.type-api_response .progress-event-icon { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+        .progress-event.type-api_response .progress-event-type { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+
+        .progress-event.type-tool_start .progress-event-icon,
+        .progress-event.type-tool_call_start .progress-event-icon { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .progress-event.type-tool_start .progress-event-type,
+        .progress-event.type-tool_call_start .progress-event-type { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+        .progress-event.type-tool_end .progress-event-icon,
+        .progress-event.type-tool_call_end .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-tool_end .progress-event-type,
+        .progress-event.type-tool_call_end .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+
+        .progress-event.type-thinking .progress-event-icon { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .progress-event.type-thinking .progress-event-type { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+
+        .progress-event.type-plan .progress-event-icon { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .progress-event.type-plan .progress-event-type { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+
+        .progress-event.type-step_start .progress-event-icon { background: rgba(0, 212, 255, 0.2); color: var(--accent-primary); }
+        .progress-event.type-step_start .progress-event-type { background: rgba(0, 212, 255, 0.15); color: var(--accent-primary); }
+
+        .progress-event.type-step_complete .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-step_complete .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+
+        .progress-event.type-intermediate_result .progress-event-icon { background: rgba(14, 165, 233, 0.2); color: #38bdf8; }
+        .progress-event.type-intermediate_result .progress-event-type { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
+
+        .progress-event.type-error .progress-event-icon,
+        .progress-event.type-step_error .progress-event-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .progress-event.type-error .progress-event-type,
+        .progress-event.type-step_error .progress-event-type { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+        .progress-event.type-done .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-done .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+
+        .progress-event.type-stopped .progress-event-icon { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
+        .progress-event.type-stopped .progress-event-type { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
+
+        /* Specialist event colors */
+        .progress-event.type-specialist_start .progress-event-icon { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .progress-event.type-specialist_start .progress-event-type { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .progress-event.type-specialist_complete .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-specialist_complete .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .progress-event.type-specialist_error .progress-event-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .progress-event.type-specialist_error .progress-event-type { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .progress-event.type-specialists_batch_start .progress-event-icon { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .progress-event.type-specialists_batch_start .progress-event-type { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .progress-event.type-specialists_batch_complete .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-specialists_batch_complete .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+
+        .progress-event.type-discussion_round_start .progress-event-icon { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .progress-event.type-discussion_round_start .progress-event-type { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .progress-event.type-discussion_question .progress-event-icon { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .progress-event.type-discussion_question .progress-event-type { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .progress-event.type-discussion_answer .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-discussion_answer .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .progress-event.type-discussion_recruit .progress-event-icon { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .progress-event.type-debate_start .progress-event-icon { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .progress-event.type-debate_start .progress-event-type { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .progress-event.type-debate_draft .progress-event-icon { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .progress-event.type-debate_draft .progress-event-type { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .progress-event.type-debate_critique .progress-event-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .progress-event.type-debate_critique .progress-event-type { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .progress-event.type-debate_final .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-debate_final .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .progress-event.type-discussion_recruit .progress-event-type { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .progress-event.type-discussion_recruit_result .progress-event-icon { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .progress-event.type-discussion_recruit_result .progress-event-type { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .progress-event.type-discussion_round_complete .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-discussion_round_complete .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .progress-event.type-discussion_synthesis_start .progress-event-icon { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .progress-event.type-discussion_synthesis_start .progress-event-type { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+        /* === SPECIALIST ORCHESTRATION VIEW === */
+        .specialist-overview {
+            display: none;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .specialist-overview.active {
+            display: block;
+        }
+
+        .specialist-progress-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 10px 12px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+        }
+
+        .specialist-progress-bar-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-1);
+            white-space: nowrap;
+        }
+
+        .specialist-progress-bar-track {
+            flex: 1;
+            height: 5px;
+            background: var(--surface-3);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .specialist-progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 3px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        .specialist-progress-bar-count {
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-2);
+            white-space: nowrap;
+        }
+
+        .specialist-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .specialist-card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--surface-2);
+            overflow: hidden;
+            animation: eventFadeIn 0.3s ease;
+        }
+
+        .specialist-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            gap: 8px;
+        }
+
+        .specialist-card-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .specialist-card-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-0);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .specialist-card-domain {
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-2);
+            padding: 1px 5px;
+            background: var(--surface-3);
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .specialist-card-status {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 3px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .specialist-card-status.pending {
+            background: rgba(100, 116, 139, 0.2);
+            color: #94a3b8;
+        }
+
+        .specialist-card-status.running {
+            background: rgba(167, 139, 250, 0.2);
+            color: var(--violet);
+            animation: statusPulse 1.5s ease-in-out infinite;
+        }
+
+        .specialist-card-status.done {
+            background: rgba(52, 211, 153, 0.15);
+            color: var(--green);
+        }
+
+        .specialist-card-status.error {
+            background: rgba(251, 113, 133, 0.15);
+            color: var(--rose);
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .specialist-card-meta {
+            display: none;
+            padding: 0 12px 8px;
+        }
+
+        .specialist-card.has-meta .specialist-card-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .specialist-card-meta .meta-item {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: var(--surface-3);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-2);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .specialist-card-details {
+            border-top: 1px solid var(--border);
+        }
+
+        .specialist-card-details summary {
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-1);
+            cursor: pointer;
+            background: var(--surface-0);
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .specialist-card-details summary:hover {
+            background: var(--surface-2);
+        }
+
+        .specialist-card-details summary::before {
+            content: '\25B6';
+            font-size: 8px;
+            transition: transform 0.2s ease;
+        }
+
+        .specialist-card-details[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .specialist-card-details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .specialist-card-details pre {
+            margin: 0;
+            padding: 10px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-2);
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 250px;
+            overflow-y: auto;
+            line-height: 1.5;
+            background: var(--surface-0);
+        }
+
+        .specialist-result-readable {
+            padding: 10px 12px;
+            font-size: 12px;
+            color: var(--text-1);
+            max-height: 350px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        .specialist-result-readable .result-section {
+            margin-bottom: 10px;
+        }
+        .specialist-result-readable .result-section > strong {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--text-0);
+            font-size: 12px;
+        }
+        .specialist-result-readable .result-section p {
+            margin: 2px 0;
+        }
+        .specialist-result-readable .result-section ul {
+            margin: 4px 0;
+            padding-left: 1.2em;
+        }
+        .specialist-result-readable .result-finding {
+            margin: 6px 0;
+            padding-left: 4px;
+        }
+
+        /* Discussion Thread (Multi-Agent Moderator) */
+        .discussion-thread {
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px 10px;
+            border-top: 1px solid var(--border);
+            max-height: 60vh;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        .discussion-thread.active {
+            display: flex;
+        }
+
+        .discussion-header {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-2);
+            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .discussion-header::before {
+            content: '';
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--violet);
+        }
+
+        .discussion-round-header {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-1);
+            padding: 6px 0 2px;
+            border-top: 1px dashed var(--border);
+            margin-top: 4px;
+        }
+
+        .discussion-message {
+            border-radius: var(--radius-sm);
+            padding: 8px 10px;
+            font-size: 12px;
+            line-height: 1.5;
+            max-width: 88%;
+            animation: eventFadeIn 0.3s ease;
+        }
+
+        .discussion-message.moderator {
+            align-self: flex-start;
+            background: color-mix(in srgb, var(--violet) 8%, var(--surface-1));
+            border: 1px solid color-mix(in srgb, var(--violet) 20%, transparent);
+            border-left: 3px solid var(--violet);
+        }
+
+        .discussion-message.specialist {
+            align-self: flex-end;
+            background: color-mix(in srgb, var(--green) 8%, var(--surface-1));
+            border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
+            border-right: 3px solid var(--green);
+        }
+
+        .discussion-message .dm-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 3px;
+        }
+
+        .discussion-message.moderator .dm-label { color: var(--violet); }
+        .discussion-message.specialist .dm-label { color: var(--green); }
+
+        .discussion-message .dm-text {
+            color: var(--text-1);
+        }
+
+        .discussion-message.recruit-result {
+            background: color-mix(in srgb, var(--accent-primary) 8%, var(--surface-1));
+            border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+            border-left: 3px solid var(--accent-primary);
+        }
+        .discussion-message.recruit-result .dm-label { color: var(--accent-primary); font-weight: 700; }
+
+        .discussion-recruit-badge {
+            align-self: center;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 12px;
+            background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+            border-radius: 20px;
+            color: var(--accent-primary);
+            animation: eventFadeIn 0.3s ease;
+        }
+
+        .discussion-synthesis-badge {
+            align-self: center;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 5px 14px;
+            background: color-mix(in srgb, var(--amber) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent);
+            border-radius: 20px;
+            color: var(--amber);
+            animation: statusPulse 1.5s ease-in-out infinite;
+        }
+
+        /* Debate messages (Round 3) */
+        .discussion-message.debate-draft {
+            align-self: center;
+            background: color-mix(in srgb, var(--amber) 8%, var(--surface-1));
+            border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent);
+            border-left: 3px solid var(--amber);
+            max-width: 95%;
+        }
+        .discussion-message.debate-draft .dm-label { color: var(--amber); }
+
+        .discussion-message.debate-critique {
+            align-self: flex-end;
+            background: var(--surface-1);
+            border: 1px solid color-mix(in srgb, var(--text-2) 15%, transparent);
+            border-right: 3px solid var(--text-2);
+        }
+        .discussion-message.debate-critique .dm-label { color: var(--text-1); font-weight: 700; }
+
+        .critique-items { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+        .critique-item {
+            font-size: 12px; line-height: 1.5; padding: 4px 8px; border-radius: 6px;
+        }
+        .critique-icon { font-weight: 700; margin-right: 4px; }
+        .critique-confirm {
+            background: color-mix(in srgb, var(--green) 10%, transparent);
+            color: var(--green); border-left: 3px solid var(--green);
+        }
+        .critique-critic {
+            background: color-mix(in srgb, var(--rose) 10%, transparent);
+            color: var(--rose); border-left: 3px solid var(--rose);
+        }
+        .critique-add {
+            background: color-mix(in srgb, var(--blue, #60a5fa) 10%, transparent);
+            color: var(--blue, #60a5fa); border-left: 3px solid var(--blue, #60a5fa);
+        }
+        .critique-assessment {
+            font-size: 11px; font-weight: 600; margin-top: 8px; padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        .discussion-message.debate-final {
+            align-self: center;
+            background: color-mix(in srgb, var(--green) 10%, var(--surface-1));
+            border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+            border-left: 3px solid var(--green);
+            max-width: 95%;
+        }
+        .discussion-message.debate-final .dm-label { color: var(--green); }
+
+        .debate-start-badge {
+            align-self: center;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 5px 14px;
+            background: linear-gradient(135deg, color-mix(in srgb, var(--violet) 12%, transparent), color-mix(in srgb, var(--amber) 12%, transparent));
+            border: 1px solid color-mix(in srgb, var(--violet) 25%, transparent);
+            border-radius: 20px;
+            color: var(--violet);
+            animation: eventFadeIn 0.3s ease;
+        }
+
+        /* Pop-out button */
+        .discussion-popout-btn {
+            margin-left: auto;
+            background: none;
+            border: 1px solid color-mix(in srgb, var(--violet) 25%, transparent);
+            border-radius: 4px;
+            color: var(--violet);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 10px;
+            opacity: 0.7;
+            transition: opacity 0.15s, background 0.15s;
+        }
+        .discussion-popout-btn:hover {
+            opacity: 1;
+            background: color-mix(in srgb, var(--violet) 12%, transparent);
+        }
+
+
+        /* === KG VISUALIZER CONTAINER === */
+        .kg-visualizer-container {
+            display: none;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            margin-bottom: 8px;
+            background: #0a0a0f;
+        }
+
+        .kg-visualizer-container.active {
+            display: block;
+        }
+
+        .kg-visualizer-container iframe {
+            width: 100%;
+            height: 400px;
+            border: none;
+        }
+
+        .kg-stats-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 12px;
+            background: rgba(15, 15, 25, 0.95);
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 12px;
+            color: #888;
+        }
+
+        .kg-stats-bar .kg-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .kg-stats-bar .kg-stat-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .kg-collapse-btn {
+            margin-left: auto;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: inherit;
+        }
+
+        .kg-collapse-btn:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #ccc;
+        }
+
+        @media (max-width: 768px) {
+            .kg-visualizer-container iframe {
+                height: 250px;
+            }
+        }
+
+        /* === IMPACT MODAL === */
+        .impact-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .impact-modal-overlay.open {
+            display: flex;
+        }
+
+        .impact-modal {
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            width: 420px;
+            max-width: 90vw;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+        }
+
+        .impact-modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            color: var(--text-0);
+        }
+
+        .impact-modal-desc {
+            font-size: 13px;
+            color: var(--text-2);
+            margin-bottom: 20px;
+        }
+
+        .impact-form-group {
+            margin-bottom: 16px;
+        }
+
+        .impact-form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-1);
+            margin-bottom: 6px;
+        }
+
+        .impact-form-select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface-0);
+            color: var(--text-0);
+            font-family: inherit;
+            font-size: 14px;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        .impact-form-select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .impact-form-range {
+            width: 100%;
+            margin-top: 4px;
+        }
+
+        .impact-range-value {
+            font-size: 13px;
+            color: var(--text-1);
+            font-weight: 600;
+            float: right;
+        }
+
+        .impact-modal-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .impact-modal-actions button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .impact-btn-cancel {
+            background: transparent;
+            color: var(--text-1);
+        }
+
+        .impact-btn-cancel:hover {
+            background: var(--surface-2);
+        }
+
+        .impact-btn-start {
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+        }
+
+        .impact-btn-start:hover {
+            filter: brightness(1.1);
+        }
+
+        /* KG Progress Event Styles */
+        .progress-event.type-kg_traversal_start .progress-event-icon { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+        .progress-event.type-kg_traversal_start .progress-event-type { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
+        .progress-event.type-kg_nodes_discovered .progress-event-icon { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+        .progress-event.type-kg_nodes_discovered .progress-event-type { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
+        .progress-event.type-kg_traversal_end .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .progress-event.type-kg_traversal_end .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+
+        /* Floating pop-out modal */
+        .discussion-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 999;
+            background: rgba(0, 0, 0, 0.4);
+        }
+        .discussion-modal-overlay.active {
+            display: block;
+        }
+        .discussion-modal {
+            position: absolute;
+            top: 5%;
+            left: 15%;
+            width: 65vw;
+            min-width: 500px;
+            max-width: 95vw;
+            height: 80vh;
+            min-height: 400px;
+            max-height: 90vh;
+            background: var(--surface-1);
+            border: 2px solid color-mix(in srgb, var(--violet) 40%, transparent);
+            border-radius: 20px;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            resize: both;
+            overflow: hidden;
+        }
+        .discussion-modal-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 18px;
+            background: color-mix(in srgb, var(--violet) 6%, var(--surface-2));
+            border-bottom: 1px solid color-mix(in srgb, var(--violet) 20%, transparent);
+            cursor: move;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .discussion-modal-header .title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--violet);
+        }
+        .discussion-modal-header .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--violet);
+        }
+        .discussion-modal-close {
+            margin-left: auto;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-1);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+        .discussion-modal-close:hover {
+            background: color-mix(in srgb, var(--rose) 15%, transparent);
+            border-color: color-mix(in srgb, var(--rose) 30%, transparent);
+            color: var(--rose);
+        }
+        .discussion-modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            scroll-behavior: smooth;
+            background: var(--surface-0);
+        }
+
+        html[data-theme="light"] .discussion-modal {
+            box-shadow: 0 25px 60px rgba(0,0,0,0.15);
+        }
+
+        .discussion-modal-body .discussion-message {
+            max-width: 85%;
+            font-size: 13px;
+            padding: 10px 14px;
+        }
+        .discussion-modal-body .discussion-message .dm-label {
+            font-size: 11px;
+        }
+        .discussion-modal-body .specialist-card {
+            font-size: 13px;
+        }
+        .discussion-modal-body .progress-event {
+            font-size: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .progress-panel {
+                width: 35%;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .progress-panel {
+                width: 100%;
+                max-width: none;
+            }
+        }
+
+        /* Adjust main content when panel is open */
+        body.progress-panel-open .app {
+            margin-right: 25%;
+        }
+
+        @media (max-width: 1200px) {
+            body.progress-panel-open .app {
+                margin-right: 35%;
+            }
+        }
+
+        @media (max-width: 900px) {
+            body.progress-panel-open .app {
+                margin-right: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Ambient background (v6) -->
+    <div class="ambient">
+        <div class="glow"></div>
+    </div>
+
+    <!-- Machine Selection Modal -->
+    <div class="modal-overlay" id="machineModal">
+        <div class="modal">
+            <div class="modal-title" id="modalTitle">Maschine auswählen</div>
+            <div class="modal-desc" id="modalDesc">Wählen Sie eine Maschine für die Analyse oder lassen Sie das Feld leer für alle Maschinen.</div>
+
+            <div class="modal-machines" id="machineButtons">
+                <!-- Loaded dynamically from /api/machines -->
+            </div>
+
+            <input type="text" class="modal-input" id="machineInput" placeholder="Oder Maschinen-ID eingeben...">
+
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" id="modalCancel">Abbrechen</button>
+                <button class="modal-btn modal-btn-confirm" id="modalConfirm">Ausführen</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Impact Analysis Modal -->
+    <div class="impact-modal-overlay" id="impactModal">
+        <div class="impact-modal">
+            <div class="impact-modal-title">Impact Analysis</div>
+            <div class="impact-modal-desc" id="impactModalDesc">Wählen Sie ein Szenario und die betroffene Entity.</div>
+
+            <div class="impact-form-group">
+                <label class="impact-form-label">Szenario</label>
+                <select class="impact-form-select" id="impactScenarioSelect">
+                    <option value="machine_down">Maschine fällt aus</option>
+                    <option value="material_shortage">Material-Engpass</option>
+                    <option value="supplier_down">Lieferant fällt aus</option>
+                    <option value="customer_rush">Kunde zieht vor</option>
+                    <option value="tool_wear">Werkzeug-Verschleiß</option>
+                    <option value="quality_issue">Qualitätsproblem</option>
+                    <option value="rush_order">Sonderauftrag (Rush)</option>
+                </select>
+            </div>
+
+            <div class="impact-form-group">
+                <label class="impact-form-label">Entity</label>
+                <select class="impact-form-select" id="impactEntitySelect">
+                    <option value="">Laden...</option>
+                </select>
+            </div>
+
+            <div class="impact-form-group" id="impactDaysGroup">
+                <label class="impact-form-label">
+                    Tage <span class="impact-range-value" id="impactDaysValue">5</span>
+                </label>
+                <input type="range" class="impact-form-range" id="impactDaysRange" min="1" max="30" value="5">
+            </div>
+
+            <div class="impact-form-group" id="impactQtyGroup" style="display:none">
+                <label class="impact-form-label">Menge</label>
+                <input type="number" class="impact-form-select" id="impactQtyInput" value="100" min="1" max="10000">
+            </div>
+
+            <div class="impact-modal-actions">
+                <button class="impact-btn-cancel" id="impactCancel">Abbrechen</button>
+                <button class="impact-btn-start" id="impactStart">Analyse starten</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="app">
+        <!-- Header (v6 topbar) -->
+        <header class="header">
+            <div class="brand">
+                <div class="brand-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-name">ZeroGuess AI</span>
+                    <span class="version-badge">v7.7.4</span>
+                </div>
+                <div class="header-status">
+                    <div class="status-indicator" id="statusIndicator"></div>
+                    <span class="status-text" id="statusText">Verbunden</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <a href="/help/index.html" class="header-btn">Wiki</a>
+                <a href="/help.html" class="header-btn">Hilfe</a>
+                <button class="header-btn streaming-toggle" id="themeToggle" title="Dark/Light Mode">
+                    <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                        <circle cx="12" cy="12" r="5"/>
+                        <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg id="themeIconMoon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
+                <button class="header-btn streaming-toggle" id="langToggle" title="Sprache / Language">
+                    <span id="langLabel">DE</span>
+                </button>
+                <button class="header-btn streaming-toggle active" id="streamingToggle" title="Progress Panel">
+                    <span class="toggle-indicator"></span>
+                    Streaming
+                </button>
+                <button class="header-btn icon-only" id="clearBtn" title="Chat leeren">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main" id="main">
+            <!-- Welcome Screen -->
+            <div class="welcome" id="welcome">
+                <div class="welcome-visual">
+                    <div class="orbital-ring"></div>
+                    <div class="orbital-ring"></div>
+                    <div class="welcome-orb"></div>
+                    <div class="welcome-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <h1 class="welcome-title">ZeroGuess AI</h1>
+                <p class="welcome-subtitle">
+                    Echtzeit-Analyse und KI-gestützte Optimierung Ihrer Produktionsdaten.
+                    Wählen Sie eine Aktion oder stellen Sie eine Frage.
+                </p>
+
+            </div>
+
+            <!-- Messages Container -->
+            <div class="messages hidden" id="messages"></div>
+        </main>
+
+        <!-- Input Area -->
+        <footer class="input-area">
+            <!-- Dashboard Pills -->
+            <div class="dashboard-accordion" id="dashboardAccordion">
+                <!-- LLM Config Pill -->
+                <div class="accord-section" id="llmConfigSection">
+                    <div class="accord-header" data-section="llm-config">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#9881;</span>
+                            <span>LLM</span>
+                            <span class="llm-saved" id="llmSaved">&#10003;</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OEE Pill -->
+                <div class="accord-section" data-domain="oee">
+                    <div class="accord-header" data-section="oee">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#128202;</span>
+                            <span>OEE</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Qualitaet Pill -->
+                <div class="accord-section" data-domain="quality">
+                    <div class="accord-header" data-section="quality">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#9989;</span>
+                            <span>Qualit&auml;t</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Liefertreue Pill -->
+                <div class="accord-section" data-domain="otd">
+                    <div class="accord-header" data-section="otd">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#128666;</span>
+                            <span>OTD</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Umsatz Pill -->
+                <div class="accord-section" data-domain="revenue">
+                    <div class="accord-header" data-section="revenue">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#128176;</span>
+                            <span>Umsatz</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Shopfloor Pill -->
+                <div class="accord-section" data-domain="shopfloor">
+                    <div class="accord-header" data-section="shopfloor">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#127981;</span>
+                            <span>Shopfloor</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Impact Analysis Pill -->
+                <div class="accord-section" data-domain="impact">
+                    <div class="accord-header" data-section="impact">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#9889;</span>
+                            <span>Impact</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Expand Panel (appears below pills) -->
+                <div class="accord-expand-panel" id="accordExpandPanel">
+                    <!-- Dynamically filled by JS -->
+                </div>
+            </div>
+
+            <!-- Input -->
+            <div class="input-wrapper">
+                <div class="input-container">
+                    <div class="input-glow"></div>
+                    <textarea
+                        class="input-field"
+                        id="input"
+                        placeholder="Frage stellen oder Maschinen-ID eingeben (z.B. 7533)..."
+                        rows="1"
+                    ></textarea>
+                </div>
+                <button class="send-btn" id="sendBtn" title="Senden">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-item">
+                    <span>Session:</span>
+                    <span id="sessionId">-</span>
+                </div>
+                <div class="status-item">
+                    <span>LLM:</span>
+                    <span id="llmStatus">-</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Progress Panel -->
+    <div class="progress-panel" id="progressPanel">
+        <div class="progress-panel-header">
+            <div class="progress-panel-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                </svg>
+                <span>Live Progress</span>
+            </div>
+            <div class="progress-panel-actions">
+                <button class="progress-panel-btn" id="popoutProgressBtn" onclick="toggleStreamPopout()" title="Pop-out">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                    </svg>
+                </button>
+                <button class="progress-panel-btn" id="clearProgressBtn" title="Clear">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                </button>
+                <button class="progress-panel-btn" id="closeProgressBtn" title="Close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <!-- Status Bar (timer + current phase) -->
+        <div class="progress-status-bar" id="progressStatusBar" style="display:none;">
+            <div class="progress-status-phase" id="progressStatusPhase">Starte...</div>
+            <div class="progress-status-timer" id="progressStatusTimer">0s</div>
+        </div>
+        <!-- KG Impact Visualizer -->
+        <div class="kg-visualizer-container" id="kgVisualizerContainer">
+            <iframe id="kgVisualizerFrame" src="" allow=""></iframe>
+            <div class="kg-stats-bar" id="kgStatsBar">
+                <div class="kg-stat"><span class="kg-stat-dot" style="background:#ef4444"></span> <span id="kgStatCenter">—</span></div>
+                <div class="kg-stat"><span class="kg-stat-dot" style="background:#f97316"></span> <span id="kgStatNodes">0</span> Nodes</div>
+                <div class="kg-stat"><span class="kg-stat-dot" style="background:#eab308"></span> <span id="kgStatEdges">0</span> Edges</div>
+                <button class="kg-collapse-btn" id="kgCollapseBtn" onclick="toggleKgVisualizer()">Collapse</button>
+            </div>
+        </div>
+        <!-- Specialist Orchestration View (auto-activated on specialists_batch_start) -->
+        <div class="specialist-overview" id="specialistOverview">
+            <div class="specialist-progress-bar">
+                <span class="specialist-progress-bar-label">Spezialisten</span>
+                <div class="specialist-progress-bar-track">
+                    <div class="specialist-progress-bar-fill" id="specialistProgressFill"></div>
+                </div>
+                <span class="specialist-progress-bar-count" id="specialistProgressCount">0/0</span>
+            </div>
+            <div class="specialist-cards" id="specialistCards"></div>
+        </div>
+        <!-- Discussion Thread (Multi-Agent Moderator) -->
+        <div class="discussion-thread" id="discussionThread">
+            <div class="discussion-header">Diskussion</div>
+            <div id="discussionMessages" class="discussion-messages" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+        <!-- Stream Pop-out: uses window.open() for real OS window -->
+        <!-- Classic Event Log -->
+        <div class="progress-panel-content" id="progressLog">
+            <div class="progress-empty">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                </svg>
+                <span>Warte auf Events...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === STATE ===
+        function generateUUID() {
+            // Fallback für nicht-sichere Kontexte (kein HTTPS)
+            if (crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        let sessionId = generateUUID();
+        let isLoading = false;
+        let currentFetchController = null;
+
+        // === PROGRESS STATUS BAR STATE ===
+        let typingTimerInterval = null;
+        let typingStartTime = null;
+        let inlineSpecialistsDone = 0;
+        let inlineSpecialistsTotal = 0;
+
+        // === SSE STATE ===
+        let eventSource = null;
+        let streamingEnabled = localStorage.getItem('v7_streaming_enabled') !== 'false';
+        let currentLanguage = localStorage.getItem('v7_language') || 'de';
+        let progressEvents = [];
+
+        // Specialist orchestration state
+        let specialistState = {
+            active: false,
+            total: 0,
+            completed: 0,
+            specialists: {} // name -> { status, domain, displayName, dataContextLength, durationMs, promptSent, result }
+        };
+
+        // === ELEMENTS ===
+        const main = document.getElementById('main');
+        const welcome = document.getElementById('welcome');
+        const messages = document.getElementById('messages');
+        const input = document.getElementById('input');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const sessionIdEl = document.getElementById('sessionId');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const llmStatus = document.getElementById('llmStatus');
+
+        // Modal elements
+        const machineModal = document.getElementById('machineModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalDesc = document.getElementById('modalDesc');
+        const machineInput = document.getElementById('machineInput');
+        const modalCancel = document.getElementById('modalCancel');
+        const modalConfirm = document.getElementById('modalConfirm');
+
+        // Progress panel elements
+        const progressPanel = document.getElementById('progressPanel');
+        const progressLog = document.getElementById('progressLog');
+        const streamingToggle = document.getElementById('streamingToggle');
+        const clearProgressBtn = document.getElementById('clearProgressBtn');
+        const closeProgressBtn = document.getElementById('closeProgressBtn');
+
+        // Modal state
+        let pendingAction = null;  // { type: 'agent'|'skill', name: string }
+        let selectedMachine = '';
+
+        // === INIT ===
+        async function init() {
+            sessionIdEl.textContent = sessionId.substring(0, 8);
+            await loadUserInfo();
+            checkHealth();
+            setInterval(checkHealth, 30000);
+            setupEventListeners();
+            initProgressPanel();
+        }
+
+        // === HEALTH CHECK ===
+        async function checkHealth() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                statusIndicator.className = 'status-indicator';
+                statusText.textContent = 'Verbunden';
+                // Fetch actual LLM model name from llama.cpp server
+                fetchLlmModel();
+            } catch {
+                statusIndicator.className = 'status-indicator error';
+                statusText.textContent = 'Offline';
+            }
+        }
+
+        // === LLM MODEL STATUS ===
+        async function fetchLlmModel() {
+            try {
+                const res = await fetch('/api/llm/status');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    // Use first available model name, clean it up for display
+                    const model = (data.models && data.models[0]) || data.defaultModel || 'unknown';
+                    // Format: "qwen2.5:72b" → "Qwen 2.5 72B", "llama-3.1:8b" → "Llama 3.1 8B"
+                    const display = model
+                        .replace(/[:\-_]/g, ' ')
+                        .replace(/\b(\d+)b\b/gi, '$1B')
+                        .replace(/\bqwen/i, 'Qwen')
+                        .replace(/\bllama/i, 'Llama')
+                        .replace(/\bmistral/i, 'Mistral')
+                        .replace(/\bgemma/i, 'Gemma')
+                        .trim();
+                    llmStatus.textContent = display;
+                    llmStatus.style.color = '';
+                } else {
+                    llmStatus.textContent = 'Offline';
+                    llmStatus.style.color = 'var(--status-error, #ef4444)';
+                }
+            } catch {
+                llmStatus.textContent = 'Offline';
+                llmStatus.style.color = 'var(--status-error, #ef4444)';
+            }
+        }
+
+        // === EVENT LISTENERS ===
+        function setupEventListeners() {
+            // Quick actions on welcome screen
+            document.querySelectorAll('.quick-action').forEach(el => {
+                el.addEventListener('click', () => handleQuickAction(el.dataset.action));
+            });
+
+            // Pill headers → expand panel
+            document.querySelectorAll('.accord-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const section = header.parentElement;
+                    const sectionName = header.dataset.section;
+                    const wasOpen = section.classList.contains('open');
+
+                    // Close all pills
+                    document.querySelectorAll('.accord-section').forEach(s => s.classList.remove('open'));
+                    const expandPanel = document.getElementById('accordExpandPanel');
+                    expandPanel.classList.remove('open');
+                    expandPanel.innerHTML = '';
+
+                    if (!wasOpen) {
+                        section.classList.add('open');
+                        fillExpandPanel(sectionName, expandPanel);
+                        expandPanel.classList.add('open');
+                    }
+                });
+            });
+
+            // Theme toggle
+            const themeToggle = document.getElementById('themeToggle');
+            updateThemeIcon();
+            themeToggle.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('v7_theme', next);
+                updateThemeIcon();
+            });
+
+            // Modal input (machine buttons are bound dynamically in renderMachineButtons)
+            machineInput.addEventListener('input', () => {
+                selectedMachine = machineInput.value;
+                document.querySelectorAll('.modal-machine-btn').forEach(b => {
+                    b.classList.toggle('selected', b.dataset.machine === selectedMachine);
+                });
+            });
+
+            // Modal cancel
+            modalCancel.addEventListener('click', closeMachineModal);
+
+            // Modal confirm
+            modalConfirm.addEventListener('click', confirmMachineModal);
+
+            // Close modal on overlay click
+            machineModal.addEventListener('click', (e) => {
+                if (e.target === machineModal) closeMachineModal();
+            });
+
+            // Close modal on Escape
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && machineModal.classList.contains('open')) {
+                    closeMachineModal();
+                }
+                if (e.key === 'Enter' && machineModal.classList.contains('open')) {
+                    confirmMachineModal();
+                }
+            });
+
+            // Close pills on outside click
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.dashboard-accordion')) {
+                    document.querySelectorAll('.accord-section').forEach(s => s.classList.remove('open'));
+                    const expandPanel = document.getElementById('accordExpandPanel');
+                    if (expandPanel) {
+                        expandPanel.classList.remove('open');
+                        expandPanel.innerHTML = '';
+                    }
+                }
+            });
+
+            // Send / Stop toggle
+            sendBtn.addEventListener('click', () => {
+                if (isLoading) {
+                    stopAgent();
+                } else {
+                    sendMessage();
+                }
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!isLoading) sendMessage();
+                }
+            });
+
+            // Auto-resize
+            input.addEventListener('input', () => {
+                input.style.height = 'auto';
+                input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+            });
+
+            // Clear
+            clearBtn.addEventListener('click', clearChat);
+        }
+
+        // === MODAL ===
+        function openMachineModal(type, name) {
+            pendingAction = { type, name };
+            selectedMachine = '';
+            machineInput.value = '';
+
+            const titles = {
+                'oee-diagnose': 'OEE Diagnose',
+                'oee-optimize': 'OEE Optimierung',
+                'oee-planner': 'OEE Planung',
+                'quality-optimize': 'Qualitätsoptimierung',
+                'quality-planner': 'Qualitätsplanung',
+                'otd-optimize': 'Liefertreue-Optimierung',
+                'otd-planner': 'Liefertreue-Planung',
+                'oee_summary': 'OEE Übersicht',
+                'quality_summary': 'Qualität',
+                'otd_summary': 'Liefertreue'
+            };
+
+            modalTitle.textContent = titles[name] || name;
+
+            if (type === 'agent') {
+                modalDesc.textContent = 'Wählen Sie eine Maschine für die Analyse oder lassen Sie das Feld leer für alle Maschinen.';
+            } else {
+                modalDesc.textContent = 'Wählen Sie eine Maschine oder lassen Sie das Feld leer für die Gesamtübersicht.';
+            }
+
+            // Load machines dynamically
+            loadMachineButtons();
+
+            machineModal.classList.add('open');
+            machineInput.focus();
+        }
+
+        // Dynamic machine loading from /api/machines
+        let machineCache = null;
+        async function loadMachineButtons() {
+            const container = document.getElementById('machineButtons');
+            if (machineCache) {
+                renderMachineButtons(container, machineCache);
+                return;
+            }
+            container.innerHTML = '<span style="color:var(--text-1);font-size:13px;">Lade Maschinen...</span>';
+            try {
+                const res = await fetch('/api/machines');
+                const data = await res.json();
+                machineCache = (data.machines || []).map(m => m.machine_id);
+                renderMachineButtons(container, machineCache);
+            } catch (e) {
+                container.innerHTML = '<span style="color:var(--accent-red);font-size:13px;">Fehler beim Laden</span>';
+            }
+        }
+
+        function renderMachineButtons(container, machines) {
+            container.innerHTML = machines.map(id =>
+                `<button class="modal-machine-btn" data-machine="${id}">${id}</button>`
+            ).join('');
+            // Bind click handlers
+            container.querySelectorAll('.modal-machine-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    container.querySelectorAll('.modal-machine-btn').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    selectedMachine = btn.dataset.machine;
+                    machineInput.value = selectedMachine;
+                });
+            });
+        }
+
+        function closeMachineModal() {
+            machineModal.classList.remove('open');
+            pendingAction = null;
+            selectedMachine = '';
+        }
+
+        function confirmMachineModal() {
+            if (!pendingAction) return;
+
+            const { type, name } = pendingAction;
+            const machine = machineInput.value.trim() || selectedMachine;
+
+            closeMachineModal();
+
+            if (type === 'skill') {
+                if (machine) {
+                    executeSkill(name, { machine_id: machine });
+                } else {
+                    executeSkill(name);
+                }
+            } else if (type === 'agent') {
+                if (machine) {
+                    executeAgent(name, { machineId: machine });
+                } else {
+                    executeAgent(name);
+                }
+            }
+        }
+
+        // === ACTIONS ===
+        function handleQuickAction(action) {
+            switch(action) {
+                case 'oee':
+                    openMachineModal('skill', 'oee_summary');
+                    break;
+                case 'quality':
+                    openMachineModal('skill', 'quality_summary');
+                    break;
+                case 'otd':
+                    openMachineModal('skill', 'otd_summary');
+                    break;
+                case 'oee-diagnose':
+                case 'oee-optimize':
+                    openMachineModal('agent', action);
+                    break;
+                case 'goodmorning':
+                case 'deep-morning':
+                case 'strategic-planner':
+                case 'nightly':
+                    // Diese Agents brauchen keine Maschine
+                    executeAgent(action);
+                    break;
+            }
+        }
+
+        // === USER INFO (internal vs external) ===
+        let isExternalUser = false;
+        let claudeEnabled = true;
+
+        async function loadUserInfo() {
+            try {
+                const res = await fetch('/api/user-info');
+                const data = await res.json();
+                isExternalUser = !!data.isExternal;
+                claudeEnabled = data.claudeEnabled !== false;
+            } catch (e) {
+                console.warn('Failed to load user info:', e);
+            }
+        }
+
+        // === LLM CONFIG ===
+        async function loadLlmConfig() {
+            try {
+                const res = await fetch('/api/llm-config');
+                const cfg = await res.json();
+                // Find matching preset
+                const presets = [
+                    { value: 'D', simple: 'qwen-14b', complex: 'qwen' },
+                    { value: 'E', simple: 'qwen', complex: 'qwen' },
+                    { value: 'A', simple: 'haiku', complex: 'haiku' },
+                    { value: 'B', simple: 'haiku', complex: 'sonnet' },
+                ];
+                const match = presets.find(p => p.simple === cfg.simple && p.complex === cfg.complex);
+                if (match) {
+                    const radio = document.querySelector(`#llmRadioGroup .llm-radio input[value="${match.value}"]`);
+                    if (radio) {
+                        radio.checked = true;
+                        radio.closest('.llm-radio').classList.add('selected');
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to load LLM config:', e);
+            }
+        }
+
+        async function saveLlmConfig(simple, complex) {
+            try {
+                await fetch('/api/llm-config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ simple, complex })
+                });
+                const saved = document.getElementById('llmSaved');
+                saved.classList.add('show');
+                setTimeout(() => saved.classList.remove('show'), 2000);
+            } catch (e) {
+                console.warn('Failed to save LLM config:', e);
+            }
+        }
+
+        // === THEME ===
+        function updateThemeIcon() {
+            const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+            document.getElementById('themeIconMoon').style.display = isDark ? 'block' : 'none';
+            document.getElementById('themeIconSun').style.display = isDark ? 'none' : 'block';
+            const toggle = document.getElementById('themeToggle');
+            toggle.classList.toggle('active', !isDark);
+        }
+
+        // === EXPAND PANEL ===
+        const expandPanelConfig = {
+            'llm-config': {
+                type: 'llm',
+            },
+            'oee': {
+                buttons: [
+                    { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'oee_summary' },
+                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'oee-optimize' },
+                    { label: 'Fast', dot: 'blue', action: 'agent', agent: 'oee-diagnose' },
+                ]
+            },
+            'quality': {
+                buttons: [
+                    { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'quality_summary' },
+                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'quality-optimize' },
+                    { label: 'Fast', dot: 'blue', disabled: true },
+                ]
+            },
+            'otd': {
+                buttons: [
+                    { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'otd_summary' },
+                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'otd-optimize' },
+                    { label: 'Fast', dot: 'blue', action: 'agent', agent: 'otd-planner' },
+                ]
+            },
+            'revenue': {
+                buttons: [
+                    { label: 'Uebersicht', dot: 'green', disabled: true },
+                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'monthly-revenue' },
+                    { label: 'Fast', dot: 'blue', disabled: true },
+                ]
+            },
+            'shopfloor': {
+                buttons: [
+                    { label: 'Uebersicht', dot: 'green', disabled: true },
+                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'deep-morning' },
+                    { label: 'Fast', dot: 'blue', action: 'agent', agent: 'goodmorning' },
+                ]
+            },
+            'impact': {
+                buttons: [
+                    { label: 'Maschine faellt aus', dot: 'red', action: 'impact', scenario: 'machine_down' },
+                    { label: 'Material-Engpass', dot: 'orange', action: 'impact', scenario: 'material_shortage' },
+                    { label: 'Alle Szenarien...', dot: 'blue', action: 'impact', scenario: 'all' },
+                ]
+            },
+        };
+
+        function fillExpandPanel(sectionName, panel) {
+            const config = expandPanelConfig[sectionName];
+            if (!config) return;
+
+            if (config.type === 'llm') {
+                const disabledClass = isExternalUser ? ' disabled' : '';
+                // Render LLM config radios inside expand panel
+                panel.innerHTML = `
+                    <div class="llm-external-hint${isExternalUser ? ' show' : ''}" id="llmExternalHint">Nur intern umschaltbar</div>
+                    <div class="llm-config-body open${disabledClass}" id="llmConfigBody">
+                    <div class="llm-radio-group" id="llmRadioGroup">
+                        <label class="llm-radio" data-simple="qwen-14b" data-complex="qwen">
+                            <input type="radio" name="llmPreset" value="D"${isExternalUser ? ' disabled' : ''}>
+                            <span class="llm-radio-label">D: Lokal (14B/72B)</span>
+                            <span class="llm-radio-meta">~20 min, keine API-Kosten</span>
+                        </label>
+                        <label class="llm-radio" data-simple="qwen" data-complex="qwen">
+                            <input type="radio" name="llmPreset" value="E"${isExternalUser ? ' disabled' : ''}>
+                            <span class="llm-radio-label">E: Lokal Full (72B/72B)</span>
+                            <span class="llm-radio-meta">~64 min, keine API-Kosten</span>
+                        </label>
+                        <label class="llm-radio" data-simple="haiku" data-complex="haiku">
+                            <input type="radio" name="llmPreset" value="A"${isExternalUser ? ' disabled' : ''}>
+                            <span class="llm-radio-label">A: Cloud Fast (Haiku/Haiku)</span>
+                            <span class="llm-radio-meta">~2.5 min, mittlere Kosten</span>
+                        </label>
+                        <label class="llm-radio" data-simple="haiku" data-complex="sonnet">
+                            <input type="radio" name="llmPreset" value="B"${isExternalUser ? ' disabled' : ''}>
+                            <span class="llm-radio-label">B: Cloud Premium (Haiku/Sonnet)</span>
+                            <span class="llm-radio-meta">~3 min, hohe Kosten</span>
+                        </label>
+                    </div>
+                </div>`;
+                // Only bind click handlers for internal users
+                if (!isExternalUser) {
+                    bindLlmRadios();
+                }
+                loadLlmConfig();
+                return;
+            }
+
+            // Render action buttons
+            for (const btn of config.buttons) {
+                const el = document.createElement('button');
+                el.className = 'accord-btn';
+                if (btn.disabled) {
+                    el.disabled = true;
+                    el.title = 'Nicht verfuegbar';
+                }
+                el.innerHTML = `<span class="btn-dot ${btn.dot}"></span> ${btn.label}`;
+
+                if (!btn.disabled) {
+                    el.addEventListener('click', () => {
+                        if (btn.action === 'impact') {
+                            if (btn.scenario === 'all') {
+                                openImpactModal();
+                            } else {
+                                openImpactModal(btn.scenario);
+                            }
+                        } else if (btn.action === 'skill') {
+                            openMachineModal('skill', btn.skill);
+                        } else if (btn.action === 'agent') {
+                            const noMachine = ['goodmorning', 'deep-morning', 'monthly-revenue', 'strategic-planner'];
+                            if (noMachine.includes(btn.agent)) {
+                                executeAgent(btn.agent);
+                            } else {
+                                openMachineModal('agent', btn.agent);
+                            }
+                        }
+                    });
+                }
+                panel.appendChild(el);
+            }
+        }
+
+        function bindLlmRadios() {
+            document.querySelectorAll('#llmRadioGroup .llm-radio').forEach(radio => {
+                radio.addEventListener('click', () => {
+                    const simple = radio.dataset.simple;
+                    const complex = radio.dataset.complex;
+                    saveLlmConfig(simple, complex);
+                    document.querySelectorAll('#llmRadioGroup .llm-radio').forEach(r => r.classList.remove('selected'));
+                    radio.classList.add('selected');
+                    radio.querySelector('input').checked = true;
+                });
+            });
+        }
+
+        async function executeSkill(skill, params = {}) {
+            if (isLoading) return;
+
+            showMessages();
+            isLoading = true;
+            updateSendBtn();
+
+            const skillNames = {
+                'oee_summary': 'OEE Übersicht',
+                'quality_summary': 'Qualität',
+                'otd_summary': 'Liefertreue'
+            };
+
+            addMessage('user', `${skillNames[skill] || skill} anzeigen`);
+            const typingId = addTyping();
+
+            try {
+                const res = await fetch(`/api/skills/${skill}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(params)
+                });
+                const data = await res.json();
+                removeTyping(typingId);
+
+                if (data.error) {
+                    addMessage('assistant', `❌ ${data.error}`);
+                } else {
+                    addMessage('assistant', formatSkillResult(skill, data.result));
+                }
+            } catch (err) {
+                removeTyping(typingId);
+                addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+            }
+
+            isLoading = false;
+            updateSendBtn();
+        }
+
+        async function executeAgent(agent, params = {}) {
+            if (isLoading) return;
+
+            showMessages();
+            isLoading = true;
+            updateSendBtn();
+
+            const agentNames = {
+                'oee-diagnose': 'OEE Diagnose',
+                'oee-optimize': 'OEE Optimierung',
+                'oee-planner': 'OEE Planung',
+                'quality-optimize': 'Qualitätsoptimierung',
+                'quality-planner': 'Qualitätsplanung',
+                'otd-optimize': 'Liefertreue-Optimierung',
+                'otd-planner': 'Liefertreue-Planung',
+                'strategic-planner': 'Strategische Planung',
+                'goodmorning': 'Morgen-Briefing',
+                'deep-morning': 'Deep Morning Analysis',
+                'nightly': 'Nachtanalyse',
+                'monthly-revenue': 'Umsatz-Report',
+                'impact-analysis': 'Impact-Analyse'
+            };
+
+            let displayName = agentNames[agent] || agent;
+            if (agent === 'monthly-revenue' && params.periodMode) {
+                displayName += params.periodMode === 'next' ? ' (Folgemonat)' : ' (Diesen Monat)';
+            }
+
+            addMessage('user', `${displayName} starten`);
+
+            // Clear stream panel for new agent run and auto-open
+            const _progressLog = document.getElementById('progressLog');
+            const _specOverview = document.getElementById('specialistOverview');
+            const _specCards = document.getElementById('specialistCards');
+            const _discThread = document.getElementById('discussionThread');
+            if (_progressLog) _progressLog.innerHTML = '';
+            if (_specOverview) _specOverview.classList.remove('active');
+            if (_specCards) _specCards.innerHTML = '';
+            if (_discThread) { _discThread.classList.remove('active'); _discThread.innerHTML = '<div class="discussion-header">Diskussion</div><div id="discussionMessages" class="discussion-messages" style="display:flex;flex-direction:column;gap:6px;"></div>'; }
+            progressEvents = [];
+            specialistState = { active: false, total: 0, completed: 0, specialists: {} };
+            openProgressPanel();
+
+            const typingId = addTyping();
+
+            try {
+                currentFetchController = new AbortController();
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        agentType: agent,
+                        sessionId,
+                        language: currentLanguage,
+                        ...params
+                    }),
+                    signal: currentFetchController.signal
+                });
+                currentFetchController = null;
+                const data = await res.json();
+                removeTyping(typingId);
+
+                if (data.error) {
+                    addMessage('assistant', `❌ ${data.error}`);
+                } else {
+                    addMessage('assistant', data.output || 'Agent ausgeführt.');
+                }
+            } catch (err) {
+                currentFetchController = null;
+                removeTyping(typingId);
+                if (err.name === 'AbortError') {
+                    addMessage('assistant', '⏹ Agent gestoppt.');
+                } else {
+                    addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+                }
+            }
+
+            isLoading = false;
+            updateSendBtn();
+        }
+
+        async function sendMessage() {
+            const text = input.value.trim();
+            if (!text || isLoading) return;
+
+            input.value = '';
+            input.style.height = 'auto';
+            showMessages();
+
+            // Check if it's a machine ID (4 digits)
+            const machineMatch = text.match(/^(\d{4})$/);
+            if (machineMatch) {
+                await executeSkill('oee_summary', { machine_id: machineMatch[1] });
+                return;
+            }
+
+            // Chat message — always use local LLM (Llama), Claude only for agents
+            isLoading = true;
+            updateSendBtn();
+
+            addMessage('user', text);
+            const typingId = addTyping();
+
+            try {
+                const res = await fetch('/api/chat/local', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        sessionId,
+                        language: currentLanguage
+                    })
+                });
+                const data = await res.json();
+                removeTyping(typingId);
+
+                if (data.error) {
+                    addMessage('assistant', `❌ ${data.error}`);
+                } else {
+                    addMessage('assistant', data.output || JSON.stringify(data, null, 2));
+                }
+            } catch (err) {
+                removeTyping(typingId);
+                addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+            }
+
+            isLoading = false;
+            updateSendBtn();
+        }
+
+        // === UI HELPERS ===
+        function showMessages() {
+            welcome.classList.add('hidden');
+            messages.classList.remove('hidden');
+        }
+
+        function clearChat() {
+            sessionId = generateUUID();
+            sessionIdEl.textContent = sessionId.substring(0, 8);
+            messages.innerHTML = '';
+            messages.classList.add('hidden');
+            welcome.classList.remove('hidden');
+
+            // Reconnect SSE with new session ID
+            if (streamingEnabled) {
+                connectSSE();
+            }
+
+            // Clear progress panel
+            clearProgress();
+        }
+
+        function updateSendBtn() {
+            if (isLoading) {
+                sendBtn.disabled = false;
+                sendBtn.classList.add('stop-mode');
+                sendBtn.title = 'Stop';
+                sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.classList.remove('stop-mode');
+                sendBtn.title = 'Senden';
+                sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
+            }
+        }
+
+        async function stopAgent() {
+            try {
+                await fetch('/api/agents/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId })
+                });
+            } catch (err) {
+                console.error('[Stop] Failed:', err);
+            }
+            // Abort the client-side fetch
+            if (currentFetchController) {
+                currentFetchController.abort();
+                currentFetchController = null;
+            }
+        }
+
+        function addMessage(type, content) {
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+
+            const avatar = type === 'assistant' ? '⚡' : '👤';
+            const sender = type === 'assistant' ? 'ZeroGuess AI' : 'Sie';
+            const time = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+            msg.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-body">
+                    <div class="message-meta">
+                        <span class="message-sender">${sender}</span>
+                        <span class="message-time">${time}</span>
+                    </div>
+                    <div class="message-content">${renderMarkdown(content)}</div>
+                </div>
+            `;
+
+            messages.appendChild(msg);
+            main.scrollTop = main.scrollHeight;
+        }
+
+        function addTyping() {
+            const id = 'typing-' + Date.now();
+            const msg = document.createElement('div');
+            msg.className = 'message assistant';
+            msg.id = id;
+            msg.innerHTML = `
+                <div class="message-avatar">⚡</div>
+                <div class="message-body">
+                    <div class="typing">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            messages.appendChild(msg);
+            main.scrollTop = main.scrollHeight;
+
+            // Start progress status bar timer
+            startProgressTimer();
+
+            return id;
+        }
+
+        function removeTyping(id) {
+            stopProgressTimer();
+            document.getElementById(id)?.remove();
+        }
+
+        // === PROGRESS STATUS BAR (in streaming panel) ===
+        function startProgressTimer() {
+            const bar = document.getElementById('progressStatusBar');
+            const phase = document.getElementById('progressStatusPhase');
+            const timer = document.getElementById('progressStatusTimer');
+            if (!bar) return;
+
+            bar.style.display = 'flex';
+            bar.classList.add('active');
+            if (phase) phase.textContent = 'Starte...';
+            if (timer) timer.textContent = '0s';
+
+            typingStartTime = Date.now();
+            inlineSpecialistsDone = 0;
+            inlineSpecialistsTotal = 0;
+            if (typingTimerInterval) clearInterval(typingTimerInterval);
+            typingTimerInterval = setInterval(() => {
+                if (timer && typingStartTime) {
+                    const secs = Math.floor((Date.now() - typingStartTime) / 1000);
+                    if (secs < 60) {
+                        timer.textContent = `${secs}s`;
+                    } else {
+                        const m = Math.floor(secs / 60);
+                        const s = secs % 60;
+                        timer.textContent = `${m}m ${s.toString().padStart(2, '0')}s`;
+                    }
+                }
+            }, 1000);
+        }
+
+        function stopProgressTimer() {
+            if (typingTimerInterval) { clearInterval(typingTimerInterval); typingTimerInterval = null; }
+            const bar = document.getElementById('progressStatusBar');
+            if (bar) bar.classList.remove('active');
+            typingStartTime = null;
+        }
+
+        function formatToolName(toolName) {
+            const names = {
+                'get_oee_summary': 'OEE-Daten',
+                'get_oee_deep_analysis': 'OEE-Tiefenanalyse',
+                'get_oee_hourly': 'OEE Stundenwerte',
+                'get_otd_summary': 'Liefertreue',
+                'get_otd_deep_analysis': 'OTD-Analyse',
+                'get_quality_summary': 'Qualitätsdaten',
+                'get_quality_deep_analysis': 'Qualitätsanalyse',
+                'get_orders_overview': 'Auftragsliste',
+                'get_machine_status': 'Maschinenstatus',
+                'get_daily_kpis': 'Tages-KPIs',
+                'get_downtime_log': 'Stillstandsprotokoll',
+                'get_scrap_details': 'Ausschussdetails',
+                'get_open_notifications': 'Meldungen',
+                'get_baugruppen_shortages': 'Materialengpässe',
+                'sgm_get_process_data': 'Prozessdaten',
+                'wzm_get_history': 'Werkzeughistorie',
+            };
+            if (names[toolName]) return names[toolName];
+            return (toolName || '').replace(/^get_/, '').replace(/_/g, ' ');
+        }
+
+        function updateProgressStatusBar(event) {
+            const phase = document.getElementById('progressStatusPhase');
+            if (!phase) return;
+
+            switch (event.type) {
+                case 'init':
+                    phase.textContent = event.message || 'Starte...';
+                    break;
+                case 'tool_start':
+                case 'tool_call_start':
+                    phase.textContent = `Rufe ${formatToolName(event.toolName)} ab...`;
+                    break;
+                case 'tool_end':
+                case 'tool_call_end':
+                    phase.textContent = 'Verarbeite...';
+                    break;
+                case 'api_request':
+                    phase.textContent = `KI analysiert... (Runde ${event.iteration || 1})`;
+                    break;
+                case 'api_response':
+                    phase.textContent = 'Antwort wird erstellt...';
+                    break;
+                case 'step_start':
+                    if (event.message) phase.textContent = event.message;
+                    break;
+                case 'specialists_batch_start':
+                    inlineSpecialistsTotal = event.specialistCount || 0;
+                    inlineSpecialistsDone = 0;
+                    phase.textContent = `Spezialisten analysieren (0/${inlineSpecialistsTotal})`;
+                    break;
+                case 'specialist_complete':
+                    inlineSpecialistsDone++;
+                    phase.textContent = `Spezialisten analysieren (${inlineSpecialistsDone}/${inlineSpecialistsTotal})`;
+                    break;
+                case 'specialist_error':
+                    inlineSpecialistsDone++;
+                    phase.textContent = `Spezialisten analysieren (${inlineSpecialistsDone}/${inlineSpecialistsTotal})`;
+                    break;
+                case 'discussion_round_start':
+                    phase.textContent = `Diskussionsrunde ${event.discussionRound || ''}`;
+                    break;
+                case 'discussion_question':
+                    phase.textContent = `Frage an ${event.targetSpecialist || 'Spezialist'}...`;
+                    break;
+                case 'discussion_answer':
+                    phase.textContent = `Antwort von ${event.targetSpecialist || 'Spezialist'}`;
+                    break;
+                case 'discussion_synthesis_start':
+                    phase.textContent = 'Synthese wird erstellt...';
+                    break;
+                case 'debate_start':
+                    phase.textContent = 'Debatte & Synthese...';
+                    break;
+                case 'debate_draft':
+                    phase.textContent = 'Entwurf erstellt, Kritik läuft...';
+                    break;
+                case 'debate_critique':
+                    phase.textContent = `Kritik von ${event.debateCritiqueFrom || 'Spezialist'}...`;
+                    break;
+                case 'debate_final':
+                    phase.textContent = 'Report wird generiert...';
+                    break;
+                case 'thinking':
+                    if (event.message) phase.textContent = event.message;
+                    break;
+                case 'done': {
+                    const dur = event.duration ? ` in ${Math.round(event.duration / 1000)}s` : '';
+                    phase.textContent = `Fertig${dur}`;
+                    break;
+                }
+            }
+        }
+
+        // === FORMATTING ===
+        function formatSkillResult(skill, result) {
+            if (!result) return '❌ Keine Daten verfügbar';
+
+            let data = result;
+            if (typeof result === 'string') {
+                try { data = JSON.parse(result); } catch { return result; }
+            }
+            if (Array.isArray(data)) {
+                const text = data.find(c => c.type === 'text');
+                if (text?.text) {
+                    try { data = JSON.parse(text.text); } catch { return text.text; }
+                }
+            }
+
+            switch (skill) {
+                case 'oee_summary': return formatOEE(data);
+                case 'quality_summary': return formatQuality(data);
+                case 'otd_summary': return formatOTD(data);
+                default: return '```json\n' + JSON.stringify(data, null, 2) + '\n```';
+            }
+        }
+
+        function formatOEE(data) {
+            if (data.oee !== undefined) {
+                const oee = (data.oee * 100).toFixed(1);
+                const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
+                return `## OEE ${data.machine_id || ''}
+
+${status} **${oee}%**
+
+| Kennzahl | Wert |
+|----------|------|
+| Verfügbarkeit | ${((data.availability || 0) * 100).toFixed(1)}% |
+| Leistung | ${((data.performance || 0) * 100).toFixed(1)}% |
+| Qualität | ${((data.quality || 0) * 100).toFixed(1)}% |`;
+            }
+
+            const machines = Array.isArray(data) ? data : (data.machines || []);
+            if (!machines.length) return '## OEE\n\nKeine Daten verfügbar.';
+
+            let msg = '## OEE Übersicht\n\n| Maschine | OEE | Status |\n|----------|-----|--------|\n';
+            for (const m of machines) {
+                const oee = ((m.oee || 0) * 100).toFixed(1);
+                const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
+                msg += `| ${m.machine_id || m.id} | ${oee}% | ${status} |\n`;
+            }
+            return msg;
+        }
+
+        function formatQuality(data) {
+            const rate = ((data.quality_rate || data.rate || 0) * 100).toFixed(1);
+            const status = rate >= 98 ? '🟢' : rate >= 95 ? '🟡' : '🔴';
+            return `## Qualität
+
+${status} **${rate}%**
+
+| Kennzahl | Wert |
+|----------|------|
+| Ausschuss | ${data.defects || 0} |
+| Gut-Teile | ${data.good_parts || '-'} |`;
+        }
+
+        function formatOTD(data) {
+            const otd = ((data.otd || data.on_time_delivery || 0) * 100).toFixed(1);
+            const status = otd >= 95 ? '🟢' : otd >= 85 ? '🟡' : '🔴';
+            return `## Liefertreue
+
+${status} **${otd}%**
+
+| Kennzahl | Wert |
+|----------|------|
+| Pünktlich | ${data.on_time_orders || 0} |
+| Verspätet | ${data.late_orders || 0} |`;
+        }
+
+        function renderMarkdown(text) {
+            if (!text) return '';
+            return text
+                .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+                .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="report-link">$1</a>')
+                .replace(/^\|(.+)\|$/gm, (match) => {
+                    const cells = match.split('|').filter(c => c.trim());
+                    if (cells.every(c => c.trim().match(/^[-:]+$/))) return '';
+                    const tag = match.includes('---') ? 'th' : 'td';
+                    return '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+                })
+                .replace(/(<tr>.*<\/tr>\n?)+/g, '<table>$&</table>')
+                .replace(/^- (.+)$/gm, '<li>$1</li>')
+                .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // === PROGRESS PANEL ===
+        function initProgressPanel() {
+            // Set initial toggle state
+            if (streamingEnabled) {
+                streamingToggle.classList.add('active');
+                connectSSE();
+            } else {
+                streamingToggle.classList.remove('active');
+            }
+
+            // Toggle button
+            streamingToggle.addEventListener('click', toggleStreaming);
+
+            // Clear button
+            clearProgressBtn.addEventListener('click', clearProgress);
+
+            // Close button
+            closeProgressBtn.addEventListener('click', closeProgressPanel);
+        }
+
+        function initLanguageToggle() {
+            const btn = document.getElementById('langToggle');
+            const label = document.getElementById('langLabel');
+            if (currentLanguage === 'en') {
+                btn.classList.add('active');
+                label.textContent = 'EN';
+            }
+            btn.addEventListener('click', () => {
+                currentLanguage = currentLanguage === 'de' ? 'en' : 'de';
+                localStorage.setItem('v7_language', currentLanguage);
+                label.textContent = currentLanguage.toUpperCase();
+                btn.classList.toggle('active', currentLanguage === 'en');
+            });
+        }
+        initLanguageToggle();
+
+        function toggleStreaming() {
+            streamingEnabled = !streamingEnabled;
+            localStorage.setItem('v7_streaming_enabled', streamingEnabled);
+
+            if (streamingEnabled) {
+                streamingToggle.classList.add('active');
+                connectSSE();
+            } else {
+                streamingToggle.classList.remove('active');
+                disconnectSSE();
+                closeProgressPanel();
+            }
+        }
+
+        function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource(`/api/progress/${sessionId}`);
+
+            eventSource.addEventListener('connected', (e) => {
+                console.log('[SSE] Connected:', JSON.parse(e.data));
+            });
+
+            eventSource.addEventListener('progress', (e) => {
+                const event = JSON.parse(e.data);
+                handleProgressEvent(event);
+            });
+
+            eventSource.onerror = (e) => {
+                console.log('[SSE] Connection error, reconnecting...');
+                // EventSource will auto-reconnect
+            };
+        }
+
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        function handleProgressEvent(event) {
+            progressEvents.push(event);
+
+            // === Update status bar in streaming panel ===
+            updateProgressStatusBar(event);
+
+            // Handle stopped event — reset UI loading state
+            if (event.type === 'stopped') {
+                isLoading = false;
+                updateSendBtn();
+                renderProgressEvent(event);
+                progressLog.scrollTop = progressLog.scrollHeight;
+                return;
+            }
+
+            // Auto-open panel on first event
+            if (!progressPanel.classList.contains('open') && streamingEnabled) {
+                openProgressPanel();
+            }
+
+            // Route specialist events to orchestration view
+            const specialistTypes = ['specialist_start', 'specialist_complete', 'specialist_error', 'specialists_batch_start', 'specialists_batch_complete'];
+            if (specialistTypes.includes(event.type)) {
+                handleSpecialistEvent(event);
+                return;
+            }
+
+
+            // Route KG events to visualizer
+            const kgTypes = ['kg_traversal_start', 'kg_nodes_discovered', 'kg_traversal_end', 'kg_highlight', 'kg_path_highlight'];
+            if (kgTypes.includes(event.type)) {
+                handleKgEvent(event);
+                renderProgressEvent(event);
+                progressLog.scrollTop = progressLog.scrollHeight;
+                return;
+            }
+
+            // Route discussion events to discussion thread
+            const discussionTypes = ['discussion_round_start', 'discussion_question', 'discussion_answer', 'discussion_recruit', 'discussion_recruit_result', 'discussion_round_complete', 'discussion_synthesis_start', 'debate_start', 'debate_draft', 'debate_critique', 'debate_final'];
+            if (discussionTypes.includes(event.type)) {
+                handleDiscussionEvent(event);
+                return;
+            }
+
+            // Classic rendering for non-specialist events
+            renderProgressEvent(event);
+
+            // Auto-scroll to bottom
+            progressLog.scrollTop = progressLog.scrollHeight;
+        }
+
+        function handleSpecialistEvent(event) {
+            const overview = document.getElementById('specialistOverview');
+            const cards = document.getElementById('specialistCards');
+
+            switch (event.type) {
+                case 'specialists_batch_start':
+                    specialistState.active = true;
+                    specialistState.total = event.specialistCount || 0;
+                    specialistState.completed = 0;
+                    specialistState.specialists = {};
+
+                    // Initialize specialist entries
+                    if (event.specialistNames) {
+                        for (const name of event.specialistNames) {
+                            specialistState.specialists[name] = { status: 'pending' };
+                        }
+                    }
+
+                    // Clear pre-specialist progress events (data loading etc.)
+                    const progressLog = document.getElementById('progressLog');
+                    if (progressLog) progressLog.innerHTML = '';
+
+                    overview.classList.add('active');
+                    cards.innerHTML = '';
+                    updateSpecialistProgress();
+
+                    // Create placeholder cards for all specialists
+                    if (event.specialistNames) {
+                        for (const name of event.specialistNames) {
+                            createSpecialistCard(name);
+                        }
+                    }
+                    break;
+
+                case 'specialist_start':
+                    if (specialistState.specialists[event.specialistName]) {
+                        specialistState.specialists[event.specialistName] = {
+                            ...specialistState.specialists[event.specialistName],
+                            status: 'running',
+                            domain: event.specialistDomain,
+                            displayName: event.specialistDisplayName,
+                            dataContextLength: event.dataContextLength,
+                            promptSent: event.promptSent,
+                        };
+                    }
+                    updateSpecialistCard(event.specialistName);
+                    break;
+
+                case 'specialist_complete':
+                    if (specialistState.specialists[event.specialistName]) {
+                        const result = event.specialistResult || {};
+                        specialistState.specialists[event.specialistName] = {
+                            ...specialistState.specialists[event.specialistName],
+                            status: 'done',
+                            durationMs: result.durationMs,
+                            result: result,
+                        };
+                        specialistState.completed++;
+                    }
+                    updateSpecialistCard(event.specialistName);
+                    updateSpecialistProgress();
+                    break;
+
+                case 'specialist_error':
+                    if (specialistState.specialists[event.specialistName]) {
+                        specialistState.specialists[event.specialistName] = {
+                            ...specialistState.specialists[event.specialistName],
+                            status: 'error',
+                            error: event.error,
+                        };
+                        specialistState.completed++;
+                    }
+                    updateSpecialistCard(event.specialistName);
+                    updateSpecialistProgress();
+                    break;
+
+                case 'specialists_batch_complete':
+                    specialistState.completed = specialistState.total;
+                    // Force all remaining cards to "done" state
+                    for (const [name, spec] of Object.entries(specialistState.specialists)) {
+                        if (spec.status === 'running' || spec.status === 'pending') {
+                            spec.status = 'done';
+                            updateSpecialistCard(name);
+                        }
+                    }
+                    updateSpecialistProgress();
+
+                    // Show Round 1 summary in discussion thread
+                    {
+                        const thread = document.getElementById('discussionThread');
+                        const messages = document.getElementById('discussionMessages');
+                        thread.classList.add('active');
+                        const roundHeader = document.createElement('div');
+                        roundHeader.className = 'discussion-round-header';
+                        roundHeader.textContent = 'Runde 1: Spezialisten-Analyse';
+                        messages.appendChild(roundHeader);
+
+                        // Show each specialist result
+                        const specResults = event.specialistResults || [];
+                        for (const sr of specResults) {
+                            const displayName = sr.domain || sr.name || '?';
+                            const status = sr.status === 'error' ? '❌ Fehler' : (sr.report ? '✓' : '⚠ Keine Daten');
+                            const summary = sr.report?.zahlenDatenFakten
+                                ? sr.report.zahlenDatenFakten.substring(0, 200)
+                                : (sr.error ? sr.error.substring(0, 100) : 'Keine Analyse');
+                            const msg = document.createElement('div');
+                            msg.className = 'discussion-message specialist';
+                            msg.innerHTML = `
+                                <div class="dm-label">${status} ${escapeHtml(displayName)}</div>
+                                <div class="dm-text" style="font-size:11px;opacity:0.8;">${escapeHtml(summary)}</div>
+                            `;
+                            messages.appendChild(msg);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        function handleDiscussionEvent(event) {
+            const thread = document.getElementById('discussionThread');
+            const messages = document.getElementById('discussionMessages');
+
+            switch (event.type) {
+                case 'discussion_round_start': {
+                    thread.classList.add('active');
+                    const roundHeader = document.createElement('div');
+                    roundHeader.className = 'discussion-round-header';
+                    roundHeader.textContent = `Runde ${event.discussionRound || '?'}`;
+                    messages.appendChild(roundHeader);
+                    break;
+                }
+                case 'discussion_question': {
+                    const msg = document.createElement('div');
+                    msg.className = 'discussion-message moderator';
+                    msg.innerHTML = `
+                        <div class="dm-label">Moderator → ${escapeHtml(event.targetSpecialist || '?')}</div>
+                        <div class="dm-text">${escapeHtml(event.moderatorQuestion || '')}</div>
+                    `;
+                    messages.appendChild(msg);
+                    break;
+                }
+                case 'discussion_answer': {
+                    const msg = document.createElement('div');
+                    msg.className = 'discussion-message specialist';
+                    msg.innerHTML = `
+                        <div class="dm-label">${escapeHtml(event.targetSpecialist || '?')}</div>
+                        <div class="dm-text">${escapeHtml(event.discussionAnswer || '')}</div>
+                    `;
+                    messages.appendChild(msg);
+                    break;
+                }
+                case 'discussion_recruit': {
+                    const badge = document.createElement('div');
+                    badge.className = 'discussion-recruit-badge';
+                    badge.textContent = `+ ${event.recruitedSpecialistName || 'Spezialist'} wird hinzugezogen...`;
+                    messages.appendChild(badge);
+                    break;
+                }
+                case 'discussion_recruit_result': {
+                    const msg = document.createElement('div');
+                    msg.className = 'discussion-message recruit-result';
+                    msg.innerHTML = `
+                        <div class="dm-label">📋 ${escapeHtml(event.recruitedSpecialistName || 'Spezialist')} — Analyse</div>
+                        <div class="dm-text" style="font-size:12px;white-space:pre-line;">${escapeHtml(event.recruitedSpecialistReport || 'Analyse abgeschlossen')}</div>
+                    `;
+                    messages.appendChild(msg);
+                    break;
+                }
+                case 'discussion_round_complete': {
+                    // No-op, visual separation already done by round header
+                    break;
+                }
+                case 'discussion_synthesis_start': {
+                    const badge = document.createElement('div');
+                    badge.className = 'discussion-synthesis-badge';
+                    badge.textContent = 'Moderator erstellt Entwurf...';
+                    messages.appendChild(badge);
+                    break;
+                }
+                case 'debate_start': {
+                    const badge = document.createElement('div');
+                    badge.className = 'debate-start-badge';
+                    badge.textContent = '⚔ Runde 3: Spezialisten-Debatte';
+                    messages.appendChild(badge);
+                    break;
+                }
+                case 'debate_draft': {
+                    const msg = document.createElement('div');
+                    msg.className = 'discussion-message debate-draft';
+                    msg.innerHTML = `
+                        <div class="dm-label">Moderator — Entwurf</div>
+                        <div class="dm-text">${escapeHtml(event.debateDraftSummary || 'Entwurf erstellt')}</div>
+                    `;
+                    messages.appendChild(msg);
+                    break;
+                }
+                case 'debate_critique': {
+                    const msg = document.createElement('div');
+                    msg.className = 'discussion-message debate-critique';
+                    const items = event.debateCritiqueItems || [];
+                    const itemsHtml = items.map(item => {
+                        const icon = item.type === 'confirm' ? '✓' : item.type === 'critic' ? '✗' : '+';
+                        const cls = item.type === 'confirm' ? 'critique-confirm' : item.type === 'critic' ? 'critique-critic' : 'critique-add';
+                        return `<div class="critique-item ${cls}"><span class="critique-icon">${icon}</span> ${escapeHtml(item.text || '')}</div>`;
+                    }).join('');
+                    const assessment = event.debateCritiqueAssessment || '';
+                    const assessmentCls = assessment.includes('gut') ? 'critique-confirm' : assessment.includes('problematisch') ? 'critique-critic' : 'critique-add';
+                    msg.innerHTML = `
+                        <div class="dm-label">${escapeHtml(event.debateCritiqueFrom || 'Spezialist')} — Feedback</div>
+                        <div class="critique-items">${itemsHtml}</div>
+                        ${assessment ? `<div class="critique-assessment ${assessmentCls}">Bewertung: ${escapeHtml(assessment)}</div>` : ''}
+                    `;
+                    messages.appendChild(msg);
+                    break;
+                }
+                case 'debate_final': {
+                    const msg = document.createElement('div');
+                    msg.className = 'discussion-message debate-final';
+                    msg.innerHTML = `
+                        <div class="dm-label">Finaler Plan (nach Debatte)</div>
+                        <div class="dm-text">${escapeHtml(event.debateFinalSummary || 'Finaler Plan erstellt')}</div>
+                    `;
+                    messages.appendChild(msg);
+                    break;
+                }
+            }
+
+            // Auto-scroll discussion thread to latest message
+            thread.scrollTop = thread.scrollHeight;
+
+            // Mirror to pop-out modal if active
+            mirrorToPopoutModal();
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // Stream Pop-out Modal (mirrors entire progress panel)
+        // ═══════════════════════════════════════════════════════
+
+        let streamPopoutWindow = null;
+
+        function toggleStreamPopout() {
+            if (streamPopoutWindow && !streamPopoutWindow.closed) {
+                streamPopoutWindow.close();
+                streamPopoutWindow = null;
+                return;
+            }
+
+            streamPopoutWindow = window.open('', 'v7-stream', 'width=900,height=800,left=100,top=50');
+            if (!streamPopoutWindow) {
+                alert('Pop-up wurde blockiert. Bitte erlaube Pop-ups für diese Seite.');
+                return;
+            }
+
+            // Copy ALL styles: inline <style> + external stylesheets (cssRules)
+            const allStyleParts = [];
+            for (const sheet of document.styleSheets) {
+                try {
+                    const rules = Array.from(sheet.cssRules).map(r => r.cssText).join('\n');
+                    allStyleParts.push(rules);
+                } catch (e) {
+                    // Cross-origin (e.g. Google Fonts) — skip, add as link instead
+                }
+            }
+            // Also grab inline <style> tags (belt & suspenders)
+            for (const s of document.querySelectorAll('style')) {
+                allStyleParts.push(s.textContent);
+            }
+            const allStyles = allStyleParts.join('\n');
+            // Google Fonts as link (cross-origin, can't read cssRules)
+            const fontLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+                .filter(l => l.href.includes('fonts.googleapis'))
+                .map(l => l.outerHTML).join('\n');
+
+            streamPopoutWindow.document.write(`<!DOCTYPE html>
+<html><head><title>V7 Live Progress</title>
+${fontLinks}
+<style>${allStyles}
+/* Popup overrides */
+html, body { height: auto; overflow: auto; background: var(--surface-0); color: var(--text-0); }
+body { padding: 0; }
+.popout-header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--surface-1); border-bottom: 1px solid var(--border);
+    padding: 12px 20px; display: flex; align-items: center; gap: 10px;
+}
+.popout-header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--violet); }
+.popout-header .title { font-size: 14px; font-weight: 700; color: var(--violet); }
+.popout-header .status { margin-left: auto; font-size: 11px; color: var(--text-2); }
+#panelContent { padding: 0; }
+/* Make specialist overview always visible in popup */
+.specialist-overview { display: block !important; }
+/* Make discussion thread always visible in popup */
+.discussion-thread { display: flex !important; max-height: none !important; overflow: visible !important; }
+/* Make progress panel content visible */
+.progress-panel-content { max-height: none !important; overflow: visible !important; }
+/* Hide empty state */
+.progress-empty { display: none; }
+/* Animations */
+@keyframes eventFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes statusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+</style>
+</head><body>
+<div class="popout-header">
+  <span class="dot"></span>
+  <span class="title">V7 Live Progress</span>
+  <span class="status" id="popoutStatus">Warte auf Events...</span>
+</div>
+<div id="panelContent"></div>
+</body></html>`);
+            streamPopoutWindow.document.close();
+
+            mirrorToPopoutModal();
+
+            const checkClosed = setInterval(() => {
+                if (!streamPopoutWindow || streamPopoutWindow.closed) {
+                    streamPopoutWindow = null;
+                    clearInterval(checkClosed);
+                }
+            }, 500);
+        }
+
+        function mirrorToPopoutModal() {
+            if (!streamPopoutWindow || streamPopoutWindow.closed) return;
+            const target = streamPopoutWindow.document.getElementById('panelContent');
+            const statusEl = streamPopoutWindow.document.getElementById('popoutStatus');
+            if (!target) return;
+
+            const wasAtBottom = (streamPopoutWindow.document.documentElement.scrollHeight - streamPopoutWindow.scrollY - streamPopoutWindow.innerHeight) < 100;
+
+            // 1:1 clone — grab all three sections from the side panel
+            let html = '';
+
+            const specOverview = document.getElementById('specialistOverview');
+            if (specOverview) html += specOverview.outerHTML;
+
+            const discThread = document.getElementById('discussionThread');
+            if (discThread) html += discThread.outerHTML;
+
+            const progressLog = document.getElementById('progressLog');
+            if (progressLog) html += '<div class="progress-panel-content">' + progressLog.innerHTML + '</div>';
+
+            target.innerHTML = html;
+
+            if (statusEl) statusEl.textContent = new Date().toLocaleTimeString('de-DE') + ' — ' + progressEvents.length + ' Events';
+            if (wasAtBottom) streamPopoutWindow.scrollTo(0, streamPopoutWindow.document.documentElement.scrollHeight);
+        }
+
+        function createSpecialistCard(name) {
+            const cards = document.getElementById('specialistCards');
+            const spec = specialistState.specialists[name] || {};
+            const card = document.createElement('div');
+            card.className = 'specialist-card';
+            card.id = `specialist-card-${name}`;
+            card.innerHTML = `
+                <div class="specialist-card-header">
+                    <div class="specialist-card-info">
+                        <span class="specialist-card-name">${escapeHtml(spec.displayName || name)}</span>
+                        <span class="specialist-card-domain">${escapeHtml(spec.domain || '')}</span>
+                    </div>
+                    <span class="specialist-card-status pending">Wartend</span>
+                </div>
+                <div class="specialist-card-meta"></div>
+            `;
+            cards.appendChild(card);
+        }
+
+        function updateSpecialistCard(name) {
+            const card = document.getElementById(`specialist-card-${name}`);
+            if (!card) return;
+            const spec = specialistState.specialists[name];
+            if (!spec) return;
+
+            // Update status badge
+            const statusEl = card.querySelector('.specialist-card-status');
+            statusEl.className = `specialist-card-status ${spec.status}`;
+            const statusLabels = { pending: 'Wartend', running: 'Läuft...', done: 'Fertig', error: 'Fehler' };
+            statusEl.textContent = statusLabels[spec.status] || spec.status;
+
+            // Update name/domain if now available
+            if (spec.displayName) {
+                card.querySelector('.specialist-card-name').textContent = spec.displayName;
+            }
+            if (spec.domain) {
+                card.querySelector('.specialist-card-domain').textContent = spec.domain;
+            }
+
+            // Update meta
+            const metaItems = [];
+            if (spec.dataContextLength) metaItems.push(`Daten: ${formatBytes(spec.dataContextLength)}`);
+            if (spec.durationMs) metaItems.push(`Dauer: ${formatDuration(spec.durationMs)}`);
+            if (spec.result?.report) {
+                const r = spec.result.report;
+                const findingCount = r.kritischeFindings?.length || 0;
+                const empfCount = r.empfehlungen?.length || 0;
+                if (findingCount || empfCount) metaItems.push(`${findingCount} Findings, ${empfCount} Empfehlungen`);
+            }
+            if (spec.error) metaItems.push(`Fehler: ${spec.error.substring(0, 50)}`);
+
+            const metaEl = card.querySelector('.specialist-card-meta');
+            if (metaItems.length > 0) {
+                card.classList.add('has-meta');
+                metaEl.innerHTML = metaItems.map(m => `<span class="meta-item">${escapeHtml(m)}</span>`).join('');
+            }
+
+            // Remove old details sections
+            card.querySelectorAll('.specialist-card-details').forEach(d => d.remove());
+
+            // Add collapsible prompt section
+            if (spec.promptSent && spec.status !== 'pending') {
+                const promptDetails = document.createElement('details');
+                promptDetails.className = 'specialist-card-details';
+                promptDetails.innerHTML = `
+                    <summary>Prompt (${formatBytes(spec.promptSent.length)})</summary>
+                    <pre>${escapeHtml(spec.promptSent)}</pre>
+                `;
+                card.appendChild(promptDetails);
+            }
+
+            // Add collapsible result section (human-readable)
+            if (spec.result?.report) {
+                const resultDetails = document.createElement('details');
+                resultDetails.className = 'specialist-card-details';
+                const r = spec.result.report;
+                let html = `<div class="specialist-result-readable">`;
+
+                if (r.zahlenDatenFakten) {
+                    html += `<div class="result-section"><strong>Zahlen, Daten, Fakten</strong><p>${escapeHtml(r.zahlenDatenFakten)}</p></div>`;
+                }
+
+                if (r.kritischeFindings?.length) {
+                    html += `<div class="result-section"><strong>Kritische Findings (${r.kritischeFindings.length})</strong>`;
+                    for (const f of r.kritischeFindings) {
+                        const sevColor = f.severity === 'hoch' ? '#ef4444' : f.severity === 'mittel' ? '#f59e0b' : '#22c55e';
+                        html += `<div class="result-finding">
+                            <span style="color:${sevColor};font-weight:600;">● ${escapeHtml(f.severity?.toUpperCase() || 'N/A')}</span> ${escapeHtml(f.finding)}
+                            <div style="margin-left:1em;opacity:0.8;font-size:0.85em;">Evidenz: ${escapeHtml(f.evidence)}</div>
+                            ${f.affectedMachines?.length ? `<div style="margin-left:1em;opacity:0.7;font-size:0.85em;">Maschinen: ${f.affectedMachines.join(', ')}</div>` : ''}
+                        </div>`;
+                    }
+                    html += `</div>`;
+                }
+
+                if (r.empfehlungen?.length) {
+                    html += `<div class="result-section"><strong>Empfehlungen (${r.empfehlungen.length})</strong>`;
+                    for (const e of r.empfehlungen) {
+                        const prioIcon = e.priorität === 'sofort' ? '🔴' : e.priorität === 'heute' ? '🟡' : '🟢';
+                        html += `<div class="result-finding">
+                            ${prioIcon} <strong>${escapeHtml(e.maßnahme)}</strong>
+                            ${e.maschine ? `<span style="opacity:0.7;"> | ${escapeHtml(e.maschine)}</span>` : ''}
+                            <div style="margin-left:1.5em;opacity:0.8;font-size:0.85em;">→ ${escapeHtml(e.erwarteteWirkung)}</div>
+                        </div>`;
+                    }
+                    html += `</div>`;
+                }
+
+                if (r.crossDomainHinweise?.length) {
+                    html += `<div class="result-section"><strong>Cross-Domain Hinweise</strong><ul>`;
+                    for (const h of r.crossDomainHinweise) {
+                        html += `<li>${escapeHtml(h)}</li>`;
+                    }
+                    html += `</ul></div>`;
+                }
+
+                html += `</div>`;
+                resultDetails.innerHTML = `<summary>Ergebnis</summary>${html}`;
+                card.appendChild(resultDetails);
+            }
+
+            mirrorToPopoutModal();
+        }
+
+        function updateSpecialistProgress() {
+            const fill = document.getElementById('specialistProgressFill');
+            const count = document.getElementById('specialistProgressCount');
+            const pct = specialistState.total > 0 ? (specialistState.completed / specialistState.total) * 100 : 0;
+            fill.style.width = `${pct}%`;
+            count.textContent = `${specialistState.completed}/${specialistState.total}`;
+        }
+
+        function renderProgressEvent(event) {
+            // Remove empty state if present
+            const emptyState = progressLog.querySelector('.progress-empty');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const eventEl = document.createElement('div');
+            eventEl.className = `progress-event type-${event.type}`;
+
+            const icon = getEventIcon(event.type);
+            const typeLabel = getEventTypeLabel(event.type);
+            const time = new Date(event.timestamp).toLocaleTimeString('de-DE', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+
+            let message = event.message || '';
+            let metaItems = [];
+            let details = [];
+
+            // Build message and details based on event type
+            switch (event.type) {
+                case 'init':
+                    message = event.message || 'Session initialisiert';
+                    if (event.model) metaItems.push(`Model: ${event.model}`);
+                    if (event.sessionId) metaItems.push(`Session: ${event.sessionId.substring(0, 8)}`);
+                    if (event.systemPromptLength) metaItems.push(`System Prompt: ${event.systemPromptLength.toLocaleString()} chars`);
+                    if (event.maxIterations) metaItems.push(`Max Iterations: ${event.maxIterations}`);
+                    break;
+
+                case 'api_request':
+                    message = event.message || `API Request`;
+                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}${event.maxIterations ? '/' + event.maxIterations : ''}`);
+                    if (event.model) metaItems.push(`Model: ${event.model}`);
+                    if (event.messageCount) metaItems.push(`Messages: ${event.messageCount}`);
+                    if (event.cumulativeTokens) {
+                        metaItems.push(`Cumulative: ${event.cumulativeTokens.input + event.cumulativeTokens.output} tokens`);
+                    }
+                    break;
+
+                case 'api_response':
+                    message = event.message || `API Response`;
+                    if (event.stopReason) metaItems.push(`Stop: ${event.stopReason}`);
+                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
+                    if (event.tokensUsed) {
+                        metaItems.push(`This call: ${event.tokensUsed.input} in / ${event.tokensUsed.output} out`);
+                    }
+                    if (event.cumulativeTokens) {
+                        metaItems.push(`Total: ${event.cumulativeTokens.input + event.cumulativeTokens.output} tokens`);
+                        details.push({
+                            label: 'Token Details',
+                            content: `Input: ${event.cumulativeTokens.input.toLocaleString()}\nOutput: ${event.cumulativeTokens.output.toLocaleString()}\nTotal: ${(event.cumulativeTokens.input + event.cumulativeTokens.output).toLocaleString()}`
+                        });
+                    }
+                    break;
+
+                case 'tool_start':
+                case 'tool_call_start':
+                    message = `Tool: ${event.toolName || 'unknown'}`;
+                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
+                    if (event.toolInput || event.params) {
+                        const inputData = event.toolInput || event.params;
+                        const inputStr = JSON.stringify(inputData, null, 2);
+                        metaItems.push(`Input: ${Object.keys(inputData).length} params`);
+                        details.push({
+                            label: 'Tool Input (JSON)',
+                            content: inputStr,
+                            expanded: true
+                        });
+                    }
+                    break;
+
+                case 'tool_end':
+                case 'tool_call_end':
+                    message = `Tool: ${event.toolName || 'unknown'}`;
+                    if (event.toolDuration) metaItems.push(`Duration: ${formatDuration(event.toolDuration)}`);
+                    if (event.toolResultSize) metaItems.push(`Result: ${formatBytes(event.toolResultSize)}`);
+                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
+                    if (event.toolResult) {
+                        const resultStr = typeof event.toolResult === 'string'
+                            ? event.toolResult
+                            : JSON.stringify(event.toolResult, null, 2);
+                        details.push({
+                            label: `Tool Result (${formatBytes(resultStr.length)})`,
+                            content: resultStr,
+                            expanded: resultStr.length < 500
+                        });
+                    }
+                    break;
+
+                case 'thinking':
+                    message = event.message || 'Thinking...';
+                    if (event.iteration && event.maxIterations) {
+                        metaItems.push(`Progress: ${event.iteration}/${event.maxIterations}`);
+                    }
+                    if (event.totalToolCalls) metaItems.push(`Tool calls: ${event.totalToolCalls}`);
+                    break;
+
+                case 'plan':
+                    message = event.plan ? `Plan: ${event.plan.title}` : 'Plan erstellt';
+                    if (event.plan) {
+                        metaItems.push(`Steps: ${event.plan.totalSteps}`);
+                        if (event.plan.steps) {
+                            details.push({
+                                label: 'Plan Steps',
+                                content: event.plan.steps.map((s, i) =>
+                                    `${i + 1}. ${s.title}${s.description ? '\n   ' + s.description : ''}`
+                                ).join('\n'),
+                                expanded: true
+                            });
+                        }
+                    }
+                    break;
+
+                case 'step_start':
+                    message = event.title || `Step ${event.step}`;
+                    if (event.step && event.totalSteps) metaItems.push(`Progress: ${event.step}/${event.totalSteps}`);
+                    if (event.description) {
+                        details.push({
+                            label: 'Description',
+                            content: event.description,
+                            expanded: true
+                        });
+                    }
+                    break;
+
+                case 'step_complete':
+                    message = event.title || `Step ${event.step} complete`;
+                    if (event.step && event.totalSteps) metaItems.push(`Progress: ${event.step}/${event.totalSteps}`);
+                    if (event.duration) metaItems.push(`Duration: ${formatDuration(event.duration)}`);
+                    if (event.result) {
+                        details.push({
+                            label: 'Result',
+                            content: event.result,
+                            expanded: true
+                        });
+                    }
+                    break;
+
+                case 'step_error':
+                    message = `Step ${event.step} failed`;
+                    if (event.error) {
+                        details.push({
+                            label: 'Error',
+                            content: event.error,
+                            expanded: true
+                        });
+                    }
+                    break;
+
+                case 'intermediate_result':
+                    message = event.title || 'Intermediate result';
+                    if (event.step) metaItems.push(`Step: ${event.step}`);
+                    if (event.format) metaItems.push(`Format: ${event.format}`);
+                    if (event.data) {
+                        const dataStr = typeof event.data === 'string'
+                            ? event.data
+                            : JSON.stringify(event.data, null, 2);
+                        metaItems.push(`Size: ${formatBytes(dataStr.length)}`);
+                        details.push({
+                            label: `Data (${event.format || 'json'})`,
+                            content: dataStr,
+                            expanded: dataStr.length < 1000
+                        });
+                    }
+                    break;
+
+                case 'error':
+                    message = event.message || 'Error';
+                    if (event.error) {
+                        details.push({
+                            label: 'Error Details',
+                            content: event.error,
+                            expanded: true
+                        });
+                    }
+                    break;
+
+                case 'done':
+                    message = event.message || 'Completed';
+                    if (event.duration) metaItems.push(`Duration: ${formatDuration(event.duration)}`);
+                    if (event.iteration) metaItems.push(`Iterations: ${event.iteration}`);
+                    if (event.totalTokens) metaItems.push(`Total tokens: ${event.totalTokens.toLocaleString()}`);
+                    if (event.tokensUsed) {
+                        details.push({
+                            label: 'Token Summary',
+                            content: `Input: ${event.tokensUsed.input.toLocaleString()}\nOutput: ${event.tokensUsed.output.toLocaleString()}\nTotal: ${(event.tokensUsed.input + event.tokensUsed.output).toLocaleString()}`,
+                            expanded: true
+                        });
+                    }
+                    // Report link is already included in agent output text (via formatReportLink)
+                    break;
+
+                default:
+                    message = event.message || event.type;
+                    // Show all event data for unknown types
+                    details.push({
+                        label: 'Raw Event Data',
+                        content: JSON.stringify(event, null, 2),
+                        expanded: false
+                    });
+            }
+
+            // Build meta line
+            const metaHtml = metaItems.length > 0
+                ? `<div class="progress-event-meta">${metaItems.map(m => `<span class="meta-item">${escapeHtml(m)}</span>`).join('')}</div>`
+                : '';
+
+            // Build details sections
+            const detailsHtml = details.map(d => `
+                <details class="progress-event-details" ${d.expanded ? 'open' : ''}>
+                    <summary>${escapeHtml(d.label)}</summary>
+                    <pre>${escapeHtml(d.content)}</pre>
+                </details>
+            `).join('');
+
+            eventEl.innerHTML = `
+                <div class="progress-event-icon">${icon}</div>
+                <div class="progress-event-body">
+                    <div class="progress-event-header">
+                        <span class="progress-event-type">${typeLabel}</span>
+                        <span class="progress-event-time">${time}</span>
+                    </div>
+                    <div class="progress-event-message">${escapeHtml(message)}</div>
+                    ${metaHtml}
+                    ${detailsHtml}
+                </div>
+            `;
+
+            progressLog.appendChild(eventEl);
+
+            // Mirror to pop-out modal if active
+            mirrorToPopoutModal();
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        function getEventIcon(type) {
+            const icons = {
+                init: '🚀',
+                api_request: '📤',
+                api_response: '📥',
+                tool_start: '🔧',
+                tool_end: '✅',
+                tool_call_start: '🔧',
+                tool_call_end: '✅',
+                thinking: '💭',
+                plan: '📋',
+                step_start: '▶️',
+                step_complete: '✅',
+                step_error: '❌',
+                intermediate_result: '📊',
+                error: '❌',
+                done: '🎉',
+                specialist_start: '🧠',
+                specialist_complete: '✅',
+                specialist_error: '❌',
+                specialists_batch_start: '🔬',
+                specialists_batch_complete: '🎯',
+                discussion_round_start: '💬',
+                discussion_question: '❓',
+                discussion_answer: '💡',
+                discussion_recruit: '📢',
+                discussion_recruit_result: '📋',
+                discussion_round_complete: '✅',
+                discussion_synthesis_start: '🔮',
+                debate_start: '⚔️',
+                debate_draft: '📋',
+                debate_critique: '🔍',
+                debate_final: '🏆',
+                stopped: '⏹'
+            };
+            return icons[type] || '•';
+        }
+
+        function getEventTypeLabel(type) {
+            const labels = {
+                init: 'INIT',
+                api_request: 'API',
+                api_response: 'API',
+                tool_start: 'TOOL',
+                tool_end: 'TOOL',
+                tool_call_start: 'TOOL',
+                tool_call_end: 'TOOL',
+                thinking: 'THINK',
+                plan: 'PLAN',
+                step_start: 'STEP',
+                step_complete: 'STEP',
+                step_error: 'ERROR',
+                intermediate_result: 'DATA',
+                error: 'ERROR',
+                done: 'DONE',
+                specialist_start: 'SPEC',
+                specialist_complete: 'SPEC',
+                specialist_error: 'SPEC',
+                specialists_batch_start: 'BATCH',
+                specialists_batch_complete: 'BATCH',
+                discussion_round_start: 'DISC',
+                discussion_question: 'DISC',
+                discussion_answer: 'DISC',
+                discussion_recruit: 'DISC',
+                discussion_recruit_result: 'DISC',
+                discussion_round_complete: 'DISC',
+                discussion_synthesis_start: 'SYNTH',
+                debate_start: 'DEBATE',
+                debate_draft: 'DRAFT',
+                debate_critique: 'CRIT',
+                debate_final: 'FINAL',
+                stopped: 'STOP'
+            };
+            return labels[type] || type.toUpperCase();
+        }
+
+        function formatDuration(ms) {
+            if (ms < 1000) return `${ms}ms`;
+            if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+            return `${(ms / 60000).toFixed(1)}min`;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function openProgressPanel() {
+            progressPanel.classList.add('open');
+            document.body.classList.add('progress-panel-open');
+        }
+
+        function closeProgressPanel() {
+            progressPanel.classList.remove('open');
+            document.body.classList.remove('progress-panel-open');
+        }
+
+        function clearProgress() {
+            progressEvents = [];
+            progressLog.innerHTML = `
+                <div class="progress-empty">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                    </svg>
+                    <span>Warte auf Events...</span>
+                </div>
+            `;
+            // Reset specialist state
+            specialistState = { active: false, total: 0, completed: 0, specialists: {} };
+            const overview = document.getElementById('specialistOverview');
+            if (overview) overview.classList.remove('active');
+            const cards = document.getElementById('specialistCards');
+            if (cards) cards.innerHTML = '';
+            updateSpecialistProgress();
+        }
+
+
+        // ═══════════════════════════════════════════════════════
+        // KG Visualizer Event Handler
+        // ═══════════════════════════════════════════════════════
+
+        function handleKgEvent(event) {
+            const container = document.getElementById('kgVisualizerContainer');
+            const frame = document.getElementById('kgVisualizerFrame');
+
+            switch (event.type) {
+                case 'kg_traversal_start': {
+                    container.classList.add('active');
+                    if (!frame.src || frame.src === '' || frame.src === 'about:blank') {
+                        frame.src = '/kg-impact-visualizer.html';
+                    }
+                    setTimeout(() => {
+                        frame.contentWindow?.postMessage({ type: 'reset' }, '*');
+                        frame.contentWindow?.postMessage({
+                            type: 'set_narration',
+                            text: (event.scenarioName || 'Impact') + ': ' + (event.entityId || '')
+                        }, '*');
+                    }, 500);
+                    break;
+                }
+                case 'kg_nodes_discovered': {
+                    frame.contentWindow?.postMessage({
+                        type: 'add_nodes',
+                        nodes: event.nodes || [],
+                        edges: event.edges || [],
+                        centerEntity: event.centerEntity
+                    }, '*');
+                    document.getElementById('kgStatNodes').textContent = event.nodes?.length || 0;
+                    document.getElementById('kgStatEdges').textContent = event.edges?.length || 0;
+                    if (event.centerEntity?.id) {
+                        document.getElementById('kgStatCenter').textContent = event.centerEntity.id;
+                    }
+                    break;
+                }
+                case 'kg_traversal_end': {
+                    document.getElementById('kgStatNodes').textContent = event.totalNodes || 0;
+                    document.getElementById('kgStatEdges').textContent = event.totalEdges || 0;
+                    frame.contentWindow?.postMessage({
+                        type: 'set_narration',
+                        text: 'Traversal complete: ' + (event.totalNodes || 0) + ' Nodes, ' + (event.totalEdges || 0) + ' Edges'
+                    }, '*');
+                    break;
+                }
+                case 'kg_highlight': {
+                    frame.contentWindow?.postMessage({
+                        type: 'highlight_nodes',
+                        nodeIds: event.nodeIds || [],
+                        color: event.color || '#22c55e',
+                        label: event.specialistName || ''
+                    }, '*');
+                    break;
+                }
+                case 'kg_path_highlight': {
+                    frame.contentWindow?.postMessage({
+                        type: 'highlight_path',
+                        from: event.from || '',
+                        to: event.to || ''
+                    }, '*');
+                    break;
+                }
+            }
+        }
+
+        function toggleKgVisualizer() {
+            const frame = document.getElementById('kgVisualizerFrame');
+            const btn = document.getElementById('kgCollapseBtn');
+
+            if (frame.style.display === 'none') {
+                frame.style.display = 'block';
+                btn.textContent = 'Collapse';
+            } else {
+                frame.style.display = 'none';
+                btn.textContent = 'Expand';
+            }
+        }
+
+        // Listen for messages from KG visualizer iframe
+        window.addEventListener('message', function(evt) {
+            const msg = evt.data;
+            if (!msg || !msg.type) return;
+            if (msg.type === 'node_clicked') {
+                console.log('[KG] Node clicked:', msg.nodeId, msg.nodeType);
+            } else if (msg.type === 'visualization_ready') {
+                console.log('[KG] Visualizer ready');
+            } else if (msg.type === 'visualization_complete') {
+                console.log('[KG] Visualization complete:', msg.stats);
+            }
+        });
+
+        // ═══════════════════════════════════════════════════════
+        // Impact Analysis Modal
+        // ═══════════════════════════════════════════════════════
+
+        const impactScenarios = {
+            machine_down: { label: 'Maschine faellt aus', entityType: 'machine', hasDays: true, maxDays: 30, defaultDays: 5 },
+            material_shortage: { label: 'Material-Engpass', entityType: 'material', hasDays: true, maxDays: 60, defaultDays: 14 },
+            supplier_down: { label: 'Lieferant faellt aus', entityType: 'supplier', hasDays: true, maxDays: 90, defaultDays: 30 },
+            customer_rush: { label: 'Kunde zieht vor', entityType: 'customer', hasDays: true, maxDays: 14, defaultDays: 5 },
+            tool_wear: { label: 'Werkzeug-Verschleiss', entityType: 'machine', hasDays: false },
+            quality_issue: { label: 'Qualitaetsproblem', entityType: 'article', hasDays: false },
+            rush_order: { label: 'Sonderauftrag (Rush)', entityType: 'article', hasDays: true, maxDays: 30, defaultDays: 5, hasQty: true },
+        };
+
+        function openImpactModal(preselect) {
+            const modal = document.getElementById('impactModal');
+            const select = document.getElementById('impactScenarioSelect');
+
+            if (preselect && impactScenarios[preselect]) {
+                select.value = preselect;
+            }
+
+            updateImpactForm();
+            loadImpactEntities();
+            modal.classList.add('open');
+        }
+
+        function closeImpactModal() {
+            document.getElementById('impactModal').classList.remove('open');
+        }
+
+        function updateImpactForm() {
+            const scenarioId = document.getElementById('impactScenarioSelect').value;
+            const config = impactScenarios[scenarioId];
+            if (!config) return;
+
+            const daysGroup = document.getElementById('impactDaysGroup');
+            const qtyGroup = document.getElementById('impactQtyGroup');
+            const daysRange = document.getElementById('impactDaysRange');
+            const daysValue = document.getElementById('impactDaysValue');
+
+            if (config.hasDays) {
+                daysGroup.style.display = 'block';
+                daysRange.max = config.maxDays || 30;
+                daysRange.value = config.defaultDays || 5;
+                daysValue.textContent = daysRange.value;
+            } else {
+                daysGroup.style.display = 'none';
+            }
+
+            qtyGroup.style.display = config.hasQty ? 'block' : 'none';
+        }
+
+        async function loadImpactEntities() {
+            const scenarioId = document.getElementById('impactScenarioSelect').value;
+            const entitySelect = document.getElementById('impactEntitySelect');
+            entitySelect.innerHTML = '<option value="">Laden...</option>';
+
+            try {
+                const res = await fetch('/api/impact/entities?scenario=' + scenarioId);
+                const data = await res.json();
+
+                entitySelect.innerHTML = '';
+                if (data.entities && data.entities.length > 0) {
+                    for (const entity of data.entities) {
+                        const opt = document.createElement('option');
+                        opt.value = entity.id;
+                        opt.textContent = entity.label || entity.id;
+                        entitySelect.appendChild(opt);
+                    }
+                } else {
+                    entitySelect.innerHTML = '<option value="">Keine Entities gefunden</option>';
+                }
+            } catch (err) {
+                console.error('[Impact] Failed to load entities:', err);
+                entitySelect.innerHTML = '<option value="">Fehler beim Laden</option>';
+            }
+        }
+
+        function startImpactAnalysis() {
+            const scenarioId = document.getElementById('impactScenarioSelect').value;
+            const entityId = document.getElementById('impactEntitySelect').value;
+            const config = impactScenarios[scenarioId];
+
+            if (!entityId) {
+                alert('Bitte eine Entity auswaehlen');
+                return;
+            }
+
+            const params = { scenarioId: scenarioId, entityId: entityId };
+            if (config && config.hasDays) {
+                params.days = parseInt(document.getElementById('impactDaysRange').value);
+            }
+            if (config && config.hasQty) {
+                params.qty = parseInt(document.getElementById('impactQtyInput').value);
+                params.deadlineDays = parseInt(document.getElementById('impactDaysRange').value);
+            }
+
+            closeImpactModal();
+            executeAgent('impact-analysis', params);
+        }
+
+        // Impact Modal Event Listeners
+        document.getElementById('impactCancel').addEventListener('click', closeImpactModal);
+        document.getElementById('impactStart').addEventListener('click', startImpactAnalysis);
+        document.getElementById('impactScenarioSelect').addEventListener('change', function() {
+            updateImpactForm();
+            loadImpactEntities();
+        });
+        document.getElementById('impactDaysRange').addEventListener('input', function(e) {
+            document.getElementById('impactDaysValue').textContent = e.target.value;
+        });
+        document.getElementById('impactModal').addEventListener('click', function(e) {
+            if (e.target === e.currentTarget) closeImpactModal();
+        });
+
+        // === START ===
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v7.7.4</div></body>
+</html>

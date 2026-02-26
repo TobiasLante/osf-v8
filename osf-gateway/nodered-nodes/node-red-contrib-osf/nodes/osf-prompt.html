@@ -1,0 +1,40 @@
+<script type="text/javascript">
+  RED.nodes.registerType('osf-prompt', {
+    category: 'OSF',
+    color: '#FF9800',
+    defaults: {
+      name: { value: '' },
+      prompt: { value: 'Analyze the following:\n\n{{input}}', required: true },
+      tier: { value: 'free' }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-comment',
+    label: function() {
+      return this.name || 'LLM Prompt';
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="osf-prompt">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-prompt"><i class="fa fa-comment"></i> Prompt</label>
+    <textarea id="node-input-prompt" rows="8" style="width:100%;font-family:monospace" placeholder="Use {{input}} for previous node output"></textarea>
+  </div>
+  <div class="form-row">
+    <label for="node-input-tier"><i class="fa fa-star"></i> Model Tier</label>
+    <select id="node-input-tier" style="width:70%">
+      <option value="free">Free (Fast)</option>
+      <option value="premium">Premium (Powerful)</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="osf-prompt">
+  <p>Sends a prompt to the LLM. Use <code>{{input}}</code> as a placeholder
+  for the output from the previous node.</p>
+</script>
