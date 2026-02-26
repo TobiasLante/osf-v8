@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -6,15 +6,26 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json* ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+# ─── Production image ─────────────────────────────────────────────────────
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-# Clean up build tools to reduce image size
 RUN apk del python3 make g++
 
-COPY dist/ ./dist/
+COPY --from=builder /app/dist ./dist/
 COPY nodered-nodes/ ./nodered-nodes/
 
-# Create writable tmp dir and set ownership
 RUN mkdir -p /tmp && chown -R 1000:3000 /app /tmp
 
 EXPOSE 8080

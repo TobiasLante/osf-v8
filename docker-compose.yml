@@ -13,7 +13,7 @@ services:
   gateway:
     build:
       context: ./osf-gateway
-      dockerfile: Dockerfile.gateway
+      dockerfile: Dockerfile
     container_name: v7-gateway
     restart: unless-stopped
     ports:
