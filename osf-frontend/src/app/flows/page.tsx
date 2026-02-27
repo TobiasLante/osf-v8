@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { apiFetch } from '@/lib/api';
 import { Header } from '@/components/Header';
@@ -90,12 +91,12 @@ export default function FlowsPage() {
             <h1 className="text-3xl font-bold text-text">Flows <span className="text-xs font-mono text-text-dim align-super">v{process.env.NEXT_PUBLIC_FLOWS_VERSION}</span></h1>
             <p className="text-text-muted mt-1">Design and run visual multi-agent workflows with Node-RED</p>
           </div>
-          <a
+          <Link
             href="/flows/editor"
             className="bg-accent text-bg px-5 py-2.5 rounded-sm font-medium hover:bg-accent-hover transition-colors"
           >
             New Flow
-          </a>
+          </Link>
         </div>
 
         {/* Templates section */}
@@ -144,12 +145,12 @@ export default function FlowsPage() {
               Create your first visual workflow by connecting agents, prompts, and tools in the Node-RED editor.
               {templates.length > 0 && ' Or install a template above to get started quickly.'}
             </p>
-            <a
+            <Link
               href="/flows/editor"
               className="inline-block bg-accent text-bg px-6 py-2.5 rounded-sm font-medium hover:bg-accent-hover transition-colors"
             >
               Open Flow Editor
-            </a>
+            </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

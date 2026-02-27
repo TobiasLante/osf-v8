@@ -10,6 +10,7 @@ export function generateStaticParams() {
   ];
 }
 
-export default function ChainDetailPage({ params }: { params: { id: string } }) {
-  return <ChainDetailClient id={params.id} />;
+export default async function ChainDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <ChainDetailClient id={id} />;
 }

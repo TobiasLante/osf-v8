@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
 
 interface LlmSettings {
@@ -156,12 +157,12 @@ export function LlmTab() {
               >
                 Claude Code Docs
               </a>
-              <a
+              <Link
                 href="/agents/code/new"
                 className="text-text-muted text-sm hover:text-text transition-colors"
               >
                 Deploy Code Agent
-              </a>
+              </Link>
             </div>
           </div>
         </div>

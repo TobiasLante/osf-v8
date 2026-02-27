@@ -6,6 +6,7 @@ export function generateStaticParams() {
   return [{ id: "placeholder" }];
 }
 
-export default function FlowDetailPage({ params }: { params: { id: string } }) {
-  return <FlowDetailClient id={params.id} />;
+export default async function FlowDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <FlowDetailClient id={id} />;
 }

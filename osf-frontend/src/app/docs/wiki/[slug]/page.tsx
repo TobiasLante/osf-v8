@@ -5,6 +5,7 @@ export function generateStaticParams() {
   return getAllSlugs().map((slug) => ({ slug }));
 }
 
-export default function WikiPage({ params }: { params: { slug: string } }) {
-  return <WikiPageClient slug={params.slug} />;
+export default async function WikiPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  return <WikiPageClient slug={slug} />;
 }

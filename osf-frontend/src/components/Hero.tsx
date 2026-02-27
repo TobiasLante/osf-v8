@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export function Hero() {
   return (
     <section className="relative min-h-screen flex items-center justify-center px-6">
@@ -20,18 +22,18 @@ export function Hero() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-slide-up" style={{ animationDelay: "0.2s" }}>
-          <a
+          <Link
             href="/register"
             className="px-8 py-4 rounded-md bg-accent-gradient text-bg font-semibold text-sm shadow-[0_4px_24px_rgba(255,149,0,0.35)] hover:shadow-[0_8px_40px_rgba(255,149,0,0.45)] hover:-translate-y-0.5 transition-all"
           >
             Try the Playground &rarr;
-          </a>
-          <a
+          </Link>
+          <Link
             href="/challenges"
             className="px-8 py-4 rounded-md border border-border bg-bg-surface text-text-muted text-sm hover:border-accent/25 hover:text-text hover:-translate-y-0.5 transition-all"
           >
             View Challenges &rarr;
-          </a>
+          </Link>
         </div>
       </div>
     </section>
