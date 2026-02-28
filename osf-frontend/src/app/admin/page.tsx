@@ -38,7 +38,28 @@ interface BannerState {
   active: boolean;
 }
 
-type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods";
+interface ActivityData {
+  user_id: string;
+  user_email: string;
+  user_name: string | null;
+  period: string;
+  total_minutes: number;
+  session_count: number;
+}
+
+interface ActivityTotals {
+  period: string;
+  total_minutes: number;
+  active_users: number;
+}
+
+interface ActivityResponse {
+  granularity: "daily" | "weekly" | "monthly";
+  data: ActivityData[];
+  totals: ActivityTotals[];
+}
+
+type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -74,7 +95,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "users", "stats", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -84,7 +105,7 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {t === "health" ? "Health" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
           </button>
         ))}
       </div>
@@ -92,6 +113,7 @@ export default function AdminPage() {
       {tab === "health" && <HealthTab onNavigate={setTab} />}
       {tab === "users" && <UsersTab />}
       {tab === "stats" && <StatsTab />}
+      {tab === "activity" && <ActivityTab />}
       {tab === "news" && <NewsTab />}
       {tab === "banner" && <BannerTab />}
       {tab === "infra" && <InfraTab />}
@@ -622,6 +644,243 @@ function StatCard({ label, value }: { label: string; value: number }) {
     <div className="bg-surface border border-border rounded-lg p-4">
       <div className="text-2xl font-bold text-text">{value}</div>
       <div className="text-sm text-text-muted">{label}</div>
+    </div>
+  );
+}
+
+// ─── Activity Tab ──────────────────────────────────────────────────────────
+
+function ActivityTab() {
+  const [data, setData] = useState<ActivityResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [preset, setPreset] = useState<"7d" | "30d" | "3mo" | "1y" | "custom">("7d");
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const applyPreset = useCallback((p: "7d" | "30d" | "3mo" | "1y") => {
+    setPreset(p);
+    const now = new Date();
+    const to = now.toISOString().slice(0, 10);
+    let from: string;
+    if (p === "7d") {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      from = d.toISOString().slice(0, 10);
+    } else if (p === "30d") {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      from = d.toISOString().slice(0, 10);
+    } else if (p === "3mo") {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 3);
+      from = d.toISOString().slice(0, 10);
+    } else {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() - 1);
+      from = d.toISOString().slice(0, 10);
+    }
+    setFromDate(from);
+    setToDate(to);
+  }, []);
+
+  const fetchActivity = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/admin/activity?from=${fromDate}&to=${toDate}`);
+      if (!res.ok) throw new Error("Failed to fetch activity");
+      const json = await res.json();
+      setData(json);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate]);
+
+  useEffect(() => {
+    fetchActivity();
+  }, [fetchActivity]);
+
+  // Aggregate per-user totals across all periods
+  const userTotals = data
+    ? Object.values(
+        data.data.reduce(
+          (acc, row) => {
+            if (!acc[row.user_id]) {
+              acc[row.user_id] = {
+                user_id: row.user_id,
+                user_email: row.user_email,
+                user_name: row.user_name,
+                total_minutes: 0,
+                session_count: 0,
+              };
+            }
+            acc[row.user_id].total_minutes += row.total_minutes;
+            acc[row.user_id].session_count += row.session_count;
+            return acc;
+          },
+          {} as Record<string, { user_id: string; user_email: string; user_name: string | null; total_minutes: number; session_count: number }>
+        )
+      ).sort((a, b) => b.total_minutes - a.total_minutes)
+    : [];
+
+  const totalMinutes = userTotals.reduce((s, u) => s + u.total_minutes, 0);
+  const totalSessions = userTotals.reduce((s, u) => s + u.session_count, 0);
+  const maxMinutes = userTotals.length > 0 ? userTotals[0].total_minutes : 1;
+
+  function fmtTime(mins: number): string {
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Date range controls */}
+      <div className="flex flex-wrap items-center gap-3">
+        {(["7d", "30d", "3mo", "1y"] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => applyPreset(p)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+              preset === p
+                ? "bg-accent/10 border-accent text-accent"
+                : "border-border text-text-muted hover:text-text hover:border-accent/25"
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+        <div className="flex items-center gap-2 ml-2">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => { setPreset("custom"); setFromDate(e.target.value); }}
+            className="px-2 py-1 text-xs bg-bg-surface border border-border rounded text-text"
+          />
+          <span className="text-text-muted text-xs">to</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => { setPreset("custom"); setToDate(e.target.value); }}
+            className="px-2 py-1 text-xs bg-bg-surface border border-border rounded text-text"
+          />
+        </div>
+        {data && (
+          <span className="ml-auto px-2 py-1 text-xs rounded bg-accent/10 text-accent font-medium">
+            {data.granularity.charAt(0).toUpperCase() + data.granularity.slice(1)}
+          </span>
+        )}
+      </div>
+
+      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {loading && <p className="text-text-muted text-sm">Loading activity data...</p>}
+
+      {data && !loading && (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-bg-surface border border-border rounded-lg p-4">
+              <div className="text-text-muted text-xs mb-1">Total Time</div>
+              <div className="text-xl font-bold text-text">{fmtTime(totalMinutes)}</div>
+            </div>
+            <div className="bg-bg-surface border border-border rounded-lg p-4">
+              <div className="text-text-muted text-xs mb-1">Active Users</div>
+              <div className="text-xl font-bold text-text">{userTotals.length}</div>
+            </div>
+            <div className="bg-bg-surface border border-border rounded-lg p-4">
+              <div className="text-text-muted text-xs mb-1">Avg Session</div>
+              <div className="text-xl font-bold text-text">
+                {totalSessions > 0 ? fmtTime(totalMinutes / totalSessions) : "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* Per-period totals bar chart */}
+          {data.totals.length > 0 && (
+            <div className="bg-bg-surface border border-border rounded-lg p-4">
+              <h3 className="text-sm font-medium text-text-muted mb-3">Activity Over Time</h3>
+              <div className="space-y-1">
+                {data.totals
+                  .slice()
+                  .sort((a, b) => a.period.localeCompare(b.period))
+                  .map((t, i) => {
+                    const maxTotalMin = Math.max(...data.totals.map((x) => x.total_minutes), 1);
+                    const pct = (t.total_minutes / maxTotalMin) * 100;
+                    return (
+                      <div key={i} className="flex items-center gap-3 text-xs">
+                        <span className="text-text-muted w-24 shrink-0">
+                          {new Date(t.period).toLocaleDateString()}
+                        </span>
+                        <div className="flex-1 h-5 bg-bg rounded-sm overflow-hidden">
+                          <div
+                            className="h-full bg-accent/30 rounded-sm"
+                            style={{ width: `${Math.max(pct, 2)}%` }}
+                          />
+                        </div>
+                        <span className="text-text w-16 text-right">{fmtTime(t.total_minutes)}</span>
+                        <span className="text-text-dim w-20 text-right">{t.active_users} user{t.active_users !== 1 ? "s" : ""}</span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Per-user table */}
+          <div className="bg-bg-surface border border-border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-text-muted">
+                  <th className="px-4 py-2 font-medium">User</th>
+                  <th className="px-4 py-2 font-medium text-right">Total Time</th>
+                  <th className="px-4 py-2 font-medium text-right">Sessions</th>
+                  <th className="px-4 py-2 font-medium text-right">Avg Session</th>
+                  <th className="px-4 py-2 font-medium" style={{ width: "30%" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {userTotals.map((u) => (
+                  <tr key={u.user_id} className="border-b border-border/50 hover:bg-bg/50">
+                    <td className="px-4 py-2">
+                      <div className="text-text text-sm">{u.user_name || u.user_email}</div>
+                      {u.user_name && (
+                        <div className="text-text-dim text-xs">{u.user_email}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right text-text">{fmtTime(u.total_minutes)}</td>
+                    <td className="px-4 py-2 text-right text-text">{u.session_count}</td>
+                    <td className="px-4 py-2 text-right text-text">
+                      {u.session_count > 0 ? fmtTime(u.total_minutes / u.session_count) : "—"}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="h-3 bg-bg rounded-sm overflow-hidden">
+                        <div
+                          className="h-full bg-accent/40 rounded-sm"
+                          style={{ width: `${(u.total_minutes / maxMinutes) * 100}%` }}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {userTotals.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-center text-text-dim text-sm">
+                      No activity data for this period
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
