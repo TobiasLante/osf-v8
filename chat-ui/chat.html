@@ -3559,7 +3559,9 @@ ${status} **${otd}%**
 
         function renderMarkdown(text) {
             if (!text) return '';
-            return text
+            // Escape HTML first to prevent XSS via LLM responses
+            let escaped = escapeHtml(text);
+            return escaped
                 .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
                 .replace(/`([^`]+)`/g, '<code>$1</code>')
                 .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -3567,7 +3569,12 @@ ${status} **${otd}%**
                 .replace(/^### (.+)$/gm, '<h3>$1</h3>')
                 .replace(/^## (.+)$/gm, '<h2>$1</h2>')
                 .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="report-link">$1</a>')
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+                    if (/^https?:\/\//i.test(url)) {
+                        return `<a href="${url}" target="_blank" rel="noopener" class="report-link">${label}</a>`;
+                    }
+                    return `${label} (${url})`;
+                })
                 .replace(/^\|(.+)\|$/gm, (match) => {
                     const cells = match.split('|').filter(c => c.trim());
                     if (cells.every(c => c.trim().match(/^[-:]+$/))) return '';

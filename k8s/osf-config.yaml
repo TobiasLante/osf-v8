@@ -12,8 +12,13 @@ data:
   # Gateway
   GATEWAY_HOST: "0.0.0.0"
   GATEWAY_PORT: "8012"
+  PORT: "8012"
 
-  # Databases (PostgreSQL on 192.168.178.150)
+  # Gateway User DB (osf-postgres in-cluster)
+  DB_HOST: "osf-postgres"
+  DB_PORT: "5432"
+
+  # Factory Databases (PostgreSQL on 192.168.178.150)
   FACTORY_DB_HOST: "192.168.178.150"
   FACTORY_DB_PORT: "30432"
   FACTORY_DB_NAME: "bigdata_homelab"

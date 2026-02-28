@@ -95,13 +95,22 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     }
   }
 
-  // SSE headers (explicit CORS for proxies/browsers that need it on the stream response)
+  // SSE headers (explicit CORS — validate origin against whitelist)
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   const origin = req.headers.origin;
-  if (origin) {
+  const EXTRA_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').filter(Boolean);
+  const SSE_ALLOWED_ORIGINS = new Set([
+    'https://openshopfloor.zeroguess.ai',
+    'https://osf-api.zeroguess.ai',
+    'https://demo.zeroguess.ai',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    ...EXTRA_ORIGINS,
+  ]);
+  if (origin && SSE_ALLOWED_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }

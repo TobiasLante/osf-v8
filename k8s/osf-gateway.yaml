@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: gateway
-        image: 192.168.178.150:32000/osf-gateway:v8
+        image: 192.168.178.150:32000/osf-gateway:1.2.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8012
@@ -30,6 +30,16 @@ spec:
         - configMapRef:
             name: osf-config
         env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: db-password
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: jwt-secret
         - name: FACTORY_DB_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -90,7 +100,7 @@ spec:
           timeoutSeconds: 5
 
 ---
-# Gateway Service — ClusterIP (CF Tunnel handles external access)
+# Gateway Service — NodePort for LAN access + CF Tunnel
 apiVersion: v1
 kind: Service
 metadata:
@@ -99,9 +109,11 @@ metadata:
   labels:
     app: osf-gateway
 spec:
+  type: NodePort
   selector:
     app: osf-gateway
   ports:
   - name: http
     port: 8012
     targetPort: 8012
+    nodePort: 30880

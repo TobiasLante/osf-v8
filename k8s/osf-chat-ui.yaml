@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: chat-ui
-        image: 192.168.178.150:32000/osf-chat-ui:v8
+        image: 192.168.178.150:32000/osf-chat-ui:8.1.0
         imagePullPolicy: Always
         ports:
         - containerPort: 80
