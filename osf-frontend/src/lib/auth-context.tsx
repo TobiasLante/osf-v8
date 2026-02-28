@@ -29,11 +29,13 @@ const AuthContext = createContext<AuthContextType | null>(null);
 async function refreshAccessToken(): Promise<boolean> {
   try {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai";
+    const storedRefresh = typeof window !== "undefined" ? localStorage.getItem(LS_REFRESH_TOKEN) : null;
+    if (!storedRefresh) return false;
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ refreshToken: storedRefresh }),
     });
     if (!res.ok) return false;
     const data = await res.json();

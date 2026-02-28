@@ -13,12 +13,15 @@ let isRefreshing = false;
 async function tryRefreshToken(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
 
+  const storedRefresh = localStorage.getItem(LS_REFRESH_TOKEN);
+  if (!storedRefresh) return false;
+
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ refreshToken: storedRefresh }),
     });
     if (!res.ok) return false;
     const data = await res.json();
@@ -35,7 +38,11 @@ function forceLogout() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_REFRESH_TOKEN);
-  window.location.href = '/login';
+  // Don't redirect if already on login/register/public pages to avoid infinite loop
+  const path = window.location.pathname;
+  if (!['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/'].includes(path)) {
+    window.location.href = '/login';
+  }
 }
 
 export async function apiFetch<T = any>(
