@@ -2275,7 +2275,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge">v7.7.4</span>
+                    <span class="version-badge">v8.0.0</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -3813,8 +3813,8 @@ ${status} **${otd}%**
                             const displayName = sr.domain || sr.name || '?';
                             const status = sr.status === 'error' ? '❌ Fehler' : (sr.report ? '✓' : '⚠ Keine Daten');
                             const summary = sr.report?.zahlenDatenFakten
-                                ? sr.report.zahlenDatenFakten.substring(0, 200)
-                                : (sr.error ? sr.error.substring(0, 100) : 'Keine Analyse');
+                                ? String(sr.report.zahlenDatenFakten).substring(0, 200)
+                                : (sr.error ? String(sr.error).substring(0, 100) : 'Keine Analyse');
                             const msg = document.createElement('div');
                             msg.className = 'discussion-message specialist';
                             msg.innerHTML = `
@@ -4106,7 +4106,7 @@ body { padding: 0; }
                 const empfCount = r.empfehlungen?.length || 0;
                 if (findingCount || empfCount) metaItems.push(`${findingCount} Findings, ${empfCount} Empfehlungen`);
             }
-            if (spec.error) metaItems.push(`Fehler: ${spec.error.substring(0, 50)}`);
+            if (spec.error) metaItems.push(`Fehler: ${String(spec.error).substring(0, 50)}`);
 
             const metaEl = card.querySelector('.specialist-card-meta');
             if (metaItems.length > 0) {
@@ -4549,6 +4549,18 @@ body { padding: 0; }
             const cards = document.getElementById('specialistCards');
             if (cards) cards.innerHTML = '';
             updateSpecialistProgress();
+
+            // Reset KG visualizer
+            const kgContainer = document.getElementById('kgVisualizerContainer');
+            if (kgContainer) kgContainer.classList.remove('active');
+            const kgFrame = document.getElementById('kgVisualizerFrame');
+            if (kgFrame) kgFrame.src = '';
+            const kgNodes = document.getElementById('kgStatNodes');
+            if (kgNodes) kgNodes.textContent = '0';
+            const kgEdges = document.getElementById('kgStatEdges');
+            if (kgEdges) kgEdges.textContent = '0';
+            const kgCenter = document.getElementById('kgStatCenter');
+            if (kgCenter) kgCenter.textContent = '—';
         }
 
 
@@ -4763,5 +4775,5 @@ body { padding: 0; }
         // === START ===
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v7.7.4</div></body>
+<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v8.0.0</div></body>
 </html>

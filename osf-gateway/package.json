@@ -1,6 +1,6 @@
 {
   "name": "osf-gateway",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "OpenShopFloor API Gateway — Auth, Chat, Agent Runner, MCP Proxy",
   "main": "dist/index.js",
   "scripts": {

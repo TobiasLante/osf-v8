@@ -170,7 +170,41 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
 
           res.write(`data: ${JSON.stringify({ type: 'tool_start', name: toolName, arguments: toolArgs })}\n\n`);
 
+          // Emit KG traversal start for knowledge graph tools
+          if (toolName.startsWith('kg_')) {
+            res.write(`data: ${JSON.stringify({
+              type: 'kg_traversal_start',
+              timestamp: new Date().toISOString(),
+              scenarioName: toolName.replace('kg_', '').replace(/_/g, ' '),
+              entityId: (toolArgs as any).entity_id || (toolArgs as any).machine_id || (toolArgs as any).order_id || '',
+            })}\n\n`);
+          }
+
           const result = await callMcpTool(toolName, toolArgs);
+
+          // Emit KG traversal results for knowledge graph tools
+          if (toolName.startsWith('kg_')) {
+            try {
+              const parsed = JSON.parse(result);
+              const nodes = parsed.nodes || parsed.affected_nodes || parsed.path || [];
+              const edges = parsed.edges || parsed.relationships || parsed.connections || [];
+              if (nodes.length > 0 || edges.length > 0) {
+                res.write(`data: ${JSON.stringify({
+                  type: 'kg_nodes_discovered',
+                  timestamp: new Date().toISOString(),
+                  nodes: Array.isArray(nodes) ? nodes.map((n: any) => ({ id: n.id || n.node_id || n, type: n.type || n.label || 'node', label: n.name || n.label || n.id || String(n) })) : [],
+                  edges: Array.isArray(edges) ? edges.map((e: any) => ({ source: e.source || e.from, target: e.target || e.to, type: e.type || e.relation || 'related' })) : [],
+                  centerEntity: { id: (toolArgs as any).entity_id || (toolArgs as any).machine_id || (toolArgs as any).order_id || toolName },
+                })}\n\n`);
+              }
+              res.write(`data: ${JSON.stringify({
+                type: 'kg_traversal_end',
+                timestamp: new Date().toISOString(),
+                totalNodes: Array.isArray(nodes) ? nodes.length : 0,
+                totalEdges: Array.isArray(edges) ? edges.length : 0,
+              })}\n\n`);
+            } catch { /* result not JSON, skip KG events */ }
+          }
 
           res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 

@@ -692,9 +692,7 @@ function ActivityTab() {
     setLoading(true);
     setError("");
     try {
-      const res = await apiFetch(`/admin/activity?from=${fromDate}&to=${toDate}`);
-      if (!res.ok) throw new Error("Failed to fetch activity");
-      const json = await res.json();
+      const json = await apiFetch(`/admin/activity?from=${fromDate}&to=${toDate}`);
       setData(json);
     } catch (err: any) {
       setError(err.message);
