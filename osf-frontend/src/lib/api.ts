@@ -68,23 +68,30 @@ export async function apiFetch<T = any>(
 
   // On 401, try to refresh the token once, then retry
   if (res.status === 401 && !isRefreshing) {
-    isRefreshing = true;
-    const refreshed = await tryRefreshToken();
-    isRefreshing = false;
+    const hasRefreshToken = typeof window !== 'undefined' && !!localStorage.getItem(LS_REFRESH_TOKEN);
 
-    if (refreshed) {
-      // Retry with cookies (and updated localStorage fallback)
-      const retryHeaders = { ...headers };
-      const newToken = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-      if (newToken) retryHeaders['Authorization'] = `Bearer ${newToken}`;
+    if (hasRefreshToken) {
+      isRefreshing = true;
+      const refreshed = await tryRefreshToken();
+      isRefreshing = false;
 
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders, credentials: 'include' });
-      if (retry.ok) return retry.json();
+      if (refreshed) {
+        // Retry with cookies (and updated localStorage fallback)
+        const retryHeaders = { ...headers };
+        const newToken = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+        if (newToken) retryHeaders['Authorization'] = `Bearer ${newToken}`;
+
+        const retry = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders, credentials: 'include' });
+        if (retry.ok) return retry.json();
+      }
+
+      // Had a refresh token but it failed — session truly expired
+      forceLogout();
+      throw new ApiError(401, 'Session expired');
     }
 
-    // Refresh failed or retry failed — force logout
-    forceLogout();
-    throw new ApiError(401, 'Session expired');
+    // No refresh token at all — just not logged in, don't force logout
+    throw new ApiError(401, 'Not authenticated');
   }
 
   if (!res.ok) {
