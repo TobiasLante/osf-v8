@@ -61,7 +61,7 @@ const BUILT_IN_CHAINS: ChainDef[] = [
     name: 'Nightly Review',
     description: 'Comprehensive nightly review: strategic planning, energy analysis, and quality audit.',
     steps: [
-      { agentId: 'strategic-planner', label: 'Strategic Review', passContext: true },
+      { agentId: 'capacity-agent', label: 'Capacity Review', passContext: true },
       { agentId: 'energy-optimizer', label: 'Energy Audit', passContext: true },
       { agentId: 'quality-guard', label: 'Quality Audit', passContext: true },
     ],

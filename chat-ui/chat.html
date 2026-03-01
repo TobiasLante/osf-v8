@@ -4586,7 +4586,7 @@ body { padding: 0; }
                         frame.src = '/kg-impact-visualizer.html';
                     }
                     setTimeout(() => {
-                        frame.contentWindow?.postMessage({ type: 'reset' }, '*');
+                        frame.contentWindow?.postMessage({ type: 'reset' }, window.location.origin);
                         frame.contentWindow?.postMessage({
                             type: 'set_narration',
                             text: (event.scenarioName || 'Impact') + ': ' + (event.entityId || '')
@@ -4652,6 +4652,8 @@ body { padding: 0; }
 
         // Listen for messages from KG visualizer iframe
         window.addEventListener('message', function(evt) {
+            // Only accept messages from same origin
+            if (evt.origin !== window.location.origin) return;
             const msg = evt.data;
             if (!msg || !msg.type) return;
             if (msg.type === 'node_clicked') {

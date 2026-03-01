@@ -4,6 +4,10 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAIL_FROM = process.env.EMAIL_FROM || 'OpenShopFloor <noreply@zeroguess.ai>';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://openshopfloor.zeroguess.ai';
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!RESEND_API_KEY) {
     logger.warn({ to, subject }, '[Email] No RESEND_API_KEY — logging email instead of sending');
@@ -37,7 +41,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
 
 export async function sendVerificationEmail(email: string, name: string | null, token: string): Promise<boolean> {
   const verifyUrl = `${FRONTEND_URL}/verify-email?token=${token}`;
-  const greeting = name ? `Hi ${name}` : 'Hi';
+  const greeting = name ? `Hi ${escapeHtml(name)}` : 'Hi';
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
@@ -55,7 +59,7 @@ export async function sendVerificationEmail(email: string, name: string | null, 
 
 export async function sendPasswordResetEmail(email: string, name: string | null, token: string): Promise<boolean> {
   const resetUrl = `${FRONTEND_URL}/reset-password?token=${token}`;
-  const greeting = name ? `Hi ${name}` : 'Hi';
+  const greeting = name ? `Hi ${escapeHtml(name)}` : 'Hi';
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">

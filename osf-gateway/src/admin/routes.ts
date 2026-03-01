@@ -199,6 +199,11 @@ router.get('/news', async (_req: Request, res: Response) => {
   }
 });
 
+// Strip HTML tags to prevent stored XSS
+function sanitizeHtml(str: string): string {
+  return str.replace(/<[^>]*>/g, '').trim();
+}
+
 // POST /admin/news — create news
 router.post('/news', async (req: Request, res: Response) => {
   try {
@@ -216,7 +221,7 @@ router.post('/news', async (req: Request, res: Response) => {
       `INSERT INTO news (title, content, author_id, author_name, published)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [title, content, req.user!.userId, authorName, published !== false]
+      [sanitizeHtml(title), sanitizeHtml(content), req.user!.userId, authorName, published !== false]
     );
 
     res.status(201).json({ news: result.rows[0] });
@@ -238,11 +243,11 @@ router.put('/news/:id', async (req: Request, res: Response) => {
 
     if (title !== undefined) {
       updates.push(`title = $${idx++}`);
-      values.push(title);
+      values.push(sanitizeHtml(title));
     }
     if (content !== undefined) {
       updates.push(`content = $${idx++}`);
-      values.push(content);
+      values.push(sanitizeHtml(content));
     }
     if (published !== undefined) {
       updates.push(`published = $${idx++}`);
@@ -310,15 +315,16 @@ router.put('/banner', async (req: Request, res: Response) => {
     // Upsert: update existing or insert new (single-row pattern)
     const existing = await pool.query('SELECT id FROM banner ORDER BY updated_at DESC LIMIT 1');
     let result;
+    const safeMessage = sanitizeHtml(message);
     if (existing.rows.length > 0) {
       result = await pool.query(
         `UPDATE banner SET message = $1, type = $2, active = $3, updated_at = NOW() WHERE id = $4 RETURNING *`,
-        [message, type || 'news', active ?? false, existing.rows[0].id]
+        [safeMessage, type || 'news', active ?? false, existing.rows[0].id]
       );
     } else {
       result = await pool.query(
         `INSERT INTO banner (message, type, active) VALUES ($1, $2, $3) RETURNING *`,
-        [message, type || 'news', active ?? false]
+        [safeMessage, type || 'news', active ?? false]
       );
     }
 

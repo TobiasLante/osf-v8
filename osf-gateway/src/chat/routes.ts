@@ -148,7 +148,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     const allToolCalls: any[] = [];
 
     for (let i = 0; i < 5; i++) {
-      const response = await callLlm(messages, tools, llmConfig);
+      const response = await callLlm(messages, tools, llmConfig, req.user!.userId);
 
       // If LLM returns tool calls
       if (response.tool_calls && response.tool_calls.length > 0) {

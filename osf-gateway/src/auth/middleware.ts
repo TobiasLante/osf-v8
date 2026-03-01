@@ -63,6 +63,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
+  // Try token query param (for EventSource/SSE which can't set headers)
+  const tokenParam = req.query?.token as string;
+  if (tokenParam) {
+    try {
+      req.user = verifyToken(tokenParam);
+      next();
+      return;
+    } catch {
+      // Fall through to cookie check
+    }
+  }
+
   // Try httpOnly access token cookie
   const accessCookie = req.cookies?.osf_access_token;
   if (accessCookie) {

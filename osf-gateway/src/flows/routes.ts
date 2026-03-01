@@ -353,7 +353,7 @@ router.get('/api/public', async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT uf.id, uf.name, uf.description, uf.icon, uf.category, uf.difficulty,
-              uf.created_at, uf.updated_at, u.name as author_name, u.email as author_email
+              uf.created_at, uf.updated_at, u.name as author_name
        FROM user_flows uf
        LEFT JOIN users u ON u.id = uf.user_id
        WHERE uf.is_public = true

@@ -134,7 +134,7 @@ router.get('/', (_req, res: Response) => {
 
 // GET /challenges/my-progress — Overall progress (requires auth)
 router.get('/my-progress', requireAuth, async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = (req as any).user.userId;
   const result = await pool.query(
     `SELECT challenge_id, MAX(score) as best_score,
             MAX(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
@@ -167,7 +167,7 @@ router.get('/leaderboard/:id', async (req: Request, res: Response) => {
   // Anonymize: show name or first part of email
   const leaderboard = result.rows.map((r, i) => ({
     rank: i + 1,
-    name: r.name || r.email.split('@')[0],
+    name: r.name || 'Anonymous',
     score: r.score,
     completed_at: r.completed_at,
   }));
@@ -186,7 +186,7 @@ router.get('/:id', (req, res: Response) => {
 
 // GET /challenges/:id/attempts — My attempts for a challenge (requires auth)
 router.get('/:id/attempts', requireAuth, async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = (req as any).user.userId;
   const result = await pool.query(
     'SELECT id, status, score, started_at, completed_at, metadata FROM challenge_attempts WHERE user_id = $1 AND challenge_id = $2 ORDER BY started_at DESC LIMIT 20',
     [userId, req.params.id]
@@ -199,7 +199,7 @@ router.post('/:id/start', requireAuth, async (req: Request, res: Response) => {
   const challenge = challenges.find(c => c.id === req.params.id);
   if (!challenge) { res.status(404).json({ error: 'Challenge not found' }); return; }
 
-  const userId = (req as any).user.id;
+  const userId = (req as any).user.userId;
 
   // Check if user already has an in_progress attempt for this challenge
   const existing = await pool.query(
@@ -220,7 +220,7 @@ router.post('/:id/start', requireAuth, async (req: Request, res: Response) => {
 
 // POST /challenges/:id/submit — Submit result (requires auth)
 router.post('/:id/submit', requireAuth, async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = (req as any).user.userId;
   const { score, metadata } = req.body;
 
   if (typeof score !== 'number' || score < 0 || score > 100) {

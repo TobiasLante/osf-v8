@@ -33,6 +33,50 @@ class Semaphore {
 const LLM_MAX_CONCURRENCY = parseInt(process.env.LLM_MAX_CONCURRENCY || '2', 10);
 const semaphores = new Map<string, Semaphore>();
 
+// ─── LLM Circuit Breaker ─────────────────────────────────────────────────────
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailure = 0;
+  private state: 'closed' | 'open' | 'half-open' = 'closed';
+  constructor(
+    private threshold: number = 3,
+    private resetTimeMs: number = 30_000 // 30s before half-open
+  ) {}
+
+  recordSuccess(): void {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailure = Date.now();
+    if (this.failures >= this.threshold) {
+      this.state = 'open';
+      logger.warn({ failures: this.failures }, 'LLM circuit breaker OPEN');
+    }
+  }
+
+  canAttempt(): boolean {
+    if (this.state === 'closed') return true;
+    if (this.state === 'open' && Date.now() - this.lastFailure > this.resetTimeMs) {
+      this.state = 'half-open';
+      return true; // Allow one probe request
+    }
+    return this.state === 'half-open';
+  }
+}
+
+const circuitBreakers = new Map<string, CircuitBreaker>();
+function getCircuitBreaker(baseUrl: string): CircuitBreaker {
+  let cb = circuitBreakers.get(baseUrl);
+  if (!cb) {
+    cb = new CircuitBreaker();
+    circuitBreakers.set(baseUrl, cb);
+  }
+  return cb;
+}
+
 function getSemaphore(baseUrl: string): Semaphore {
   let sem = semaphores.get(baseUrl);
   if (!sem) {
@@ -231,6 +275,12 @@ export async function callLlm(
     }
   }
 
+  // Circuit breaker check — fail fast if LLM is known-down
+  const cb = getCircuitBreaker(config.baseUrl);
+  if (!cb.canAttempt()) {
+    throw new Error('LLM server is temporarily unavailable (circuit breaker open). Please try again shortly.');
+  }
+
   const sem = getSemaphore(config.baseUrl);
   if (sem.pending > 0) {
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing request');
@@ -255,21 +305,29 @@ export async function callLlm(
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300_000);
+    const timeout = setTimeout(() => controller.abort(), 60_000); // 60s timeout (was 300s)
 
-    const resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let resp: globalThis.Response;
+    try {
+      resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      cb.recordFailure();
+      throw fetchErr;
+    }
     clearTimeout(timeout);
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => 'unknown');
+      if (resp.status >= 500) cb.recordFailure();
       throw new Error(`LLM error ${resp.status}: ${text.slice(0, 200)}`);
     }
 
+    cb.recordSuccess();
     const data: any = await resp.json();
     const choice = data.choices?.[0];
 

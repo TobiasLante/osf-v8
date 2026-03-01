@@ -4,12 +4,22 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
 
+// Validate at import time (startup) so we fail fast
+let _encryptionKey: Buffer | null = null;
+
 function getEncryptionKey(): Buffer {
+  if (_encryptionKey) return _encryptionKey;
   const key = process.env.LLM_ENCRYPTION_KEY;
   if (!key || key.length !== 64) {
     throw new Error('LLM_ENCRYPTION_KEY must be set as 64-char hex string');
   }
-  return Buffer.from(key, 'hex');
+  _encryptionKey = Buffer.from(key, 'hex');
+  return _encryptionKey;
+}
+
+/** Call at startup to validate encryption key is present */
+export function validateEncryptionKey(): void {
+  getEncryptionKey();
 }
 
 export function encryptApiKey(plaintext: string): string {

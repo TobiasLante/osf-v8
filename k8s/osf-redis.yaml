@@ -22,7 +22,14 @@ spec:
         image: redis:7-alpine
         ports:
         - containerPort: 6379
-        command: ["redis-server", "--appendonly", "yes"]
+        command: ["redis-server", "--appendonly", "yes", "--requirepass", "$(REDIS_PASSWORD)"]
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: redis-password
+              optional: true
         resources:
           requests:
             memory: "64Mi"

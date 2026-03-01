@@ -216,7 +216,7 @@ async function startNodeRed() {
       console: { level: 'warn' },
     },
     functionGlobalContext: {},
-    credentialSecret: process.env.NODE_RED_SECRET || 'osf-nodered-secret',
+    credentialSecret: process.env.NODE_RED_SECRET || require('crypto').randomUUID(),
     adminAuth: null,
   };
 

@@ -17,11 +17,11 @@ services:
     container_name: v7-gateway
     restart: unless-stopped
     ports:
-      - "8012:8012"
+      - "127.0.0.1:8012:8012"
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       GATEWAY_HOST: 0.0.0.0
-      GATEWAY_PORT: 8012
+      PORT: 8012
 
       # Databases (auf 192.168.178.150)
       FACTORY_DB_HOST: 192.168.178.150
@@ -81,7 +81,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -100,7 +100,7 @@ services:
     container_name: osf-frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     logging:
       driver: "json-file"
       options:
@@ -114,11 +114,9 @@ services:
     image: redis:7-alpine
     container_name: v7-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD required}"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -133,7 +131,7 @@ services:
     container_name: mqtt-explorer
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
 
 volumes:
   redis-data:

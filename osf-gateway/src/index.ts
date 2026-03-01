@@ -25,12 +25,16 @@ import internalApiRoutes from './nodered/internal-api';
 import { getLlmStatus } from './chat/llm-client';
 import unsRoutes from './uns/stream';
 import { requireAuth } from './auth/middleware';
+import { validateEncryptionKey } from './auth/crypto';
 
-const PORT = parseInt(process.env.PORT || '8080', 10);
+const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
 let nrPodManager: NrPodManager;
 
 async function main() {
+  // Validate critical env vars early
+  validateEncryptionKey();
+
   await initSchema();
 
   const app = express();
@@ -51,7 +55,16 @@ async function main() {
     frameguard: false,
   });
   const defaultHelmet = helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'https://openshopfloor.zeroguess.ai'],
+        frameAncestors: ["'none'"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
     permittedCrossDomainPolicies: false,
@@ -103,11 +116,11 @@ async function main() {
 
   // CORS
   const EXTRA_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').filter(Boolean);
+  const IS_PROD = process.env.NODE_ENV === 'production';
   const ALLOWED_ORIGINS = [
     'https://openshopfloor.zeroguess.ai',
     'https://osf-api.zeroguess.ai',
-    'http://localhost:3000',
-    'http://localhost:3001',
+    ...(IS_PROD ? [] : ['http://localhost:3000', 'http://localhost:3001']),
     ...EXTRA_ORIGINS,
   ];
   app.use(cors({
@@ -135,6 +148,7 @@ async function main() {
     // Skip safe methods and API-key auth
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     if (req.headers['x-api-key']) return next();
+    if (req.headers.authorization) return next();
 
     const origin = req.headers.origin;
     const referer = req.headers.referer;
@@ -147,11 +161,22 @@ async function main() {
 
     // If there's a referer but no origin, check referer
     if (!origin && referer) {
-      const refOrigin = new URL(referer).origin;
-      if (!ALLOWED_ORIGINS.includes(refOrigin)) {
-        res.status(403).json({ error: 'CSRF: Referer not allowed' });
+      try {
+        const refOrigin = new URL(referer).origin;
+        if (!ALLOWED_ORIGINS.includes(refOrigin)) {
+          res.status(403).json({ error: 'CSRF: Referer not allowed' });
+          return;
+        }
+      } catch {
+        res.status(403).json({ error: 'CSRF: Invalid referer' });
         return;
       }
+    }
+
+    // Block cookie-authenticated requests with neither origin nor referer
+    if (!origin && !referer && (req.cookies?.osf_access_token || req.cookies?.osf_editor_token)) {
+      res.status(403).json({ error: 'CSRF: Origin header required' });
+      return;
     }
 
     next();
@@ -230,9 +255,9 @@ async function main() {
     }
   }, 5 * 60 * 1000);
 
-  // GET /v7/llm-status — check if LLM server is online (public, no auth)
+  // GET /v7/llm-status — check if LLM server is online
   const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung:8888';
-  app.get('/v7/llm-status', async (_req, res) => {
+  app.get('/v7/llm-status', requireAuth, async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_BASE}/api/infrastructure/metrics?minutes=1`, {
         signal: AbortSignal.timeout(4000),
@@ -250,7 +275,7 @@ async function main() {
   });
 
   // GET /v7/agents — list available V7 agents
-  app.get('/v7/agents', async (_req, res) => {
+  app.get('/v7/agents', requireAuth, async (_req, res) => {
     try {
       const upstream = await fetch(`${V7_BASE}/api/agents`);
       const data = await upstream.json();
@@ -451,7 +476,7 @@ async function main() {
       const body = await upstream.text();
       res.send(body);
     } catch (err: any) {
-      logger.error({ err: err.message, path: apiPath }, 'V7-API proxy failed');
+      logger.error({ err: err.message, path: req.path }, 'V7-API proxy failed');
       res.status(502).json({ error: 'V7 gateway unreachable' });
     }
   });
@@ -519,8 +544,8 @@ main().catch((err) => {
   process.exit(1);
 });
 
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, starting graceful shutdown...');
+async function gracefulShutdown(signal: string) {
+  logger.info({ signal }, 'Shutdown signal received, starting graceful shutdown...');
 
   // 1. Stop accepting new flows
   runRegistry.stopAccepting();
@@ -557,4 +582,7 @@ process.on('SIGTERM', async () => {
   await pool.end();
   logger.info('Graceful shutdown complete');
   process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

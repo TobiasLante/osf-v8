@@ -54,6 +54,11 @@ export function GitHubTab() {
   const handleConnect = async () => {
     try {
       const data = await apiFetch<{ url: string }>('/code-agents/github/connect');
+      // Validate redirect URL to prevent open redirect
+      if (!data.url.startsWith('https://github.com/')) {
+        setMsg({ type: 'error', text: 'Invalid GitHub redirect URL' });
+        return;
+      }
       window.location.href = data.url;
     } catch (err: any) {
       setMsg({ type: 'error', text: err.message });

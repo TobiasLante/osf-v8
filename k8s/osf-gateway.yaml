@@ -70,6 +70,11 @@ spec:
             secretKeyRef:
               name: osf-secrets
               key: LANGFUSE_PUBLIC_KEY
+        - name: NR_POD_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: nr-pod-secret
         resources:
           requests:
             memory: "512Mi"
@@ -93,11 +98,19 @@ spec:
           timeoutSeconds: 5
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/ready
             port: 8012
           periodSeconds: 10
           failureThreshold: 3
           timeoutSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+              - ALL
 
 ---
 # Gateway Service — NodePort for LAN access + CF Tunnel
@@ -109,11 +122,10 @@ metadata:
   labels:
     app: osf-gateway
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: osf-gateway
   ports:
   - name: http
     port: 8012
     targetPort: 8012
-    nodePort: 30880

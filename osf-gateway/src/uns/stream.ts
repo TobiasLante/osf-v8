@@ -1,8 +1,12 @@
 import { Router, Request, Response } from 'express';
 import mqtt from 'mqtt';
 import { logger } from '../logger';
+import { requireAuth } from '../auth/middleware';
 
 const router = Router();
+
+// All UNS routes require authentication
+router.use(requireAuth);
 
 const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://192.168.178.150:31883';
 
@@ -71,7 +75,10 @@ router.get('/stream', (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.flushHeaders();
 
@@ -90,7 +97,7 @@ router.get('/stream', (req: Request, res: Response) => {
   subscribers.get(filter)!.add(cb);
 
   // Send initial connected event
-  res.write(`data: ${JSON.stringify({ type: 'connected', broker: MQTT_BROKER, filter })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: 'connected', filter })}\n\n`);
 
   // Cleanup on disconnect
   req.on('close', () => {

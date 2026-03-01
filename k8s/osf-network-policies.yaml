@@ -1,0 +1,111 @@
+# OSF v8 — Network Policies
+# Restrict inter-pod and egress traffic to minimum required
+---
+# Default deny all ingress in osf namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: osf
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+
+---
+# Gateway: allow ingress from cloudflared tunnel and frontend pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - port: 8012
+      protocol: TCP
+
+---
+# Redis: only allow ingress from gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-from-gateway
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - port: 6379
+      protocol: TCP
+
+---
+# Frontend: allow ingress on port 3000
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - port: 3000
+      protocol: TCP
+
+---
+# Chat-UI: allow ingress on port 80
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-chat-ui-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-chat-ui
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - port: 80
+      protocol: TCP
+
+---
+# NR pods: only allow ingress from gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nr-from-gateway
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      component: nodered
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - port: 1880
+      protocol: TCP

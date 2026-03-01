@@ -5,4 +5,10 @@ COPY chat-space.html /usr/share/nginx/html/chat-space.html
 COPY chat.html /usr/share/nginx/html/chat.html
 COPY chat_ts.html /usr/share/nginx/html/chat_ts.html
 COPY divachat.html /usr/share/nginx/html/divachat.html
+# Run as nginx user (UID 101) instead of root
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
+USER nginx
 EXPOSE 80

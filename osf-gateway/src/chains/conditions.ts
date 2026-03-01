@@ -25,8 +25,8 @@ const evaluators: Record<string, ConditionEvaluator> = {
       }
       return { met: false, reason: 'All machines above 85% OEE' };
     } catch (err: any) {
-      logger.warn({ err: err.message }, 'oee_below_85 condition check failed, defaulting to true');
-      return { met: true, reason: 'Could not check OEE, running as precaution' };
+      logger.warn({ err: err.message }, 'oee_below_85 condition check failed, skipping step');
+      return { met: false, reason: 'Could not check OEE — skipping to avoid running on invalid data' };
     }
   },
 
@@ -42,7 +42,7 @@ const evaluators: Record<string, ConditionEvaluator> = {
       }
       return { met: false, reason: 'No active SPC alarms' };
     } catch {
-      return { met: true, reason: 'Could not check alarms, running as precaution' };
+      return { met: false, reason: 'Could not check alarms — skipping' };
     }
   },
 
@@ -58,7 +58,7 @@ const evaluators: Record<string, ConditionEvaluator> = {
       }
       return { met: false, reason: 'No orders at risk' };
     } catch {
-      return { met: true, reason: 'Could not check orders, running as precaution' };
+      return { met: false, reason: 'Could not check orders — skipping' };
     }
   },
 
@@ -74,7 +74,7 @@ const evaluators: Record<string, ConditionEvaluator> = {
       }
       return { met: false, reason: 'No low stock items' };
     } catch {
-      return { met: true, reason: 'Could not check stock, running as precaution' };
+      return { met: false, reason: 'Could not check stock — skipping' };
     }
   },
 
@@ -100,8 +100,8 @@ export async function evaluateCondition(
 ): Promise<ConditionResult> {
   const evaluator = evaluators[conditionName];
   if (!evaluator) {
-    logger.warn({ condition: conditionName }, 'Unknown condition, defaulting to always');
-    return { met: true, reason: `Unknown condition "${conditionName}", running anyway` };
+    logger.warn({ condition: conditionName }, 'Unknown condition, skipping step');
+    return { met: false, reason: `Unknown condition "${conditionName}" — skipping` };
   }
   return evaluator(previousResult);
 }
