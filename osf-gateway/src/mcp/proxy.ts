@@ -3,7 +3,7 @@ import { requireAuth } from '../auth/middleware';
 import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
 
-const MCP_URL = process.env.MCP_URL || 'http://factory-v3-fertigung:8020';
+const MCP_URL = process.env.MCP_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020';
 
 const router = Router();
 

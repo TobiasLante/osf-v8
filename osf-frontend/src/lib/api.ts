@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefreshToken(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
@@ -50,7 +50,7 @@ export async function apiFetch<T = any>(
   options: RequestInit = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers as Record<string, string> || {}),
   };
 
@@ -67,23 +67,16 @@ export async function apiFetch<T = any>(
   });
 
   // On 401, try to refresh the token once, then retry
-  if (res.status === 401 && !isRefreshing) {
-    isRefreshing = true;
-    const refreshed = await tryRefreshToken();
-    isRefreshing = false;
-
-    if (refreshed) {
-      // Retry with cookies (and updated localStorage fallback)
-      const retryHeaders = { ...headers };
-      const newToken = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-      if (newToken) retryHeaders['Authorization'] = `Bearer ${newToken}`;
-
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders, credentials: 'include' });
-      if (retry.ok) return retry.json();
+  if (res.status === 401) {
+    if (!refreshPromise) {
+      refreshPromise = tryRefreshToken().finally(() => { refreshPromise = null; });
     }
-
-    // Refresh failed or retry failed — force logout (but not on public pages)
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      return apiFetch(path, options);
+    }
     forceLogout();
+    throw new ApiError(401, 'Session expired');
   }
 
   if (!res.ok) {
@@ -118,7 +111,9 @@ export function executeV7Agent(
   });
 
   // 1. Connect SSE first
-  eventSource = new EventSource(`${API_BASE}/v7/progress/${sessionId}`);
+  const sseToken = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+  const tokenParam = sseToken ? `?token=${encodeURIComponent(sseToken)}` : '';
+  eventSource = new EventSource(`${API_BASE}/v7/progress/${sessionId}${tokenParam}`);
 
   eventSource.addEventListener('progress', (e: MessageEvent) => {
     if (cancelled) return;
@@ -148,9 +143,11 @@ export function executeV7Agent(
   };
 
   // 2. POST to execute — returns 202 immediately (fire-and-forget)
+  const execHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (sseToken) execHeaders['Authorization'] = `Bearer ${sseToken}`;
   fetch(`${API_BASE}/v7/agents/${agentName}/execute`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: execHeaders,
     credentials: 'include',
     body: JSON.stringify({ sessionId, language: options.language || 'de' }),
   }).then(async (res) => {
@@ -212,9 +209,13 @@ export async function* streamSSE(
   path: string,
   body: any
 ): AsyncGenerator<SSEEvent> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+  const sseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) sseHeaders['Authorization'] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sseHeaders,
     credentials: 'include',
     body: JSON.stringify(body),
   });

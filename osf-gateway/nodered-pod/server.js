@@ -172,10 +172,6 @@ function setupFlowTracking() {
       const id = info?.config?.id || null;
       if (id) {
         runningFlows.delete(id);
-      } else {
-        // Fallback: if no ID, clear one entry
-        const first = runningFlows.values().next().value;
-        if (first) runningFlows.delete(first);
       }
     });
   } catch {

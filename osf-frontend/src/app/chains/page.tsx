@@ -64,7 +64,7 @@ export default function ChainsPage() {
             </div>
             <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4">
               Multi-Agent Chains
-              <span className="ml-2 text-xs font-mono text-text-dim align-super">v{process.env.NEXT_PUBLIC_CHAINS_VERSION}</span>
+              <span className="ml-2 text-xs font-mono text-text-dim align-super">v{process.env.NEXT_PUBLIC_CHAINS_VERSION || '1.2.0'}</span>
             </h1>
             <p className="text-lg text-text-muted max-w-2xl mx-auto">
               Connect multiple agents into automated pipelines.

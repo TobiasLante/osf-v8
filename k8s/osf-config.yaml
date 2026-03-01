@@ -62,5 +62,13 @@ data:
   # Langfuse
   LANGFUSE_HOST: "https://cloud.langfuse.com"
 
+  # MCP tool-executor env vars
+  MCP_URL_ERP: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+  MCP_URL_OEE: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+  MCP_URL_QMS: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+  MCP_URL_TMS: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+  MCP_URL_UNS: "http://factory-v3-fertigung.factory.svc.cluster.local:8025"
+  MCP_URL_KG: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+
   # Frontend URL (for CORS)
   FRONTEND_URL: "https://openshopfloor.zeroguess.ai"

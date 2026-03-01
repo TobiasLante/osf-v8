@@ -65,7 +65,7 @@ export function DeployButton({ sourceType, sourceId, allowFork = true }: DeployB
       if (sourceType === 'agent') {
         router.push(`/agents/${result.id}`);
       } else if (sourceType === 'chain') {
-        router.push(`/agents/chains/${result.id}`);
+        router.push(`/chains/${result.id}`);
       } else {
         router.push('/agents');
       }

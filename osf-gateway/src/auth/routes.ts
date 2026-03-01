@@ -275,17 +275,30 @@ router.post('/verify-email', async (req: Request, res: Response) => {
       return;
     }
 
-    // Mark token as used and verify user
-    await pool.query('UPDATE email_tokens SET used = TRUE WHERE id = $1', [row.id]);
-    await pool.query('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
+    // Mark token as used, verify user, and issue tokens in a transaction
+    const client = await pool.connect();
+    let accessToken: string;
+    let refreshToken: string;
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE email_tokens SET used = TRUE WHERE id = $1', [row.id]);
+      await client.query('UPDATE users SET email_verified = TRUE WHERE id = $1', [row.user_id]);
 
-    // Auto-login: issue tokens
-    const accessToken = signAccessToken({ userId: row.user_id, email: row.email, tier: row.tier, role: row.role || 'user' });
-    const { token: refreshToken, tokenId } = signRefreshToken(row.user_id);
-    await pool.query(
-      `INSERT INTO refresh_tokens (user_id, token_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
-      [row.user_id, tokenId]
-    );
+      // Auto-login: issue tokens
+      accessToken = signAccessToken({ userId: row.user_id, email: row.email, tier: row.tier, role: row.role || 'user' });
+      const { token: rt, tokenId } = signRefreshToken(row.user_id);
+      refreshToken = rt;
+      await client.query(
+        `INSERT INTO refresh_tokens (user_id, token_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
+        [row.user_id, tokenId]
+      );
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     setAuthCookies(res, accessToken, refreshToken);
     logSecurity('auth.email.verified', { userId: row.user_id, email: row.email });
@@ -422,10 +435,20 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Update password, mark token used, revoke all refresh tokens
-    await pool.query('UPDATE email_tokens SET used = TRUE WHERE id = $1', [row.id]);
-    await pool.query('UPDATE users SET password_hash = $1, email_verified = TRUE WHERE id = $2', [passwordHash, row.user_id]);
-    await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1', [row.user_id]);
+    // Update password, mark token used, revoke all refresh tokens — in a transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE email_tokens SET used = TRUE WHERE id = $1', [row.id]);
+      await client.query('UPDATE users SET password_hash = $1, email_verified = TRUE WHERE id = $2', [passwordHash, row.user_id]);
+      await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1', [row.user_id]);
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     logSecurity('auth.password.reset_completed', { userId: row.user_id });
     res.json({ message: 'Password has been reset. You can now sign in.' });

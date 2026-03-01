@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
 
@@ -30,6 +30,8 @@ export function LlmTab() {
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const modelRef = useRef(model);
+  modelRef.current = model;
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -53,7 +55,7 @@ export function LlmTab() {
     } else if (provider !== 'custom' && settings.providerDefaults[provider]) {
       const defaults = settings.providerDefaults[provider];
       setBaseUrl(defaults.baseUrl);
-      if (!model || !defaults.models.includes(model)) setModel(defaults.models[0] || '');
+      if (!modelRef.current || !defaults.models.includes(modelRef.current)) setModel(defaults.models[0] || '');
     }
   }, [provider, settings]);
 

@@ -277,7 +277,7 @@
     </div>
 
     <script>
-        const API_URL = 'http://192.168.178.120:8000/v1/chat/completions';
+        const API_URL = '/api/chat/completions';
         
         const messagesDiv = document.getElementById('messages');
         const userInput = document.getElementById('userInput');
@@ -286,6 +286,7 @@
         const sparklesContainer = document.getElementById('sparkles');
 
         let conversationHistory = [];
+        const sessionId = 'diva-' + Math.random().toString(36).substring(2, 10);
 
         // Create floating sparkles
         function createSparkle() {
@@ -335,13 +336,17 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        model: 'n8n-assistant',
-                        messages: conversationHistory
+                        message: message,
+                        sessionId: sessionId,
                     })
                 });
 
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+
                 const data = await response.json();
-                const assistantMessage = data.choices[0].message.content;
+                const assistantMessage = data.output || (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || JSON.stringify(data);
 
                 conversationHistory.push({
                     role: 'assistant',

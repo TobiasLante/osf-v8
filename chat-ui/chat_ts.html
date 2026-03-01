@@ -258,7 +258,7 @@
     </div>
 
     <script>
-        const API_URL = 'http://192.168.178.154:8006/v1/chat/completions';
+        const API_URL = '/api/chat/completions';
         const chatMessages = document.getElementById('chatMessages');
         const chatInput = document.getElementById('chatInput');
         const sendButton = document.getElementById('sendButton');
@@ -267,14 +267,12 @@
 
         let conversationHistory = [];
         let isProcessing = false;
+        const sessionId = 'mcp-' + Math.random().toString(36).substring(2, 10);
 
         // Check server status
         async function checkServerStatus() {
             try {
-                const response = await fetch('http://192.168.178.154:8006/', {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                });
+                const response = await fetch('/api/health');
                 if (response.ok) {
                     statusDot.classList.remove('offline');
                     statusText.textContent = 'Verbunden';
@@ -362,7 +360,8 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        messages: conversationHistory,
+                        message: message,
+                        sessionId: sessionId || 'mcp-chat',
                     })
                 });
 
@@ -373,7 +372,7 @@
                 }
 
                 const data = await response.json();
-                const assistantMessage = data.choices[0].message.content;
+                const assistantMessage = data.output || (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || JSON.stringify(data);
 
                 addMessage('assistant', assistantMessage);
                 conversationHistory.push({ role: 'assistant', content: assistantMessage });

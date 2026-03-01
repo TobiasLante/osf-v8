@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { apiFetch } from '@/lib/api';
-import { Header } from '@/components/Header';
 import FlowCard from '@/components/FlowCard';
 import { BackgroundOrbs } from '@/components/BackgroundOrbs';
 
@@ -83,7 +82,6 @@ export default function FlowsPage() {
 
   return (
     <>
-      <Header />
       <BackgroundOrbs />
       <main className="relative z-10 max-w-5xl mx-auto pt-32 pb-20 px-6">
         <div className="flex items-center justify-between mb-8">

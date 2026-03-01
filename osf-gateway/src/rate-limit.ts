@@ -11,8 +11,9 @@ let redis: Redis | null = null;
 let useRedis = false;
 
 // Try connecting to Redis; fall back to in-memory if unavailable
+const redisPassword = process.env.REDIS_PASSWORD;
 const redisUrl = process.env.REDIS_URL || (process.env.REDIS_HOST
-  ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`
+  ? `redis://${redisPassword ? `:${redisPassword}@` : ''}${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`
   : null);
 
 if (redisUrl) {

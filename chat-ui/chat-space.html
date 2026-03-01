@@ -251,18 +251,19 @@
     </div>
 
     <div class="footer">
-        ZeroGuess AI | <a href="https://www.zeroguess.ai">zeroguess.ai</a> | <a href="help/index.html">Wiki</a>
+        ZeroGuess AI | <a href="https://www.zeroguess.ai">zeroguess.ai</a> | <a href="https://openshopfloor.zeroguess.ai/docs">Docs</a>
     </div>
 
     <script>
         // Check for Cloudflare Access user email header
         // This is populated server-side or via fetch to a user-info endpoint
-        fetch('/api/user-info').then(r => r.json()).then(data => {
-            if (data.email) {
-                document.getElementById('userEmail').textContent = data.email;
+        fetch('/api/auth/me').then(r => r.json()).then(data => {
+            const email = data.email || (data.user && data.user.email);
+            if (email) {
+                document.getElementById('userEmail').textContent = email;
                 document.getElementById('userInfo').style.display = 'flex';
             }
         }).catch(() => {});
     </script>
-<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v8.0.0</div></body>
+<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v1.2.0</div></body>
 </html>

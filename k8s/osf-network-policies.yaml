@@ -98,7 +98,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      component: nodered
+      app: osf-nodered
   policyTypes:
   - Ingress
   ingress:

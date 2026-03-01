@@ -61,8 +61,8 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
     }
   }, [messages, isLoading]);
 
-  const handleSend = async () => {
-    const text = input.trim();
+  const handleSend = async (overrideText?: string) => {
+    const text = (overrideText || input).trim();
     if (!text || isLoading) return;
 
     setInput("");
@@ -245,9 +245,7 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
                   key={action.title}
                   onClick={() => {
                     setInput(action.prompt);
-                    setTimeout(() => {
-                      handleSend();
-                    }, 50);
+                    handleSend(action.prompt);
                   }}
                   className="text-left p-6 rounded-lg border border-border bg-bg-surface hover:border-border-hover hover:-translate-y-0.5 hover:shadow-lg transition-all"
                 >
@@ -302,7 +300,7 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
             />
           </div>
           <button
-            onClick={isLoading ? undefined : handleSend}
+            onClick={isLoading ? undefined : () => handleSend()}
             disabled={!input.trim() && !isLoading}
             className={`w-[52px] h-[52px] rounded-md border-none grid place-items-center transition-all ${
               isLoading

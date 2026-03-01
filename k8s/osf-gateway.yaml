@@ -34,12 +34,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: db-password
+              key: DB_PASSWORD
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: jwt-secret
+              key: JWT_SECRET
         - name: FACTORY_DB_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -74,7 +74,18 @@ spec:
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: nr-pod-secret
+              key: NR_POD_SECRET
+        - name: LLM_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: LLM_ENCRYPTION_KEY
+        - name: GATEWAY_INTERNAL_URL
+          value: "http://osf-gateway.osf.svc.cluster.local:8012"
+        - name: MCP_URL
+          value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+        - name: FACTORY_SIM_URL
+          value: "http://factory-v3-fertigung.factory.svc.cluster.local:8888"
         resources:
           requests:
             memory: "512Mi"
@@ -113,7 +124,7 @@ spec:
               - ALL
 
 ---
-# Gateway Service — NodePort for LAN access + CF Tunnel
+# Gateway Service — ClusterIP — external access via osf-gateway-external NodePort
 apiVersion: v1
 kind: Service
 metadata:

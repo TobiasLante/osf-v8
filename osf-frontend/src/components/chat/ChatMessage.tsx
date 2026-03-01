@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { ToolCallCard } from "./ToolCallCard";
 import { safeMarkdown } from "@/lib/markdown";
 
@@ -19,7 +20,8 @@ interface ChatMessageProps {
 
 export function ChatMessage({ role, content, toolCalls, time }: ChatMessageProps) {
   const isUser = role === "user";
-  const timeStr = time || new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const [defaultTime] = React.useState(() => new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }));
+  const timeStr = time || defaultTime;
 
   return (
     <div

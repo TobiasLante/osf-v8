@@ -14,7 +14,7 @@ services:
     build:
       context: ./osf-gateway
       dockerfile: Dockerfile
-    container_name: v7-gateway
+    container_name: osf-gateway
     restart: unless-stopped
     ports:
       - "127.0.0.1:8012:8012"

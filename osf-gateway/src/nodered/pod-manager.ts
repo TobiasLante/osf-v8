@@ -755,7 +755,7 @@ export class NrPodManager {
       logger.info({ userId }, '[PodManager] Seeded example flow for new user');
     }
 
-    const gatewayUrl = process.env.GATEWAY_INTERNAL_URL || 'http://osf-gateway:8080';
+    const gatewayUrl = process.env.GATEWAY_INTERNAL_URL || 'http://osf-gateway.osf.svc.cluster.local:8012';
     const resp = await fetch(`http://${podIp}:1880/nr/load-flows`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1054,9 +1054,9 @@ export class NrPodManager {
           env: [
             {
               name: 'NR_POD_SECRET',
-              valueFrom: { secretKeyRef: { name: 'osf-secrets', key: 'nr-pod-secret' } },
+              valueFrom: { secretKeyRef: { name: 'osf-secrets', key: 'NR_POD_SECRET' } },
             },
-            { name: 'GATEWAY_URL', value: process.env.GATEWAY_INTERNAL_URL || 'http://osf-gateway:8080' },
+            { name: 'GATEWAY_URL', value: process.env.GATEWAY_INTERNAL_URL || 'http://osf-gateway.osf.svc.cluster.local:8012' },
             { name: 'POD_NAME', value: podName },
           ],
           resources: {

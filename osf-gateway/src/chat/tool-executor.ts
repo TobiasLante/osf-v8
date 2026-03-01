@@ -34,13 +34,17 @@ async function fetchWithRetry(
   throw lastError || new Error('fetchWithRetry: all attempts failed');
 }
 
+function stripMcpSuffix(url: string): string {
+  return url.replace(/\/mcp\/?$/, '');
+}
+
 export const MCP_SERVERS: Record<string, string> = {
-  erp: process.env.MCP_URL_ERP || 'http://factory-v3-fertigung:8020',
-  oee: process.env.MCP_URL_OEE || 'http://factory-v3-fertigung:8020',
-  qms: process.env.MCP_URL_QMS || 'http://factory-v3-fertigung:8020',
-  tms: process.env.MCP_URL_TMS || 'http://factory-v3-fertigung:8020',
-  uns: process.env.MCP_URL_UNS || 'http://factory-v3-fertigung:8025',
-  kg:  process.env.MCP_URL_KG  || 'http://factory-v3-fertigung:8020',
+  erp: stripMcpSuffix(process.env.MCP_ERP_URL || process.env.MCP_URL_ERP || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
+  oee: stripMcpSuffix(process.env.MCP_OEE_URL || process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
+  qms: stripMcpSuffix(process.env.MCP_QMS_URL || process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
+  tms: stripMcpSuffix(process.env.MCP_TMS_URL || process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
+  uns: stripMcpSuffix(process.env.MCP_UNS_URL || process.env.MCP_URL_UNS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8025'),
+  kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
 };
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 min

@@ -2275,7 +2275,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge">v8.0.0</span>
+                    <span class="version-badge">v1.2.0</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -2284,7 +2284,7 @@
             </div>
 
             <div class="header-actions">
-                <a href="/help/index.html" class="header-btn">Wiki</a>
+                <a href="https://openshopfloor.zeroguess.ai/docs" class="header-btn">Docs</a>
                 <a href="/help.html" class="header-btn">Hilfe</a>
                 <button class="header-btn streaming-toggle" id="themeToggle" title="Dark/Light Mode">
                     <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
@@ -2539,6 +2539,7 @@
         let sessionId = generateUUID();
         let isLoading = false;
         let currentFetchController = null;
+        let currentAgentType = null;
 
         // === PROGRESS STATUS BAR STATE ===
         let typingTimerInterval = null;
@@ -2794,12 +2795,31 @@
             }
             container.innerHTML = '<span style="color:var(--text-1);font-size:13px;">Lade Maschinen...</span>';
             try {
-                const res = await fetch('/api/machines');
+                // V8: /api/machines not available; try MCP tool, fallback to static list
+                const res = await fetch('/api/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: Date.now(),
+                        method: 'tools/call',
+                        params: { name: 'list_machines', arguments: {} }
+                    })
+                });
                 const data = await res.json();
-                machineCache = (data.machines || []).map(m => m.machine_id);
+                if (data.result && data.result.content) {
+                    const content = typeof data.result.content[0] === 'object' ? data.result.content[0].text : data.result.content;
+                    const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+                    machineCache = (parsed.machines || parsed || []).map(m => typeof m === 'string' ? m : m.machine_id);
+                } else {
+                    // Static fallback
+                    machineCache = ['ML-1', 'ML-2', 'ML-3', 'ML-4'];
+                }
                 renderMachineButtons(container, machineCache);
             } catch (e) {
-                container.innerHTML = '<span style="color:var(--accent-red);font-size:13px;">Fehler beim Laden</span>';
+                // Static fallback when MCP endpoint is unavailable
+                machineCache = ['ML-1', 'ML-2', 'ML-3', 'ML-4'];
+                renderMachineButtons(container, machineCache);
             }
         }
 
@@ -2879,7 +2899,7 @@
 
         async function loadUserInfo() {
             try {
-                const res = await fetch('/api/user-info');
+                const res = await fetch('/api/auth/me');
                 const data = await res.json();
                 isExternalUser = !!data.isExternal;
                 claudeEnabled = data.claudeEnabled !== false;
@@ -2891,7 +2911,7 @@
         // === LLM CONFIG ===
         async function loadLlmConfig() {
             try {
-                const res = await fetch('/api/llm-config');
+                const res = await fetch('/api/auth/llm-settings');
                 const cfg = await res.json();
                 // Find matching preset
                 const presets = [
@@ -2915,7 +2935,7 @@
 
         async function saveLlmConfig(simple, complex) {
             try {
-                await fetch('/api/llm-config', {
+                await fetch('/api/auth/llm-settings', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ simple, complex })
@@ -3091,18 +3111,27 @@
             const typingId = addTyping();
 
             try {
-                const res = await fetch(`/api/skills/${skill}`, {
+                // V8: Skills are now served via MCP JSON-RPC endpoint
+                const res = await fetch('/api/mcp', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(params)
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: Date.now(),
+                        method: 'tools/call',
+                        params: { name: skill, arguments: params }
+                    })
                 });
                 const data = await res.json();
                 removeTyping(typingId);
 
                 if (data.error) {
-                    addMessage('assistant', `❌ ${data.error}`);
+                    addMessage('assistant', `❌ ${data.error.message || JSON.stringify(data.error)}`);
                 } else {
-                    addMessage('assistant', formatSkillResult(skill, data.result));
+                    const result = data.result && data.result.content
+                        ? (typeof data.result.content[0] === 'object' ? data.result.content[0].text : data.result.content)
+                        : data.result;
+                    addMessage('assistant', formatSkillResult(skill, typeof result === 'string' ? JSON.parse(result) : result));
                 }
             } catch (err) {
                 removeTyping(typingId);
@@ -3141,6 +3170,7 @@
                 displayName += params.periodMode === 'next' ? ' (Folgemonat)' : ' (Diesen Monat)';
             }
 
+            currentAgentType = agent;
             addMessage('user', `${displayName} starten`);
 
             // Clear stream panel for new agent run and auto-open
@@ -3160,11 +3190,10 @@
 
             try {
                 currentFetchController = new AbortController();
-                const res = await fetch('/api/chat', {
+                const res = await fetch(`/api/v7/agents/${agent}/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        agentType: agent,
                         sessionId,
                         language: currentLanguage,
                         ...params
@@ -3217,7 +3246,7 @@
             const typingId = addTyping();
 
             try {
-                const res = await fetch('/api/chat/local', {
+                const res = await fetch('/api/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -3281,7 +3310,8 @@
 
         async function stopAgent() {
             try {
-                await fetch('/api/agents/stop', {
+                const agentName = currentAgentType || 'unknown';
+                await fetch(`/api/v7/agents/${agentName}/stop`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sessionId })
@@ -3559,9 +3589,20 @@ ${status} **${otd}%**
 
         function renderMarkdown(text) {
             if (!text) return '';
-            // Escape HTML first to prevent XSS via LLM responses
-            let escaped = escapeHtml(text);
-            return escaped
+            // Extract links before escaping to prevent URL double-encoding
+            const links = [];
+            let processed = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_, label, url) => {
+                const idx = links.length;
+                links.push({ label, url });
+                return `%%LINK${idx}%%`;
+            });
+            // Escape HTML to prevent XSS via LLM responses
+            processed = escapeHtml(processed);
+            // Restore links with properly escaped label and URL
+            links.forEach((link, i) => {
+                processed = processed.replace(`%%LINK${i}%%`, `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" class="report-link">${escapeHtml(link.label)}</a>`);
+            });
+            return processed
                 .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
                 .replace(/`([^`]+)`/g, '<code>$1</code>')
                 .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -3570,9 +3611,7 @@ ${status} **${otd}%**
                 .replace(/^## (.+)$/gm, '<h2>$1</h2>')
                 .replace(/^# (.+)$/gm, '<h1>$1</h1>')
                 .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-                    if (/^https?:\/\//i.test(url)) {
-                        return `<a href="${url}" target="_blank" rel="noopener" class="report-link">${label}</a>`;
-                    }
+                    // Non-http links that weren't extracted above
                     return `${label} (${url})`;
                 })
                 .replace(/^\|(.+)\|$/gm, (match) => {
@@ -3642,7 +3681,7 @@ ${status} **${otd}%**
                 eventSource.close();
             }
 
-            eventSource = new EventSource(`/api/progress/${sessionId}`);
+            eventSource = new EventSource(`/api/v7/progress/${sessionId}`);
 
             eventSource.addEventListener('connected', (e) => {
                 console.log('[SSE] Connected:', JSON.parse(e.data));
@@ -4724,23 +4763,58 @@ body { padding: 0; }
             entitySelect.innerHTML = '<option value="">Laden...</option>';
 
             try {
-                const res = await fetch('/api/impact/entities?scenario=' + scenarioId);
+                // V8: /api/impact/entities not available; try MCP tool, fallback to static list
+                const res = await fetch('/api/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: Date.now(),
+                        method: 'tools/call',
+                        params: { name: 'impact_entities', arguments: { scenario: scenarioId } }
+                    })
+                });
                 const data = await res.json();
+                let entities = [];
+                if (data.result && data.result.content) {
+                    const content = typeof data.result.content[0] === 'object' ? data.result.content[0].text : data.result.content;
+                    const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+                    entities = parsed.entities || parsed || [];
+                }
 
                 entitySelect.innerHTML = '';
-                if (data.entities && data.entities.length > 0) {
-                    for (const entity of data.entities) {
+                if (entities.length > 0) {
+                    for (const entity of entities) {
                         const opt = document.createElement('option');
-                        opt.value = entity.id;
-                        opt.textContent = entity.label || entity.id;
+                        opt.value = entity.id || entity;
+                        opt.textContent = entity.label || entity.id || entity;
                         entitySelect.appendChild(opt);
                     }
                 } else {
-                    entitySelect.innerHTML = '<option value="">Keine Entities gefunden</option>';
+                    // Static fallback entities
+                    const fallback = [
+                        { id: 'ML-1', label: 'ML-1' },
+                        { id: 'ML-2', label: 'ML-2' },
+                        { id: 'ML-3', label: 'ML-3' },
+                        { id: 'ML-4', label: 'ML-4' },
+                    ];
+                    for (const entity of fallback) {
+                        const opt = document.createElement('option');
+                        opt.value = entity.id;
+                        opt.textContent = entity.label;
+                        entitySelect.appendChild(opt);
+                    }
                 }
             } catch (err) {
                 console.error('[Impact] Failed to load entities:', err);
-                entitySelect.innerHTML = '<option value="">Fehler beim Laden</option>';
+                // Static fallback on error
+                entitySelect.innerHTML = '';
+                ['ML-1', 'ML-2', 'ML-3', 'ML-4'].forEach(id => {
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = id;
+                    entitySelect.appendChild(opt);
+                });
             }
         }
 
@@ -4784,5 +4858,5 @@ body { padding: 0; }
         // === START ===
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v8.0.0</div></body>
+<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v1.2.0</div></body>
 </html>

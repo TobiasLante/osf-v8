@@ -256,7 +256,7 @@ async function main() {
   }, 5 * 60 * 1000);
 
   // GET /v7/llm-status — check if LLM server is online
-  const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung:8888';
+  const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
   app.get('/v7/llm-status', requireAuth, async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_BASE}/api/infrastructure/metrics?minutes=1`, {
