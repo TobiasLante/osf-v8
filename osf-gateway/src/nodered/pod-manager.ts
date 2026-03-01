@@ -1054,7 +1054,7 @@ export class NrPodManager {
           env: [
             {
               name: 'NR_POD_SECRET',
-              valueFrom: { secretKeyRef: { name: 'osf-secrets', key: 'NR_POD_SECRET' } },
+              valueFrom: { secretKeyRef: { name: 'osf-secrets', key: 'nr-pod-secret' } },
             },
             { name: 'GATEWAY_URL', value: process.env.GATEWAY_INTERNAL_URL || 'http://osf-gateway.osf.svc.cluster.local:8012' },
             { name: 'POD_NAME', value: podName },

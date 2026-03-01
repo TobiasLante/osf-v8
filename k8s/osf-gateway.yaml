@@ -74,12 +74,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: NR_POD_SECRET
+              key: nr-pod-secret
         - name: LLM_ENCRYPTION_KEY
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: LLM_ENCRYPTION_KEY
+              key: llm-encryption-key
         - name: GATEWAY_INTERNAL_URL
           value: "http://osf-gateway.osf.svc.cluster.local:8012"
         - name: MCP_URL
