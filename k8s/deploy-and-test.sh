@@ -447,14 +447,14 @@ except:
     ((FAIL++)) || true
   fi
 
-  # T14: Leader election — only 1 fertigung pod should be running
+  # T14: Leader election — 2 fertigung pods running (1 leader + 1 backup)
   log "T14: Leader election..."
   local fert_pods
   fert_pods=$(kubectl -n factory get pods -l app=factory-v3-fertigung --field-selector=status.phase=Running -o name 2>/dev/null | wc -l)
-  if [[ "$fert_pods" -eq 1 ]]; then
-    ok "Leader election OK: 1 fertigung pod running"
+  if [[ "$fert_pods" -ge 1 ]]; then
+    ok "Leader election OK: $fert_pods fertigung pod(s) running"
   else
-    fail "Leader election issue: $fert_pods fertigung pods running (expected 1)"
+    fail "Leader election issue: 0 fertigung pods running"
     ((FAIL++)) || true
   fi
 

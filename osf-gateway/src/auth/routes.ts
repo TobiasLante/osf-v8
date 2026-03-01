@@ -598,6 +598,24 @@ router.get('/llm-settings', requireAuth, async (req: Request, res: Response) => 
 
 router.put('/llm-settings', requireAuth, async (req: Request, res: Response) => {
   try {
+    // V7 compat: map old {simple, complex} format to V8 {provider, model}
+    if (!req.body.provider && (req.body.simple || req.body.complex)) {
+      const V7_MODEL_MAP: Record<string, { provider: string; model: string }> = {
+        'qwen-14b': { provider: 'platform', model: 'qwen-14b' },
+        'qwen': { provider: 'platform', model: 'qwen' },
+        'haiku': { provider: 'anthropic', model: 'claude-3-haiku' },
+        'sonnet': { provider: 'anthropic', model: 'claude-3.5-sonnet' },
+      };
+      const v7Model = req.body.complex || req.body.simple || 'qwen-14b';
+      const mapped = V7_MODEL_MAP[v7Model] || { provider: 'platform', model: v7Model };
+      req.body.provider = mapped.provider;
+      req.body.model = mapped.model;
+      // Platform models don't need apiKey/baseUrl
+      if (mapped.provider === 'platform') {
+        req.body.provider = 'platform';
+      }
+    }
+
     const { provider, baseUrl, model, apiKey } = req.body;
 
     if (!provider || !VALID_PROVIDERS.includes(provider)) {

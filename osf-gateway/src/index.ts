@@ -239,15 +239,13 @@ async function main() {
     }
   });
 
-  // V7 Gateway Proxy (deep analysis agents)
+  // V7-DISABLED: V7 Gateway Proxy — disabled for V8 migration.
+  // All agents now run through V8 /agents/run/:id SSE endpoint.
+  // To re-enable: remove the `if (false)` wrapper below.
+  if (false) { // V7-DISABLED
   const V7_BASE = 'http://192.168.178.150:30813';
-
-  // In-memory store for V7 agent results (sessionId → result)
-  // The POST to V7 blocks 2-5min, but we return 202 immediately.
-  // The result is captured async and stored here for the frontend to fetch.
   const V7_MAX_ENTRIES = 500;
   const v7Results = new Map<string, { result: any; timestamp: number }>();
-  // Cleanup old results every 5 minutes + enforce max size
   setInterval(() => {
     const cutoff = Date.now() - 10 * 60 * 1000;
     for (const [key, val] of v7Results) {
@@ -255,7 +253,6 @@ async function main() {
     }
   }, 5 * 60 * 1000);
 
-  // GET /v7/llm-status — check if LLM server is online
   const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
   app.get('/v7/llm-status', requireAuth, async (_req, res) => {
     try {
@@ -274,7 +271,6 @@ async function main() {
     }
   });
 
-  // GET /v7/agents — list available V7 agents
   app.get('/v7/agents', requireAuth, async (_req, res) => {
     try {
       const upstream = await fetch(`${V7_BASE}/api/agents`);
@@ -286,21 +282,15 @@ async function main() {
     }
   });
 
-  // POST /v7/agents/:agent/execute — fire-and-forget, return 202 immediately
-  // The V7 POST blocks until the agent finishes (2-5 min), which exceeds
-  // Cloudflare's 100s timeout. We return 202 immediately, capture the result
-  // async, and store it for GET /v7/result/:sessionId.
   app.post('/v7/agents/:agent/execute', requireAuth, async (req, res) => {
     const { agent } = req.params;
     const sessionId = req.body.sessionId;
     try {
-      // Fire the upstream request but don't await the full response
       const upstream = fetch(`${V7_BASE}/api/agents/${agent}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
       });
-      // Wait briefly (2s) for quick validation errors, then return 202
       const quickCheck = Promise.race([
         upstream.then(async (r) => {
           if (!r.ok && r.status < 500) {
@@ -316,16 +306,13 @@ async function main() {
         res.status((check as any).status).json({ error: (check as any).text });
         return;
       }
-      // Return immediately — results come via SSE + GET /v7/result/:sessionId
       res.status(202).json({ accepted: true, sessionId, agent });
 
-      // Capture the V7 response asynchronously and store it
       if (sessionId) {
         (check.response ? Promise.resolve(check.response) : upstream)
           .then(async (r: any) => {
             if (r.ok) {
               const data = await r.json();
-              // Evict oldest entry if at capacity
               if (v7Results.size >= V7_MAX_ENTRIES) {
                 const oldest = v7Results.keys().next().value;
                 if (oldest) v7Results.delete(oldest);
@@ -344,7 +331,6 @@ async function main() {
     }
   });
 
-  // GET /v7/result/:sessionId — fetch stored agent result (after done event)
   app.get('/v7/result/:sessionId', requireAuth, (req, res) => {
     const { sessionId } = req.params;
     const entry = v7Results.get(sessionId);
@@ -355,7 +341,6 @@ async function main() {
     res.json(entry.result);
   });
 
-  // GET /v7/progress/:sessionId — SSE proxy (chunked streaming)
   app.get('/v7/progress/:sessionId', requireAuth, async (req, res) => {
     const { sessionId } = req.params;
     res.setHeader('Content-Type', 'text/event-stream');
@@ -395,7 +380,6 @@ async function main() {
     if (!aborted) res.end();
   });
 
-  // POST /v7/agents/:agent/stop — stop a running agent
   app.post('/v7/agents/:agent/stop', requireAuth, async (req, res) => {
     const { agent } = req.params;
     try {
@@ -411,10 +395,7 @@ async function main() {
     }
   });
 
-  // Catch-all V7 API proxy — proxies /v7-api/* to V7 gateway /api/*
-  // Used by the embedded V7 chat UI (deep-analysis.html)
   app.all('/v7-api/*', requireAuth, async (req, res) => {
-    // Fully decode + normalize to prevent double-encoding bypass (%252e etc.)
     const raw = req.originalUrl.replace('/v7-api/', '/api/');
     let normalized: string;
     try {
@@ -424,7 +405,6 @@ async function main() {
       res.status(400).json({ error: 'Invalid path' });
       return;
     }
-    // After full URL parsing, check the resolved path
     if (!normalized.startsWith('/api/') || normalized.includes('..')) {
       res.status(400).json({ error: 'Invalid path' });
       return;
@@ -442,7 +422,6 @@ async function main() {
 
       const upstream = await fetch(url, fetchOpts);
 
-      // Check if SSE response
       const ct = upstream.headers.get('content-type') || '';
       if (ct.includes('text/event-stream')) {
         res.setHeader('Content-Type', 'text/event-stream');
@@ -466,7 +445,6 @@ async function main() {
         return;
       }
 
-      // Regular JSON/text response
       res.status(upstream.status);
       for (const [key, value] of upstream.headers) {
         if (!['transfer-encoding', 'content-encoding', 'connection'].includes(key.toLowerCase())) {
@@ -480,6 +458,7 @@ async function main() {
       res.status(502).json({ error: 'V7 gateway unreachable' });
     }
   });
+  } // END V7-DISABLED
 
   // UNS live stream (MQTT → SSE)
   app.use('/uns', unsRoutes);

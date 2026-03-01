@@ -80,6 +80,11 @@ spec:
             secretKeyRef:
               name: osf-secrets
               key: llm-encryption-key
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: redis-password
         - name: GATEWAY_INTERNAL_URL
           value: "http://osf-gateway.osf.svc.cluster.local:8012"
         - name: MCP_URL

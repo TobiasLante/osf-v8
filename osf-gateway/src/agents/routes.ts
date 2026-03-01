@@ -2,9 +2,21 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
 import { getAllAgents, getAgent, getUserAgents, createAgent, updateAgent, deleteAgent } from './registry';
 import { runAgent } from './runner';
+import { runChain } from '../chains/runner';
+import { getChain } from '../chains/registry';
 import { pool } from '../db/pool';
 import { checkRateLimit } from '../rate-limit';
 import { logger } from '../logger';
+
+// Agent ID aliases — maps old/alternate IDs to canonical V8 IDs
+const AGENT_ALIASES: Record<string, string> = {
+  'otd-optimize': 'otd-deep-analyzer',
+};
+
+// Agent IDs that should delegate to a chain instead
+const CHAIN_ALIASES: Record<string, string> = {
+  'nightly': 'nightly-review',
+};
 
 const router = Router();
 
@@ -175,13 +187,43 @@ router.get('/:id/prompt', requireAuth, async (req: Request, res: Response) => {
 });
 
 // POST /agents/run/:id — run an agent (SSE)
+// Supports: agent aliases (otd-optimize → otd-deep-analyzer),
+//           chain aliases (nightly → nightly-review chain),
+//           body passthrough (userMessage, params)
 router.post('/run/:id', requireAuth, async (req: Request, res: Response) => {
   if (!checkRateLimit(`agent:${req.user!.userId}`, 3)) {
     res.status(429).json({ error: 'Too many agent runs. Please wait.' });
     return;
   }
 
-  const agent = await getAgent(req.params.id);
+  const rawId = req.params.id;
+  const tier = req.user!.tier || 'free';
+
+  // Check if this ID should delegate to a chain
+  const chainId = CHAIN_ALIASES[rawId];
+  if (chainId) {
+    const chain = await getChain(chainId);
+    if (!chain) {
+      res.status(404).json({ error: `Chain '${chainId}' not found` });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.flushHeaders();
+
+    await runChain(chain, req.user!.userId, tier, res);
+    res.end();
+    return;
+  }
+
+  // Resolve agent alias
+  const agentId = AGENT_ALIASES[rawId] || rawId;
+  const agent = await getAgent(agentId);
   if (!agent) {
     res.status(404).json({ error: 'Agent not found' });
     return;
@@ -195,8 +237,13 @@ router.post('/run/:id', requireAuth, async (req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.flushHeaders();
 
-  const tier = req.user!.tier || 'free';
-  await runAgent(agent, req.user!.userId, tier, res);
+  // Extract options from request body
+  const { userMessage, ...params } = req.body || {};
+  const options = (userMessage || Object.keys(params).length > 0)
+    ? { userMessage, params }
+    : undefined;
+
+  await runAgent(agent, req.user!.userId, tier, res, options);
   res.end();
 });
 

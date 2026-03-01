@@ -5,11 +5,17 @@ import { pool } from '../db/pool';
 import { Response } from 'express';
 import { logger } from '../logger';
 
+export interface RunAgentOptions {
+  userMessage?: string;
+  params?: Record<string, unknown>;
+}
+
 export async function runAgent(
   agent: AgentDef,
   userId: string,
   tier: string,
-  res: Response
+  res: Response,
+  options?: RunAgentOptions
 ): Promise<void> {
   // Create agent run record
   const runResult = await pool.query(
@@ -30,9 +36,15 @@ export async function runAgent(
       agent.tools.includes(t.function.name)
     );
 
+    // Build user message — use custom message if provided, append params if relevant
+    let userMsg = options?.userMessage || 'Please run your full analysis now.';
+    if (options?.params?.periodMode) {
+      userMsg += `\n\nperiodMode: ${options.params.periodMode}`;
+    }
+
     const messages: ChatMessage[] = [
       { role: 'system', content: agent.systemPrompt },
-      { role: 'user', content: 'Please run your full analysis now.' },
+      { role: 'user', content: userMsg },
     ];
 
     const allToolCalls: any[] = [];

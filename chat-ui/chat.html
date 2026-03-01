@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/v6-design.css">
+    <!-- V7-DISABLED: <link rel="stylesheet" href="css/v6-design.css"> -->
     <style>
         /* === CHAT PAGE — V6 Variable Aliases === */
         :root {
@@ -3190,25 +3190,35 @@
 
             try {
                 currentFetchController = new AbortController();
-                const res = await fetch(`/api/v7/agents/${agent}/execute`, {
+                const res = await fetch(`/api/agents/run/${agent}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        sessionId,
-                        language: currentLanguage,
-                        ...params
-                    }),
+                    body: JSON.stringify(params),
                     signal: currentFetchController.signal
                 });
-                currentFetchController = null;
-                const data = await res.json();
-                removeTyping(typingId);
 
-                if (data.error) {
-                    addMessage('assistant', `❌ ${data.error}`);
-                } else {
-                    addMessage('assistant', data.output || 'Agent ausgeführt.');
+                if (!res.ok) {
+                    currentFetchController = null;
+                    removeTyping(typingId);
+                    const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+                    addMessage('assistant', `❌ ${errData.error || 'Agent-Fehler'}`);
+                    isLoading = false;
+                    updateSendBtn();
+                    return;
                 }
+
+                // Read V8 SSE stream
+                let fullContent = '';
+                await readSSEStream(res, (event) => {
+                    handleV8AgentEvent(event);
+                    if (event.type === 'content' || event.type === 'step_content') {
+                        fullContent += event.text || '';
+                    }
+                });
+
+                currentFetchController = null;
+                removeTyping(typingId);
+                addMessage('assistant', fullContent || 'Agent ausgeführt.');
             } catch (err) {
                 currentFetchController = null;
                 removeTyping(typingId);
@@ -3221,6 +3231,99 @@
 
             isLoading = false;
             updateSendBtn();
+        }
+
+        // Read an SSE (text/event-stream) response, calling onEvent for each parsed event
+        async function readSSEStream(response, onEvent) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                // Parse SSE lines
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const event = JSON.parse(line.slice(6));
+                            onEvent(event);
+                        } catch { /* skip malformed */ }
+                    }
+                }
+            }
+            // Process remaining buffer
+            if (buffer.startsWith('data: ')) {
+                try {
+                    const event = JSON.parse(buffer.slice(6));
+                    onEvent(event);
+                } catch { /* skip */ }
+            }
+        }
+
+        // Map V8 SSE events to the existing progress panel
+        function handleV8AgentEvent(event) {
+            const progressEvent = { ...event, timestamp: event.timestamp || new Date().toISOString() };
+
+            switch (event.type) {
+                case 'run_start':
+                    progressEvent.type = 'init';
+                    progressEvent.message = `Agent ${event.agent || ''} gestartet`;
+                    break;
+                case 'tool_start':
+                    progressEvent.type = 'tool_start';
+                    progressEvent.toolName = event.name;
+                    progressEvent.toolInput = event.arguments;
+                    progressEvent.message = `Tool: ${event.name}`;
+                    break;
+                case 'tool_result':
+                    progressEvent.type = 'tool_end';
+                    progressEvent.toolName = event.name;
+                    progressEvent.toolResult = event.result;
+                    progressEvent.message = `Tool: ${event.name}`;
+                    break;
+                case 'chain_start':
+                    progressEvent.type = 'init';
+                    progressEvent.message = `Chain ${event.chain || ''} gestartet (${event.totalSteps || '?'} Steps)`;
+                    break;
+                case 'step_start':
+                    progressEvent.type = 'step_start';
+                    progressEvent.title = event.label || `Step ${event.step}`;
+                    progressEvent.step = event.step;
+                    break;
+                case 'step_done':
+                    progressEvent.type = 'step_complete';
+                    progressEvent.title = `Step ${event.step} fertig`;
+                    progressEvent.step = event.step;
+                    break;
+                case 'step_content':
+                    // Chain step content — treat as content for accumulation
+                    progressEvent.type = 'content';
+                    progressEvent.text = event.text;
+                    return; // Don't render in progress panel
+                case 'chain_complete':
+                    progressEvent.type = 'done';
+                    progressEvent.message = `Chain fertig (${event.stepsExecuted || '?'} Steps)`;
+                    break;
+                case 'done':
+                    progressEvent.type = 'done';
+                    progressEvent.message = 'Agent fertig';
+                    break;
+                case 'error':
+                    progressEvent.type = 'error';
+                    break;
+                case 'content':
+                    return; // Don't render content chunks in progress panel
+                default:
+                    break;
+            }
+
+            handleProgressEvent(progressEvent);
         }
 
         async function sendMessage() {
@@ -3238,7 +3341,7 @@
                 return;
             }
 
-            // Chat message — always use local LLM (Llama), Claude only for agents
+            // Chat message via V8 SSE endpoint
             isLoading = true;
             updateSendBtn();
 
@@ -3246,6 +3349,7 @@
             const typingId = addTyping();
 
             try {
+                currentFetchController = new AbortController();
                 const res = await fetch('/api/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3253,19 +3357,45 @@
                         message: text,
                         sessionId,
                         language: currentLanguage
-                    })
+                    }),
+                    signal: currentFetchController.signal
                 });
-                const data = await res.json();
-                removeTyping(typingId);
 
-                if (data.error) {
-                    addMessage('assistant', `❌ ${data.error}`);
-                } else {
-                    addMessage('assistant', data.output || JSON.stringify(data, null, 2));
+                if (!res.ok) {
+                    currentFetchController = null;
+                    removeTyping(typingId);
+                    const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+                    addMessage('assistant', `❌ ${errData.error || 'Fehler'}`);
+                    isLoading = false;
+                    updateSendBtn();
+                    return;
                 }
-            } catch (err) {
+
+                // Read SSE stream
+                let fullContent = '';
+                await readSSEStream(res, (event) => {
+                    if (event.type === 'content') {
+                        fullContent += event.text || '';
+                    } else if (event.type === 'tool_start' || event.type === 'tool_result') {
+                        handleV8AgentEvent(event);
+                    } else if (event.type === 'session') {
+                        // New session created by backend
+                    } else if (event.type === 'error') {
+                        fullContent += `\n❌ ${event.message || 'Fehler'}`;
+                    }
+                });
+
+                currentFetchController = null;
                 removeTyping(typingId);
-                addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+                addMessage('assistant', fullContent || 'Keine Antwort.');
+            } catch (err) {
+                currentFetchController = null;
+                removeTyping(typingId);
+                if (err.name === 'AbortError') {
+                    addMessage('assistant', '⏹ Gestoppt.');
+                } else {
+                    addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+                }
             }
 
             isLoading = false;
@@ -3309,17 +3439,7 @@
         }
 
         async function stopAgent() {
-            try {
-                const agentName = currentAgentType || 'unknown';
-                await fetch(`/api/v7/agents/${agentName}/stop`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId })
-                });
-            } catch (err) {
-                console.error('[Stop] Failed:', err);
-            }
-            // Abort the client-side fetch
+            // V8: client-side abort only (no server-side stop needed)
             if (currentFetchController) {
                 currentFetchController.abort();
                 currentFetchController = null;
@@ -3677,25 +3797,10 @@ ${status} **${otd}%**
         }
 
         function connectSSE() {
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            eventSource = new EventSource(`/api/v7/progress/${sessionId}`);
-
-            eventSource.addEventListener('connected', (e) => {
-                console.log('[SSE] Connected:', JSON.parse(e.data));
-            });
-
-            eventSource.addEventListener('progress', (e) => {
-                const event = JSON.parse(e.data);
-                handleProgressEvent(event);
-            });
-
-            eventSource.onerror = (e) => {
-                console.log('[SSE] Connection error, reconnecting...');
-                // EventSource will auto-reconnect
-            };
+            // V7-DISABLED: V7 SSE EventSource no longer needed.
+            // V8 agents use inline SSE via fetch() ReadableStream.
+            // Keeping function signature so callers don't break.
+            console.log('[SSE] V7 SSE disabled — V8 uses inline SSE streams');
         }
 
         function disconnectSSE() {
