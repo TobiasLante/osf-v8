@@ -64,5 +64,5 @@ kubectl -n osf get svc
 echo ""
 echo "CF Tunnel routes:"
 echo "  osf-api.zeroguess.ai       → http://osf-gateway.osf.svc.cluster.local:8012"
-echo "  demo.zeroguess.ai           → http://osf-chat-ui.osf.svc.cluster.local:80"
+echo "  demo.zeroguess.ai           → http://osf-chat-ui.osf.svc.cluster.local:80  (svc:80 → pod:8080)"
 echo "  openshopfloor.zeroguess.ai  → CF Pages (no tunnel needed)"

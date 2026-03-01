@@ -25,7 +25,7 @@ spec:
         image: 192.168.178.150:32000/osf-chat-ui:8.1.0
         imagePullPolicy: Always
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           name: http
         resources:
           requests:
@@ -37,22 +37,17 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 80
+            port: 8080
           periodSeconds: 30
           failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /
-            port: 80
+            port: 8080
           periodSeconds: 10
           failureThreshold: 3
         securityContext:
-          runAsNonRoot: true
-          runAsUser: 101
           allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
 
 ---
 apiVersion: v1
@@ -68,4 +63,4 @@ spec:
   ports:
   - name: http
     port: 80
-    targetPort: 80
+    targetPort: 8080

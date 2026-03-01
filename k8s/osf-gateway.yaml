@@ -122,11 +122,10 @@ metadata:
   labels:
     app: osf-gateway
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: osf-gateway
   ports:
   - name: http
     port: 8012
     targetPort: 8012
-    nodePort: 30880

@@ -17,9 +17,12 @@ function getEncryptionKey(): Buffer {
   return _encryptionKey;
 }
 
-/** Call at startup to validate encryption key is present */
+/** Call at startup to warn if encryption key is missing (needed for BYOK users) */
 export function validateEncryptionKey(): void {
-  getEncryptionKey();
+  const key = process.env.LLM_ENCRYPTION_KEY;
+  if (!key || key.length !== 64) {
+    console.warn('[WARN] LLM_ENCRYPTION_KEY not set or invalid — BYOK API key encryption will fail');
+  }
 }
 
 export function encryptApiKey(plaintext: string): string {
