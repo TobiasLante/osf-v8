@@ -34,12 +34,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: DB_PASSWORD
+              key: db-password
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: JWT_SECRET
+              key: jwt-secret
         - name: FACTORY_DB_PASSWORD
           valueFrom:
             secretKeyRef:
