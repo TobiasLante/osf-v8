@@ -184,7 +184,7 @@ async function main() {
 
   // Health check (no auth)
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', version: '1.2.0' });
   });
 
   // Readiness probe — checks DB connectivity

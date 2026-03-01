@@ -13,7 +13,7 @@ echo "=== OSF v8 — K8s Deploy ==="
 echo "[1/7] Building and pushing images..."
 
 echo "  → osf-gateway..."
-docker build -t "$REGISTRY/osf-gateway:1.2.0" -f "$V8_ROOT/osf-gateway/Dockerfile.gateway" "$V8_ROOT/osf-gateway"
+docker build -t "$REGISTRY/osf-gateway:1.2.0" -f "$V8_ROOT/osf-gateway/Dockerfile" "$V8_ROOT/osf-gateway"
 docker push "$REGISTRY/osf-gateway:1.2.0"
 
 echo "  → osf-frontend..."

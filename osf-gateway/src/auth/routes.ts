@@ -237,6 +237,11 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
+// GET/PUT/etc. on /login → 405
+router.all('/login', (_req: Request, res: Response) => {
+  res.status(405).json({ error: 'Method not allowed' });
+});
+
 // ─── Verify Email ───────────────────────────────────────────────────────────
 router.post('/verify-email', async (req: Request, res: Response) => {
   try {
