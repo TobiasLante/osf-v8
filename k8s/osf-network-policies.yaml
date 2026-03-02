@@ -89,6 +89,40 @@ spec:
       protocol: TCP
 
 ---
+# Frontend egress: DNS + gateway + chat-ui
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-frontend-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-frontend
+  policyTypes:
+  - Egress
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  - to:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - port: 8012
+      protocol: TCP
+  - to:
+    - podSelector:
+        matchLabels:
+          app: osf-chat-ui
+    ports:
+    - port: 8080
+      protocol: TCP
+
+---
 # NR pods: only allow ingress from gateway
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
