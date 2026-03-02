@@ -51,7 +51,7 @@ router.put('/users/:id', async (req: Request, res: Response) => {
     let idx = 1;
 
     if (role !== undefined) {
-      if (!['user', 'admin'].includes(role)) {
+      if (!['user', 'demo', 'admin'].includes(role)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
       }
@@ -670,6 +670,70 @@ router.get('/health', async (req: Request, res: Response) => {
     alerts,
     checkedAt: new Date().toISOString(),
   });
+});
+
+// GET /admin/activity — user session activity
+router.get('/activity', async (req: Request, res: Response) => {
+  try {
+    const from = req.query.from as string || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const to = req.query.to as string || new Date().toISOString().slice(0, 10);
+
+    const daysDiff = Math.ceil((new Date(to).getTime() - new Date(from).getTime()) / 86400000);
+    const granularity = daysDiff <= 14 ? 'daily' : daysDiff <= 90 ? 'weekly' : 'monthly';
+
+    const trunc = granularity === 'daily' ? 'day' : granularity === 'weekly' ? 'week' : 'month';
+
+    // Per-user activity based on chat_sessions
+    const userActivity = await pool.query(`
+      SELECT
+        cs.user_id,
+        u.email AS user_email,
+        u.name AS user_name,
+        date_trunc($1, cs.created_at)::date AS period,
+        COUNT(*)::int AS session_count,
+        COALESCE(SUM(
+          EXTRACT(EPOCH FROM (
+            COALESCE(
+              (SELECT MAX(cm.created_at) FROM chat_messages cm WHERE cm.session_id = cs.id),
+              cs.created_at
+            ) - cs.created_at
+          )) / 60
+        ), 0)::int AS total_minutes
+      FROM chat_sessions cs
+      JOIN users u ON u.id = cs.user_id
+      WHERE cs.created_at >= $2::date AND cs.created_at < ($3::date + INTERVAL '1 day')
+      GROUP BY cs.user_id, u.email, u.name, date_trunc($1, cs.created_at)
+      ORDER BY period DESC, total_minutes DESC
+    `, [trunc, from, to]);
+
+    // Totals per period
+    const totals = await pool.query(`
+      SELECT
+        date_trunc($1, cs.created_at)::date AS period,
+        COALESCE(SUM(
+          EXTRACT(EPOCH FROM (
+            COALESCE(
+              (SELECT MAX(cm.created_at) FROM chat_messages cm WHERE cm.session_id = cs.id),
+              cs.created_at
+            ) - cs.created_at
+          )) / 60
+        ), 0)::int AS total_minutes,
+        COUNT(DISTINCT cs.user_id)::int AS active_users
+      FROM chat_sessions cs
+      WHERE cs.created_at >= $2::date AND cs.created_at < ($3::date + INTERVAL '1 day')
+      GROUP BY date_trunc($1, cs.created_at)
+      ORDER BY period DESC
+    `, [trunc, from, to]);
+
+    res.json({
+      granularity,
+      data: userActivity.rows,
+      totals: totals.rows,
+    });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Activity query failed');
+    res.status(500).json({ error: 'Failed to fetch activity data' });
+  }
 });
 
 export default router;

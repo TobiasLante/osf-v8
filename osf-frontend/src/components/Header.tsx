@@ -172,6 +172,18 @@ export function Header() {
                     {link.label}
                   </Link>
                 ))}
+                {(user.role === "demo" || user.role === "admin") && (
+                  <Link
+                    href="/demo-chat/chat"
+                    className={`block py-1.5 text-sm transition-colors ${
+                      pathname.startsWith("/demo-chat")
+                        ? "text-accent"
+                        : "text-text-muted hover:text-accent"
+                    }`}
+                  >
+                    Demo Chat
+                  </Link>
+                )}
                 {user.role === "admin" && (
                   <Link
                     href="/admin"

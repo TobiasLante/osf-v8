@@ -396,6 +396,7 @@ function UsersTab() {
                     className="bg-bg border border-border rounded px-2 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
                   >
                     <option value="user">user</option>
+                    <option value="demo">demo</option>
                     <option value="admin">admin</option>
                   </select>
                 </td>

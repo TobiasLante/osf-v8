@@ -17,10 +17,10 @@ docker build -t "$REGISTRY/osf-gateway:1.2.0" -f "$V8_ROOT/osf-gateway/Dockerfil
 docker push "$REGISTRY/osf-gateway:1.2.0"
 
 echo "  → osf-frontend..."
-docker build -t "$REGISTRY/osf-frontend:1.2.0" \
+docker build -t "$REGISTRY/osf-frontend:1.3.0" \
   --build-arg NEXT_PUBLIC_API_URL=https://osf-api.zeroguess.ai \
   "$V8_ROOT/osf-frontend"
-docker push "$REGISTRY/osf-frontend:1.2.0"
+docker push "$REGISTRY/osf-frontend:1.3.0"
 
 echo "  → osf-chat-ui..."
 docker build -t "$REGISTRY/osf-chat-ui:8.1.0" -f "$V8_ROOT/chat-ui/Dockerfile" "$V8_ROOT/chat-ui"

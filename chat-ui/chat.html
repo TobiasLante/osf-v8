@@ -4689,12 +4689,13 @@ body { padding: 0; }
                 impactEntityCache[entityType] = entities;
                 renderImpactEntities(entitySelect, entities);
             } catch (err) {
-                console.error('[Impact] Failed to load entities:', err);
-                entitySelect.innerHTML = '<option value="">Fehler beim Laden</option>';
+                console.error('[Impact] Failed to load entities for type=' + entityType + ':', err);
+                entitySelect.innerHTML = '<option value="">Fehler: ' + (err.message || 'unbekannt') + '</option>';
             }
         }
 
         async function mcpCall(toolName, args) {
+            console.log('[MCP] Calling', toolName, args);
             const res = await fetch('/api/mcp', {
                 method: 'POST',
                 headers: authHeaders(),
@@ -4706,9 +4707,11 @@ body { padding: 0; }
                 })
             });
             const data = await res.json();
-            if (data.error) throw new Error(data.error.message || 'MCP error');
+            console.log('[MCP] Response for', toolName, ':', JSON.stringify(data).substring(0, 300));
+            if (data.error) throw new Error(toolName + ': ' + (data.error.message || JSON.stringify(data.error)));
             const textContent = data.result?.content?.find(c => c.type === 'text');
-            return textContent ? textContent.text : '{}';
+            if (!textContent) throw new Error(toolName + ': no text content in result');
+            return textContent.text;
         }
 
         function renderImpactEntities(select, entities) {

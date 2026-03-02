@@ -504,14 +504,14 @@ deploy_osf() {
     return 1
   fi
 
-  docker build --no-cache -t "$REGISTRY/osf-frontend:1.2.0" \
+  docker build --no-cache -t "$REGISTRY/osf-frontend:1.3.0" \
     --build-arg NEXT_PUBLIC_API_URL=https://zeroguess.factory-intelligence.work \
     --build-arg NEXT_PUBLIC_FACTORY_URL=http://${FACTORY_NODE}:${FACTORY_PORT} \
     --build-arg NEXT_PUBLIC_MQTT_EXPLORER_URL=http://${FACTORY_NODE}:31884 \
     -f "$FRONTEND_DOCKERFILE" \
     "$V8_ROOT/osf-frontend" 2>&1 | tail -5
   ok "Frontend image built"
-  docker push "$REGISTRY/osf-frontend:1.2.0" 2>&1 | tail -3
+  docker push "$REGISTRY/osf-frontend:1.3.0" 2>&1 | tail -3
   ok "Frontend pushed"
 
   # 2.3 Scale to 0 if deployments exist (clean slate)
