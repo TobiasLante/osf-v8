@@ -34,12 +34,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: db-password
+              key: DB_PASSWORD
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: jwt-secret
+              key: JWT_SECRET
         - name: FACTORY_DB_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -84,27 +84,31 @@ spec:
           valueFrom:
             secretKeyRef:
               name: osf-secrets
-              key: redis-password
+              key: REDIS_PASSWORD
         - name: RESEND_API_KEY
           valueFrom:
             secretKeyRef:
               name: osf-secrets
               key: RESEND_API_KEY
+              optional: true
         - name: GITHUB_CLIENT_ID
           valueFrom:
             secretKeyRef:
               name: osf-secrets
               key: GITHUB_CLIENT_ID
+              optional: true
         - name: GITHUB_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
               name: osf-secrets
               key: GITHUB_CLIENT_SECRET
+              optional: true
         - name: NODE_RED_SECRET
           valueFrom:
             secretKeyRef:
               name: osf-secrets
               key: NODE_RED_SECRET
+              optional: true
         - name: NODE_ENV
           value: "production"
         - name: FRONTEND_URL

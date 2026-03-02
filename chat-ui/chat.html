@@ -2570,6 +2570,14 @@
             if (token) h['Authorization'] = 'Bearer ' + token;
             return h;
         }
+        // All fetches include credentials so httpOnly cookies are sent (same-origin)
+        const _origFetch = window.fetch;
+        window.fetch = function(url, opts = {}) {
+            if (typeof url === 'string' && url.startsWith('/api/')) {
+                opts.credentials = 'include';
+            }
+            return _origFetch.call(this, url, opts);
+        };
 
         // === ELEMENTS ===
         const main = document.getElementById('main');

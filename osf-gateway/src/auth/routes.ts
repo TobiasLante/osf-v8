@@ -21,6 +21,7 @@ function setAuthCookies(res: Response, accessToken: string, refreshToken: string
     httpOnly: true,
     secure: IS_PROD,
     sameSite: IS_PROD ? 'none' : 'lax',
+    domain: IS_PROD ? '.zeroguess.ai' : undefined,
     maxAge: 15 * 60 * 1000, // 15 min (matches JWT expiry)
     path: '/',
   });
@@ -28,6 +29,7 @@ function setAuthCookies(res: Response, accessToken: string, refreshToken: string
     httpOnly: true,
     secure: IS_PROD,
     sameSite: IS_PROD ? 'none' : 'lax',
+    domain: IS_PROD ? '.zeroguess.ai' : undefined,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/auth/refresh',
   });

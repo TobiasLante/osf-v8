@@ -505,7 +505,7 @@ deploy_osf() {
   fi
 
   docker build --no-cache -t "$REGISTRY/osf-frontend:1.3.0" \
-    --build-arg NEXT_PUBLIC_API_URL=https://zeroguess.factory-intelligence.work \
+    --build-arg NEXT_PUBLIC_API_URL=https://osf-api.zeroguess.ai \
     --build-arg NEXT_PUBLIC_FACTORY_URL=http://${FACTORY_NODE}:${FACTORY_PORT} \
     --build-arg NEXT_PUBLIC_MQTT_EXPLORER_URL=http://${FACTORY_NODE}:31884 \
     -f "$FRONTEND_DOCKERFILE" \
