@@ -140,7 +140,13 @@ async function main() {
     if (req.path.startsWith('/flows/editor') && req.method !== 'GET') {
       return next();
     }
-    express.json({ limit: '5mb' })(req, res, next);
+    express.json({ limit: '5mb' })(req, res, (err: any) => {
+      if (err) {
+        res.status(400).json({ error: 'Invalid JSON in request body' });
+        return;
+      }
+      next();
+    });
   });
 
   // CSRF protection for state-changing requests from browsers
@@ -184,7 +190,7 @@ async function main() {
 
   // Health check (no auth)
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', version: '1.2.0' });
+    res.json({ status: 'ok', version: '8.1.0' });
   });
 
   // Readiness probe — checks DB connectivity

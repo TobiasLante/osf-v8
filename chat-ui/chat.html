@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <!-- V7-DISABLED: <link rel="stylesheet" href="css/v6-design.css"> -->
+    <link rel="stylesheet" href="css/v6-design.css">
     <style>
         /* === CHAT PAGE — V6 Variable Aliases === */
         :root {
@@ -2275,7 +2275,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge">v1.2.0</span>
+                    <span class="version-badge">v8.1.0</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -2284,7 +2284,7 @@
             </div>
 
             <div class="header-actions">
-                <a href="https://openshopfloor.zeroguess.ai/docs" class="header-btn">Docs</a>
+                <a href="/help/index.html" class="header-btn">Wiki</a>
                 <a href="/help.html" class="header-btn">Hilfe</a>
                 <button class="header-btn streaming-toggle" id="themeToggle" title="Dark/Light Mode">
                     <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
@@ -2525,7 +2525,6 @@
     <script>
         // === STATE ===
         function generateUUID() {
-            // Fallback für nicht-sichere Kontexte (kein HTTPS)
             if (crypto.randomUUID) {
                 return crypto.randomUUID();
             }
@@ -2539,7 +2538,6 @@
         let sessionId = generateUUID();
         let isLoading = false;
         let currentFetchController = null;
-        let currentAgentType = null;
 
         // === PROGRESS STATUS BAR STATE ===
         let typingTimerInterval = null;
@@ -2558,8 +2556,20 @@
             active: false,
             total: 0,
             completed: 0,
-            specialists: {} // name -> { status, domain, displayName, dataContextLength, durationMs, promptSent, result }
+            specialists: {}
         };
+
+        // === AUTH ===
+        function getToken() {
+            return localStorage.getItem('osf_token') || '';
+        }
+
+        function authHeaders(extra = {}) {
+            const h = { 'Content-Type': 'application/json', ...extra };
+            const token = getToken();
+            if (token) h['Authorization'] = 'Bearer ' + token;
+            return h;
+        }
 
         // === ELEMENTS ===
         const main = document.getElementById('main');
@@ -2589,7 +2599,7 @@
         const closeProgressBtn = document.getElementById('closeProgressBtn');
 
         // Modal state
-        let pendingAction = null;  // { type: 'agent'|'skill', name: string }
+        let pendingAction = null;
         let selectedMachine = '';
 
         // === INIT ===
@@ -2609,7 +2619,6 @@
                 const data = await res.json();
                 statusIndicator.className = 'status-indicator';
                 statusText.textContent = 'Verbunden';
-                // Fetch actual LLM model name from llama.cpp server
                 fetchLlmModel();
             } catch {
                 statusIndicator.className = 'status-indicator error';
@@ -2622,22 +2631,11 @@
             try {
                 const res = await fetch('/api/llm/status');
                 const data = await res.json();
-                if (data.status === 'ok') {
-                    // Use first available model name, clean it up for display
-                    const model = (data.models && data.models[0]) || data.defaultModel || 'unknown';
-                    // Format: "qwen2.5:72b" → "Qwen 2.5 72B", "llama-3.1:8b" → "Llama 3.1 8B"
-                    const display = model
-                        .replace(/[:\-_]/g, ' ')
-                        .replace(/\b(\d+)b\b/gi, '$1B')
-                        .replace(/\bqwen/i, 'Qwen')
-                        .replace(/\bllama/i, 'Llama')
-                        .replace(/\bmistral/i, 'Mistral')
-                        .replace(/\bgemma/i, 'Gemma')
-                        .trim();
-                    llmStatus.textContent = display;
+                if (data.online) {
+                    llmStatus.textContent = 'Online';
                     llmStatus.style.color = '';
                 } else {
-                    llmStatus.textContent = 'Offline';
+                    llmStatus.textContent = data.message ? 'Offline' : 'Offline';
                     llmStatus.style.color = 'var(--status-error, #ef4444)';
                 }
             } catch {
@@ -2660,7 +2658,6 @@
                     const sectionName = header.dataset.section;
                     const wasOpen = section.classList.contains('open');
 
-                    // Close all pills
                     document.querySelectorAll('.accord-section').forEach(s => s.classList.remove('open'));
                     const expandPanel = document.getElementById('accordExpandPanel');
                     expandPanel.classList.remove('open');
@@ -2685,7 +2682,7 @@
                 updateThemeIcon();
             });
 
-            // Modal input (machine buttons are bound dynamically in renderMachineButtons)
+            // Modal input
             machineInput.addEventListener('input', () => {
                 selectedMachine = machineInput.value;
                 document.querySelectorAll('.modal-machine-btn').forEach(b => {
@@ -2693,18 +2690,13 @@
                 });
             });
 
-            // Modal cancel
             modalCancel.addEventListener('click', closeMachineModal);
-
-            // Modal confirm
             modalConfirm.addEventListener('click', confirmMachineModal);
 
-            // Close modal on overlay click
             machineModal.addEventListener('click', (e) => {
                 if (e.target === machineModal) closeMachineModal();
             });
 
-            // Close modal on Escape
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape' && machineModal.classList.contains('open')) {
                     closeMachineModal();
@@ -2778,14 +2770,12 @@
                 modalDesc.textContent = 'Wählen Sie eine Maschine oder lassen Sie das Feld leer für die Gesamtübersicht.';
             }
 
-            // Load machines dynamically
             loadMachineButtons();
-
             machineModal.classList.add('open');
             machineInput.focus();
         }
 
-        // Dynamic machine loading from /api/machines
+        // === MACHINE LOADING via MCP ===
         let machineCache = null;
         async function loadMachineButtons() {
             const container = document.getElementById('machineButtons');
@@ -2795,31 +2785,40 @@
             }
             container.innerHTML = '<span style="color:var(--text-1);font-size:13px;">Lade Maschinen...</span>';
             try {
-                // V8: /api/machines not available; try MCP tool, fallback to static list
                 const res = await fetch('/api/mcp', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({
                         jsonrpc: '2.0',
-                        id: Date.now(),
+                        id: 'machines-' + Date.now(),
                         method: 'tools/call',
-                        params: { name: 'list_machines', arguments: {} }
+                        params: { name: 'list-machines', arguments: {} }
                     })
                 });
                 const data = await res.json();
-                if (data.result && data.result.content) {
-                    const content = typeof data.result.content[0] === 'object' ? data.result.content[0].text : data.result.content;
-                    const parsed = typeof content === 'string' ? JSON.parse(content) : content;
-                    machineCache = (parsed.machines || parsed || []).map(m => typeof m === 'string' ? m : m.machine_id);
-                } else {
-                    // Static fallback
-                    machineCache = ['ML-1', 'ML-2', 'ML-3', 'ML-4'];
+                if (data.error) throw new Error(data.error.message || 'MCP error');
+                // Extract machine list from MCP result
+                const result = data.result;
+                let machines = [];
+                if (result && result.content) {
+                    // MCP tool result format: { content: [{ type: 'text', text: '...' }] }
+                    const textContent = result.content.find(c => c.type === 'text');
+                    if (textContent) {
+                        try {
+                            const parsed = JSON.parse(textContent.text);
+                            machines = (parsed.machines || parsed || []).map(m => m.machine_id || m.id || m);
+                        } catch {
+                            machines = [];
+                        }
+                    }
+                } else if (Array.isArray(result)) {
+                    machines = result.map(m => m.machine_id || m.id || m);
                 }
+                machineCache = machines;
                 renderMachineButtons(container, machineCache);
             } catch (e) {
-                // Static fallback when MCP endpoint is unavailable
-                machineCache = ['ML-1', 'ML-2', 'ML-3', 'ML-4'];
-                renderMachineButtons(container, machineCache);
+                console.warn('[MCP] list-machines failed:', e);
+                container.innerHTML = '<span style="color:var(--text-2);font-size:13px;">Maschinen-ID manuell eingeben</span>';
             }
         }
 
@@ -2827,7 +2826,6 @@
             container.innerHTML = machines.map(id =>
                 `<button class="modal-machine-btn" data-machine="${id}">${id}</button>`
             ).join('');
-            // Bind click handlers
             container.querySelectorAll('.modal-machine-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     container.querySelectorAll('.modal-machine-btn').forEach(b => b.classList.remove('selected'));
@@ -2887,40 +2885,50 @@
                 case 'deep-morning':
                 case 'strategic-planner':
                 case 'nightly':
-                    // Diese Agents brauchen keine Maschine
                     executeAgent(action);
                     break;
             }
         }
 
-        // === USER INFO (internal vs external) ===
+        // === USER INFO (V8: /api/auth/me) ===
         let isExternalUser = false;
         let claudeEnabled = true;
 
         async function loadUserInfo() {
             try {
-                const res = await fetch('/api/auth/me');
+                const res = await fetch('/api/auth/me', { headers: authHeaders() });
+                if (!res.ok) {
+                    // Not logged in — treat as external
+                    isExternalUser = true;
+                    claudeEnabled = false;
+                    return;
+                }
                 const data = await res.json();
-                isExternalUser = !!data.isExternal;
-                claudeEnabled = data.claudeEnabled !== false;
+                const user = data.user || data;
+                // V8 mapping: role → isExternal, tier → claudeEnabled
+                isExternalUser = user.role === 'external' || user.tier === 'free';
+                claudeEnabled = user.tier === 'premium' || user.tier === 'enterprise';
             } catch (e) {
                 console.warn('Failed to load user info:', e);
             }
         }
 
-        // === LLM CONFIG ===
+        // === LLM CONFIG (V8: /api/auth/llm-settings) ===
         async function loadLlmConfig() {
             try {
-                const res = await fetch('/api/auth/llm-settings');
+                const res = await fetch('/api/auth/llm-settings', { headers: authHeaders() });
+                if (!res.ok) return;
                 const cfg = await res.json();
-                // Find matching preset
+                // V8 format: { provider, baseUrl, model, hasApiKey }
+                // Map to radio presets for backward compat
                 const presets = [
-                    { value: 'D', simple: 'qwen-14b', complex: 'qwen' },
-                    { value: 'E', simple: 'qwen', complex: 'qwen' },
-                    { value: 'A', simple: 'haiku', complex: 'haiku' },
-                    { value: 'B', simple: 'haiku', complex: 'sonnet' },
+                    { value: 'D', provider: 'platform', model: null },
+                    { value: 'E', provider: 'platform', model: null },
+                    { value: 'A', provider: 'anthropic', model: 'haiku' },
+                    { value: 'B', provider: 'anthropic', model: 'sonnet' },
                 ];
-                const match = presets.find(p => p.simple === cfg.simple && p.complex === cfg.complex);
+                // Try to match current config to a preset
+                const match = presets.find(p => p.provider === cfg.provider);
                 if (match) {
                     const radio = document.querySelector(`#llmRadioGroup .llm-radio input[value="${match.value}"]`);
                     if (radio) {
@@ -2935,10 +2943,18 @@
 
         async function saveLlmConfig(simple, complex) {
             try {
+                // Map V7 presets to V8 llm-settings format
+                let provider = 'platform';
+                let model = null;
+                if (simple === 'haiku' && complex === 'haiku') {
+                    provider = 'anthropic'; model = 'haiku';
+                } else if (simple === 'haiku' && complex === 'sonnet') {
+                    provider = 'anthropic'; model = 'sonnet';
+                }
                 await fetch('/api/auth/llm-settings', {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ simple, complex })
+                    headers: authHeaders(),
+                    body: JSON.stringify({ provider, model })
                 });
                 const saved = document.getElementById('llmSaved');
                 saved.classList.add('show');
@@ -2959,9 +2975,7 @@
 
         // === EXPAND PANEL ===
         const expandPanelConfig = {
-            'llm-config': {
-                type: 'llm',
-            },
+            'llm-config': { type: 'llm' },
             'oee': {
                 buttons: [
                     { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'oee_summary' },
@@ -3012,7 +3026,6 @@
 
             if (config.type === 'llm') {
                 const disabledClass = isExternalUser ? ' disabled' : '';
-                // Render LLM config radios inside expand panel
                 panel.innerHTML = `
                     <div class="llm-external-hint${isExternalUser ? ' show' : ''}" id="llmExternalHint">Nur intern umschaltbar</div>
                     <div class="llm-config-body open${disabledClass}" id="llmConfigBody">
@@ -3039,7 +3052,6 @@
                         </label>
                     </div>
                 </div>`;
-                // Only bind click handlers for internal users
                 if (!isExternalUser) {
                     bindLlmRadios();
                 }
@@ -3047,7 +3059,6 @@
                 return;
             }
 
-            // Render action buttons
             for (const btn of config.buttons) {
                 const el = document.createElement('button');
                 el.className = 'accord-btn';
@@ -3094,6 +3105,52 @@
             });
         }
 
+        // ═══════════════════════════════════════════════════════
+        // V8 SSE Stream Reader
+        // ═══════════════════════════════════════════════════════
+
+        async function readSSEStream(response, onEvent) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete line in buffer
+
+                let eventType = 'message';
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        eventType = line.substring(7).trim();
+                    } else if (line.startsWith('data: ')) {
+                        const dataStr = line.substring(6);
+                        if (dataStr === '[DONE]') {
+                            onEvent({ type: 'done' });
+                            continue;
+                        }
+                        try {
+                            const data = JSON.parse(dataStr);
+                            // Merge event type if not already in data
+                            if (!data.type && eventType !== 'message') {
+                                data.type = eventType;
+                            }
+                            onEvent(data);
+                        } catch {
+                            // Non-JSON data line, skip
+                        }
+                    }
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // Skills via MCP (V8: POST /api/mcp, JSON-RPC tools/call)
+        // ═══════════════════════════════════════════════════════
+
         async function executeSkill(skill, params = {}) {
             if (isLoading) return;
 
@@ -3111,13 +3168,12 @@
             const typingId = addTyping();
 
             try {
-                // V8: Skills are now served via MCP JSON-RPC endpoint
                 const res = await fetch('/api/mcp', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({
                         jsonrpc: '2.0',
-                        id: Date.now(),
+                        id: skill + '-' + Date.now(),
                         method: 'tools/call',
                         params: { name: skill, arguments: params }
                     })
@@ -3128,10 +3184,16 @@
                 if (data.error) {
                     addMessage('assistant', `❌ ${data.error.message || JSON.stringify(data.error)}`);
                 } else {
-                    const result = data.result && data.result.content
-                        ? (typeof data.result.content[0] === 'object' ? data.result.content[0].text : data.result.content)
-                        : data.result;
-                    addMessage('assistant', formatSkillResult(skill, typeof result === 'string' ? JSON.parse(result) : result));
+                    // Extract result from MCP response
+                    const result = data.result;
+                    let skillData = result;
+                    if (result && result.content) {
+                        const textContent = result.content.find(c => c.type === 'text');
+                        if (textContent) {
+                            try { skillData = JSON.parse(textContent.text); } catch { skillData = textContent.text; }
+                        }
+                    }
+                    addMessage('assistant', formatSkillResult(skill, skillData));
                 }
             } catch (err) {
                 removeTyping(typingId);
@@ -3141,6 +3203,10 @@
             isLoading = false;
             updateSendBtn();
         }
+
+        // ═══════════════════════════════════════════════════════
+        // Agent Execution (V8: POST /api/agents/run/:id → SSE)
+        // ═══════════════════════════════════════════════════════
 
         async function executeAgent(agent, params = {}) {
             if (isLoading) return;
@@ -3170,7 +3236,6 @@
                 displayName += params.periodMode === 'next' ? ' (Folgemonat)' : ' (Diesen Monat)';
             }
 
-            currentAgentType = agent;
             addMessage('user', `${displayName} starten`);
 
             // Clear stream panel for new agent run and auto-open
@@ -3187,38 +3252,63 @@
             openProgressPanel();
 
             const typingId = addTyping();
+            let agentOutput = '';
 
             try {
                 currentFetchController = new AbortController();
-                const res = await fetch(`/api/agents/run/${agent}`, {
+                const res = await fetch(`/api/agents/run/${encodeURIComponent(agent)}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(params),
+                    headers: authHeaders(),
+                    body: JSON.stringify({
+                        userMessage: params.machineId ? `Maschine: ${params.machineId}` : undefined,
+                        params: {
+                            sessionId,
+                            language: currentLanguage,
+                            ...params
+                        }
+                    }),
                     signal: currentFetchController.signal
                 });
 
                 if (!res.ok) {
-                    currentFetchController = null;
-                    removeTyping(typingId);
-                    const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-                    addMessage('assistant', `❌ ${errData.error || 'Agent-Fehler'}`);
-                    isLoading = false;
-                    updateSendBtn();
-                    return;
+                    const errData = await res.json().catch(() => ({ error: res.statusText }));
+                    throw new Error(errData.error || errData.message || `HTTP ${res.status}`);
                 }
 
-                // Read V8 SSE stream
-                let fullContent = '';
+                // Read SSE stream
                 await readSSEStream(res, (event) => {
-                    handleV8AgentEvent(event);
-                    if (event.type === 'content' || event.type === 'step_content') {
-                        fullContent += event.text || '';
+                    switch (event.type) {
+                        case 'run_start':
+                            handleProgressEvent({ type: 'init', message: `Agent ${agent} gestartet`, timestamp: new Date().toISOString() });
+                            break;
+                        case 'tool_start':
+                            handleProgressEvent({ type: 'tool_call_start', toolName: event.name, params: event.arguments, timestamp: new Date().toISOString() });
+                            break;
+                        case 'tool_result':
+                            handleProgressEvent({ type: 'tool_call_end', toolName: event.name, toolResult: event.result, timestamp: new Date().toISOString() });
+                            break;
+                        case 'content':
+                            agentOutput += (event.text || '');
+                            break;
+                        case 'error':
+                            handleProgressEvent({ type: 'error', message: event.message, timestamp: new Date().toISOString() });
+                            break;
+                        case 'done':
+                            handleProgressEvent({ type: 'done', message: 'Fertig', timestamp: new Date().toISOString() });
+                            break;
+                        default:
+                            // Forward unknown events to progress panel
+                            if (event.type) {
+                                handleProgressEvent({ ...event, timestamp: event.timestamp || new Date().toISOString() });
+                            }
+                            break;
                     }
                 });
 
                 currentFetchController = null;
                 removeTyping(typingId);
-                addMessage('assistant', fullContent || 'Agent ausgeführt.');
+                addMessage('assistant', agentOutput || 'Agent ausgeführt.');
+
             } catch (err) {
                 currentFetchController = null;
                 removeTyping(typingId);
@@ -3233,98 +3323,9 @@
             updateSendBtn();
         }
 
-        // Read an SSE (text/event-stream) response, calling onEvent for each parsed event
-        async function readSSEStream(response, onEvent) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-
-                // Parse SSE lines
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || ''; // keep incomplete line in buffer
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const event = JSON.parse(line.slice(6));
-                            onEvent(event);
-                        } catch { /* skip malformed */ }
-                    }
-                }
-            }
-            // Process remaining buffer
-            if (buffer.startsWith('data: ')) {
-                try {
-                    const event = JSON.parse(buffer.slice(6));
-                    onEvent(event);
-                } catch { /* skip */ }
-            }
-        }
-
-        // Map V8 SSE events to the existing progress panel
-        function handleV8AgentEvent(event) {
-            const progressEvent = { ...event, timestamp: event.timestamp || new Date().toISOString() };
-
-            switch (event.type) {
-                case 'run_start':
-                    progressEvent.type = 'init';
-                    progressEvent.message = `Agent ${event.agent || ''} gestartet`;
-                    break;
-                case 'tool_start':
-                    progressEvent.type = 'tool_start';
-                    progressEvent.toolName = event.name;
-                    progressEvent.toolInput = event.arguments;
-                    progressEvent.message = `Tool: ${event.name}`;
-                    break;
-                case 'tool_result':
-                    progressEvent.type = 'tool_end';
-                    progressEvent.toolName = event.name;
-                    progressEvent.toolResult = event.result;
-                    progressEvent.message = `Tool: ${event.name}`;
-                    break;
-                case 'chain_start':
-                    progressEvent.type = 'init';
-                    progressEvent.message = `Chain ${event.chain || ''} gestartet (${event.totalSteps || '?'} Steps)`;
-                    break;
-                case 'step_start':
-                    progressEvent.type = 'step_start';
-                    progressEvent.title = event.label || `Step ${event.step}`;
-                    progressEvent.step = event.step;
-                    break;
-                case 'step_done':
-                    progressEvent.type = 'step_complete';
-                    progressEvent.title = `Step ${event.step} fertig`;
-                    progressEvent.step = event.step;
-                    break;
-                case 'step_content':
-                    // Chain step content — treat as content for accumulation
-                    progressEvent.type = 'content';
-                    progressEvent.text = event.text;
-                    return; // Don't render in progress panel
-                case 'chain_complete':
-                    progressEvent.type = 'done';
-                    progressEvent.message = `Chain fertig (${event.stepsExecuted || '?'} Steps)`;
-                    break;
-                case 'done':
-                    progressEvent.type = 'done';
-                    progressEvent.message = 'Agent fertig';
-                    break;
-                case 'error':
-                    progressEvent.type = 'error';
-                    break;
-                case 'content':
-                    return; // Don't render content chunks in progress panel
-                default:
-                    break;
-            }
-
-            handleProgressEvent(progressEvent);
-        }
+        // ═══════════════════════════════════════════════════════
+        // Chat (V8: POST /api/chat/completions → SSE)
+        // ═══════════════════════════════════════════════════════
 
         async function sendMessage() {
             const text = input.value.trim();
@@ -3341,58 +3342,65 @@
                 return;
             }
 
-            // Chat message via V8 SSE endpoint
             isLoading = true;
             updateSendBtn();
 
             addMessage('user', text);
             const typingId = addTyping();
+            let assistantText = '';
 
             try {
                 currentFetchController = new AbortController();
                 const res = await fetch('/api/chat/completions', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({
                         message: text,
-                        sessionId,
-                        language: currentLanguage
+                        sessionId
                     }),
                     signal: currentFetchController.signal
                 });
 
                 if (!res.ok) {
-                    currentFetchController = null;
-                    removeTyping(typingId);
-                    const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-                    addMessage('assistant', `❌ ${errData.error || 'Fehler'}`);
-                    isLoading = false;
-                    updateSendBtn();
-                    return;
+                    const errData = await res.json().catch(() => ({ error: res.statusText }));
+                    throw new Error(errData.error || errData.message || `HTTP ${res.status}`);
                 }
 
-                // Read SSE stream
-                let fullContent = '';
+                // Read SSE stream — collect content chunks
                 await readSSEStream(res, (event) => {
-                    if (event.type === 'content') {
-                        fullContent += event.text || '';
-                    } else if (event.type === 'tool_start' || event.type === 'tool_result') {
-                        handleV8AgentEvent(event);
-                    } else if (event.type === 'session') {
-                        // New session created by backend
-                    } else if (event.type === 'error') {
-                        fullContent += `\n❌ ${event.message || 'Fehler'}`;
+                    switch (event.type) {
+                        case 'session':
+                            // Server may return a session ID
+                            if (event.sessionId) sessionId = event.sessionId;
+                            break;
+                        case 'content':
+                            assistantText += (event.text || '');
+                            break;
+                        case 'tool_start':
+                            handleProgressEvent({ type: 'tool_call_start', toolName: event.name, params: event.arguments, timestamp: new Date().toISOString() });
+                            break;
+                        case 'tool_result':
+                            handleProgressEvent({ type: 'tool_call_end', toolName: event.name, toolResult: event.result, timestamp: new Date().toISOString() });
+                            break;
+                        case 'kg_traversal_start':
+                        case 'kg_nodes_discovered':
+                        case 'kg_traversal_end':
+                            handleProgressEvent({ ...event, timestamp: event.timestamp || new Date().toISOString() });
+                            break;
+                        case 'done':
+                            break;
                     }
                 });
 
                 currentFetchController = null;
                 removeTyping(typingId);
-                addMessage('assistant', fullContent || 'Keine Antwort.');
+                addMessage('assistant', assistantText || 'Keine Antwort.');
+
             } catch (err) {
                 currentFetchController = null;
                 removeTyping(typingId);
                 if (err.name === 'AbortError') {
-                    addMessage('assistant', '⏹ Gestoppt.');
+                    addMessage('assistant', '⏹ Chat gestoppt.');
                 } else {
                     addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
                 }
@@ -3414,13 +3422,6 @@
             messages.innerHTML = '';
             messages.classList.add('hidden');
             welcome.classList.remove('hidden');
-
-            // Reconnect SSE with new session ID
-            if (streamingEnabled) {
-                connectSSE();
-            }
-
-            // Clear progress panel
             clearProgress();
         }
 
@@ -3438,8 +3439,8 @@
             }
         }
 
-        async function stopAgent() {
-            // V8: client-side abort only (no server-side stop needed)
+        // === STOP (V8: AbortController, no server endpoint) ===
+        function stopAgent() {
             if (currentFetchController) {
                 currentFetchController.abort();
                 currentFetchController = null;
@@ -3486,10 +3487,7 @@
             `;
             messages.appendChild(msg);
             main.scrollTop = main.scrollHeight;
-
-            // Start progress status bar timer
             startProgressTimer();
-
             return id;
         }
 
@@ -3498,7 +3496,7 @@
             document.getElementById(id)?.remove();
         }
 
-        // === PROGRESS STATUS BAR (in streaming panel) ===
+        // === PROGRESS STATUS BAR ===
         function startProgressTimer() {
             const bar = document.getElementById('progressStatusBar');
             const phase = document.getElementById('progressStatusPhase');
@@ -3709,20 +3707,7 @@ ${status} **${otd}%**
 
         function renderMarkdown(text) {
             if (!text) return '';
-            // Extract links before escaping to prevent URL double-encoding
-            const links = [];
-            let processed = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_, label, url) => {
-                const idx = links.length;
-                links.push({ label, url });
-                return `%%LINK${idx}%%`;
-            });
-            // Escape HTML to prevent XSS via LLM responses
-            processed = escapeHtml(processed);
-            // Restore links with properly escaped label and URL
-            links.forEach((link, i) => {
-                processed = processed.replace(`%%LINK${i}%%`, `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" class="report-link">${escapeHtml(link.label)}</a>`);
-            });
-            return processed
+            return text
                 .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
                 .replace(/`([^`]+)`/g, '<code>$1</code>')
                 .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -3730,10 +3715,7 @@ ${status} **${otd}%**
                 .replace(/^### (.+)$/gm, '<h3>$1</h3>')
                 .replace(/^## (.+)$/gm, '<h2>$1</h2>')
                 .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-                    // Non-http links that weren't extracted above
-                    return `${label} (${url})`;
-                })
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="report-link">$1</a>')
                 .replace(/^\|(.+)\|$/gm, (match) => {
                     const cells = match.split('|').filter(c => c.trim());
                     if (cells.every(c => c.trim().match(/^[-:]+$/))) return '';
@@ -3748,21 +3730,14 @@ ${status} **${otd}%**
 
         // === PROGRESS PANEL ===
         function initProgressPanel() {
-            // Set initial toggle state
             if (streamingEnabled) {
                 streamingToggle.classList.add('active');
-                connectSSE();
             } else {
                 streamingToggle.classList.remove('active');
             }
 
-            // Toggle button
             streamingToggle.addEventListener('click', toggleStreaming);
-
-            // Clear button
             clearProgressBtn.addEventListener('click', clearProgress);
-
-            // Close button
             closeProgressBtn.addEventListener('click', closeProgressPanel);
         }
 
@@ -3788,35 +3763,19 @@ ${status} **${otd}%**
 
             if (streamingEnabled) {
                 streamingToggle.classList.add('active');
-                connectSSE();
             } else {
                 streamingToggle.classList.remove('active');
-                disconnectSSE();
                 closeProgressPanel();
             }
         }
 
-        function connectSSE() {
-            // V7-DISABLED: V7 SSE EventSource no longer needed.
-            // V8 agents use inline SSE via fetch() ReadableStream.
-            // Keeping function signature so callers don't break.
-            console.log('[SSE] V7 SSE disabled — V8 uses inline SSE streams');
-        }
-
-        function disconnectSSE() {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-            }
-        }
+        // V8 uses inline SSE — no separate EventSource needed
+        // Progress events arrive directly in the fetch response stream
 
         function handleProgressEvent(event) {
             progressEvents.push(event);
-
-            // === Update status bar in streaming panel ===
             updateProgressStatusBar(event);
 
-            // Handle stopped event — reset UI loading state
             if (event.type === 'stopped') {
                 isLoading = false;
                 updateSendBtn();
@@ -3825,7 +3784,6 @@ ${status} **${otd}%**
                 return;
             }
 
-            // Auto-open panel on first event
             if (!progressPanel.classList.contains('open') && streamingEnabled) {
                 openProgressPanel();
             }
@@ -3836,7 +3794,6 @@ ${status} **${otd}%**
                 handleSpecialistEvent(event);
                 return;
             }
-
 
             // Route KG events to visualizer
             const kgTypes = ['kg_traversal_start', 'kg_nodes_discovered', 'kg_traversal_end', 'kg_highlight', 'kg_path_highlight'];
@@ -3854,10 +3811,7 @@ ${status} **${otd}%**
                 return;
             }
 
-            // Classic rendering for non-specialist events
             renderProgressEvent(event);
-
-            // Auto-scroll to bottom
             progressLog.scrollTop = progressLog.scrollHeight;
         }
 
@@ -3872,14 +3826,12 @@ ${status} **${otd}%**
                     specialistState.completed = 0;
                     specialistState.specialists = {};
 
-                    // Initialize specialist entries
                     if (event.specialistNames) {
                         for (const name of event.specialistNames) {
                             specialistState.specialists[name] = { status: 'pending' };
                         }
                     }
 
-                    // Clear pre-specialist progress events (data loading etc.)
                     const progressLog = document.getElementById('progressLog');
                     if (progressLog) progressLog.innerHTML = '';
 
@@ -3887,7 +3839,6 @@ ${status} **${otd}%**
                     cards.innerHTML = '';
                     updateSpecialistProgress();
 
-                    // Create placeholder cards for all specialists
                     if (event.specialistNames) {
                         for (const name of event.specialistNames) {
                             createSpecialistCard(name);
@@ -3939,7 +3890,6 @@ ${status} **${otd}%**
 
                 case 'specialists_batch_complete':
                     specialistState.completed = specialistState.total;
-                    // Force all remaining cards to "done" state
                     for (const [name, spec] of Object.entries(specialistState.specialists)) {
                         if (spec.status === 'running' || spec.status === 'pending') {
                             spec.status = 'done';
@@ -3948,7 +3898,6 @@ ${status} **${otd}%**
                     }
                     updateSpecialistProgress();
 
-                    // Show Round 1 summary in discussion thread
                     {
                         const thread = document.getElementById('discussionThread');
                         const messages = document.getElementById('discussionMessages');
@@ -3958,7 +3907,6 @@ ${status} **${otd}%**
                         roundHeader.textContent = 'Runde 1: Spezialisten-Analyse';
                         messages.appendChild(roundHeader);
 
-                        // Show each specialist result
                         const specResults = event.specialistResults || [];
                         for (const sr of specResults) {
                             const displayName = sr.domain || sr.name || '?';
@@ -4029,10 +3977,8 @@ ${status} **${otd}%**
                     messages.appendChild(msg);
                     break;
                 }
-                case 'discussion_round_complete': {
-                    // No-op, visual separation already done by round header
+                case 'discussion_round_complete':
                     break;
-                }
                 case 'discussion_synthesis_start': {
                     const badge = document.createElement('div');
                     badge.className = 'discussion-synthesis-badge';
@@ -4088,15 +4034,12 @@ ${status} **${otd}%**
                 }
             }
 
-            // Auto-scroll discussion thread to latest message
             thread.scrollTop = thread.scrollHeight;
-
-            // Mirror to pop-out modal if active
             mirrorToPopoutModal();
         }
 
         // ═══════════════════════════════════════════════════════
-        // Stream Pop-out Modal (mirrors entire progress panel)
+        // Stream Pop-out Modal
         // ═══════════════════════════════════════════════════════
 
         let streamPopoutWindow = null;
@@ -4108,37 +4051,31 @@ ${status} **${otd}%**
                 return;
             }
 
-            streamPopoutWindow = window.open('', 'v7-stream', 'width=900,height=800,left=100,top=50');
+            streamPopoutWindow = window.open('', 'v8-stream', 'width=900,height=800,left=100,top=50');
             if (!streamPopoutWindow) {
                 alert('Pop-up wurde blockiert. Bitte erlaube Pop-ups für diese Seite.');
                 return;
             }
 
-            // Copy ALL styles: inline <style> + external stylesheets (cssRules)
             const allStyleParts = [];
             for (const sheet of document.styleSheets) {
                 try {
                     const rules = Array.from(sheet.cssRules).map(r => r.cssText).join('\n');
                     allStyleParts.push(rules);
-                } catch (e) {
-                    // Cross-origin (e.g. Google Fonts) — skip, add as link instead
-                }
+                } catch (e) {}
             }
-            // Also grab inline <style> tags (belt & suspenders)
             for (const s of document.querySelectorAll('style')) {
                 allStyleParts.push(s.textContent);
             }
             const allStyles = allStyleParts.join('\n');
-            // Google Fonts as link (cross-origin, can't read cssRules)
             const fontLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
                 .filter(l => l.href.includes('fonts.googleapis'))
                 .map(l => l.outerHTML).join('\n');
 
             streamPopoutWindow.document.write(`<!DOCTYPE html>
-<html><head><title>V7 Live Progress</title>
+<html><head><title>V8 Live Progress</title>
 ${fontLinks}
 <style>${allStyles}
-/* Popup overrides */
 html, body { height: auto; overflow: auto; background: var(--surface-0); color: var(--text-0); }
 body { padding: 0; }
 .popout-header {
@@ -4150,28 +4087,22 @@ body { padding: 0; }
 .popout-header .title { font-size: 14px; font-weight: 700; color: var(--violet); }
 .popout-header .status { margin-left: auto; font-size: 11px; color: var(--text-2); }
 #panelContent { padding: 0; }
-/* Make specialist overview always visible in popup */
 .specialist-overview { display: block !important; }
-/* Make discussion thread always visible in popup */
 .discussion-thread { display: flex !important; max-height: none !important; overflow: visible !important; }
-/* Make progress panel content visible */
 .progress-panel-content { max-height: none !important; overflow: visible !important; }
-/* Hide empty state */
 .progress-empty { display: none; }
-/* Animations */
 @keyframes eventFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @keyframes statusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 </style>
 </head><body>
 <div class="popout-header">
   <span class="dot"></span>
-  <span class="title">V7 Live Progress</span>
+  <span class="title">V8 Live Progress</span>
   <span class="status" id="popoutStatus">Warte auf Events...</span>
 </div>
 <div id="panelContent"></div>
 </body></html>`);
             streamPopoutWindow.document.close();
-
             mirrorToPopoutModal();
 
             const checkClosed = setInterval(() => {
@@ -4190,20 +4121,15 @@ body { padding: 0; }
 
             const wasAtBottom = (streamPopoutWindow.document.documentElement.scrollHeight - streamPopoutWindow.scrollY - streamPopoutWindow.innerHeight) < 100;
 
-            // 1:1 clone — grab all three sections from the side panel
             let html = '';
-
             const specOverview = document.getElementById('specialistOverview');
             if (specOverview) html += specOverview.outerHTML;
-
             const discThread = document.getElementById('discussionThread');
             if (discThread) html += discThread.outerHTML;
-
             const progressLog = document.getElementById('progressLog');
             if (progressLog) html += '<div class="progress-panel-content">' + progressLog.innerHTML + '</div>';
 
             target.innerHTML = html;
-
             if (statusEl) statusEl.textContent = new Date().toLocaleTimeString('de-DE') + ' — ' + progressEvents.length + ' Events';
             if (wasAtBottom) streamPopoutWindow.scrollTo(0, streamPopoutWindow.document.documentElement.scrollHeight);
         }
@@ -4233,21 +4159,14 @@ body { padding: 0; }
             const spec = specialistState.specialists[name];
             if (!spec) return;
 
-            // Update status badge
             const statusEl = card.querySelector('.specialist-card-status');
             statusEl.className = `specialist-card-status ${spec.status}`;
             const statusLabels = { pending: 'Wartend', running: 'Läuft...', done: 'Fertig', error: 'Fehler' };
             statusEl.textContent = statusLabels[spec.status] || spec.status;
 
-            // Update name/domain if now available
-            if (spec.displayName) {
-                card.querySelector('.specialist-card-name').textContent = spec.displayName;
-            }
-            if (spec.domain) {
-                card.querySelector('.specialist-card-domain').textContent = spec.domain;
-            }
+            if (spec.displayName) card.querySelector('.specialist-card-name').textContent = spec.displayName;
+            if (spec.domain) card.querySelector('.specialist-card-domain').textContent = spec.domain;
 
-            // Update meta
             const metaItems = [];
             if (spec.dataContextLength) metaItems.push(`Daten: ${formatBytes(spec.dataContextLength)}`);
             if (spec.durationMs) metaItems.push(`Dauer: ${formatDuration(spec.durationMs)}`);
@@ -4265,10 +4184,8 @@ body { padding: 0; }
                 metaEl.innerHTML = metaItems.map(m => `<span class="meta-item">${escapeHtml(m)}</span>`).join('');
             }
 
-            // Remove old details sections
             card.querySelectorAll('.specialist-card-details').forEach(d => d.remove());
 
-            // Add collapsible prompt section
             if (spec.promptSent && spec.status !== 'pending') {
                 const promptDetails = document.createElement('details');
                 promptDetails.className = 'specialist-card-details';
@@ -4279,7 +4196,6 @@ body { padding: 0; }
                 card.appendChild(promptDetails);
             }
 
-            // Add collapsible result section (human-readable)
             if (spec.result?.report) {
                 const resultDetails = document.createElement('details');
                 resultDetails.className = 'specialist-card-details';
@@ -4341,11 +4257,8 @@ body { padding: 0; }
         }
 
         function renderProgressEvent(event) {
-            // Remove empty state if present
             const emptyState = progressLog.querySelector('.progress-empty');
-            if (emptyState) {
-                emptyState.remove();
-            }
+            if (emptyState) emptyState.remove();
 
             const eventEl = document.createElement('div');
             eventEl.className = `progress-event type-${event.type}`;
@@ -4363,55 +4276,35 @@ body { padding: 0; }
             let metaItems = [];
             let details = [];
 
-            // Build message and details based on event type
             switch (event.type) {
                 case 'init':
                     message = event.message || 'Session initialisiert';
                     if (event.model) metaItems.push(`Model: ${event.model}`);
                     if (event.sessionId) metaItems.push(`Session: ${event.sessionId.substring(0, 8)}`);
-                    if (event.systemPromptLength) metaItems.push(`System Prompt: ${event.systemPromptLength.toLocaleString()} chars`);
-                    if (event.maxIterations) metaItems.push(`Max Iterations: ${event.maxIterations}`);
                     break;
 
                 case 'api_request':
                     message = event.message || `API Request`;
-                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}${event.maxIterations ? '/' + event.maxIterations : ''}`);
+                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
                     if (event.model) metaItems.push(`Model: ${event.model}`);
-                    if (event.messageCount) metaItems.push(`Messages: ${event.messageCount}`);
-                    if (event.cumulativeTokens) {
-                        metaItems.push(`Cumulative: ${event.cumulativeTokens.input + event.cumulativeTokens.output} tokens`);
-                    }
                     break;
 
                 case 'api_response':
                     message = event.message || `API Response`;
                     if (event.stopReason) metaItems.push(`Stop: ${event.stopReason}`);
-                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
                     if (event.tokensUsed) {
-                        metaItems.push(`This call: ${event.tokensUsed.input} in / ${event.tokensUsed.output} out`);
-                    }
-                    if (event.cumulativeTokens) {
-                        metaItems.push(`Total: ${event.cumulativeTokens.input + event.cumulativeTokens.output} tokens`);
-                        details.push({
-                            label: 'Token Details',
-                            content: `Input: ${event.cumulativeTokens.input.toLocaleString()}\nOutput: ${event.cumulativeTokens.output.toLocaleString()}\nTotal: ${(event.cumulativeTokens.input + event.cumulativeTokens.output).toLocaleString()}`
-                        });
+                        metaItems.push(`Tokens: ${event.tokensUsed.input} in / ${event.tokensUsed.output} out`);
                     }
                     break;
 
                 case 'tool_start':
                 case 'tool_call_start':
                     message = `Tool: ${event.toolName || 'unknown'}`;
-                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
                     if (event.toolInput || event.params) {
                         const inputData = event.toolInput || event.params;
                         const inputStr = JSON.stringify(inputData, null, 2);
                         metaItems.push(`Input: ${Object.keys(inputData).length} params`);
-                        details.push({
-                            label: 'Tool Input (JSON)',
-                            content: inputStr,
-                            expanded: true
-                        });
+                        details.push({ label: 'Tool Input (JSON)', content: inputStr, expanded: true });
                     }
                     break;
 
@@ -4420,138 +4313,51 @@ body { padding: 0; }
                     message = `Tool: ${event.toolName || 'unknown'}`;
                     if (event.toolDuration) metaItems.push(`Duration: ${formatDuration(event.toolDuration)}`);
                     if (event.toolResultSize) metaItems.push(`Result: ${formatBytes(event.toolResultSize)}`);
-                    if (event.iteration) metaItems.push(`Iteration: ${event.iteration}`);
                     if (event.toolResult) {
-                        const resultStr = typeof event.toolResult === 'string'
-                            ? event.toolResult
-                            : JSON.stringify(event.toolResult, null, 2);
-                        details.push({
-                            label: `Tool Result (${formatBytes(resultStr.length)})`,
-                            content: resultStr,
-                            expanded: resultStr.length < 500
-                        });
+                        const resultStr = typeof event.toolResult === 'string' ? event.toolResult : JSON.stringify(event.toolResult, null, 2);
+                        details.push({ label: `Tool Result (${formatBytes(resultStr.length)})`, content: resultStr, expanded: resultStr.length < 500 });
                     }
                     break;
 
                 case 'thinking':
                     message = event.message || 'Thinking...';
-                    if (event.iteration && event.maxIterations) {
-                        metaItems.push(`Progress: ${event.iteration}/${event.maxIterations}`);
-                    }
-                    if (event.totalToolCalls) metaItems.push(`Tool calls: ${event.totalToolCalls}`);
                     break;
 
                 case 'plan':
                     message = event.plan ? `Plan: ${event.plan.title}` : 'Plan erstellt';
-                    if (event.plan) {
-                        metaItems.push(`Steps: ${event.plan.totalSteps}`);
-                        if (event.plan.steps) {
-                            details.push({
-                                label: 'Plan Steps',
-                                content: event.plan.steps.map((s, i) =>
-                                    `${i + 1}. ${s.title}${s.description ? '\n   ' + s.description : ''}`
-                                ).join('\n'),
-                                expanded: true
-                            });
-                        }
-                    }
                     break;
 
                 case 'step_start':
                     message = event.title || `Step ${event.step}`;
                     if (event.step && event.totalSteps) metaItems.push(`Progress: ${event.step}/${event.totalSteps}`);
-                    if (event.description) {
-                        details.push({
-                            label: 'Description',
-                            content: event.description,
-                            expanded: true
-                        });
-                    }
                     break;
 
                 case 'step_complete':
                     message = event.title || `Step ${event.step} complete`;
-                    if (event.step && event.totalSteps) metaItems.push(`Progress: ${event.step}/${event.totalSteps}`);
                     if (event.duration) metaItems.push(`Duration: ${formatDuration(event.duration)}`);
-                    if (event.result) {
-                        details.push({
-                            label: 'Result',
-                            content: event.result,
-                            expanded: true
-                        });
-                    }
-                    break;
-
-                case 'step_error':
-                    message = `Step ${event.step} failed`;
-                    if (event.error) {
-                        details.push({
-                            label: 'Error',
-                            content: event.error,
-                            expanded: true
-                        });
-                    }
-                    break;
-
-                case 'intermediate_result':
-                    message = event.title || 'Intermediate result';
-                    if (event.step) metaItems.push(`Step: ${event.step}`);
-                    if (event.format) metaItems.push(`Format: ${event.format}`);
-                    if (event.data) {
-                        const dataStr = typeof event.data === 'string'
-                            ? event.data
-                            : JSON.stringify(event.data, null, 2);
-                        metaItems.push(`Size: ${formatBytes(dataStr.length)}`);
-                        details.push({
-                            label: `Data (${event.format || 'json'})`,
-                            content: dataStr,
-                            expanded: dataStr.length < 1000
-                        });
-                    }
                     break;
 
                 case 'error':
                     message = event.message || 'Error';
                     if (event.error) {
-                        details.push({
-                            label: 'Error Details',
-                            content: event.error,
-                            expanded: true
-                        });
+                        details.push({ label: 'Error Details', content: event.error, expanded: true });
                     }
                     break;
 
                 case 'done':
                     message = event.message || 'Completed';
                     if (event.duration) metaItems.push(`Duration: ${formatDuration(event.duration)}`);
-                    if (event.iteration) metaItems.push(`Iterations: ${event.iteration}`);
-                    if (event.totalTokens) metaItems.push(`Total tokens: ${event.totalTokens.toLocaleString()}`);
-                    if (event.tokensUsed) {
-                        details.push({
-                            label: 'Token Summary',
-                            content: `Input: ${event.tokensUsed.input.toLocaleString()}\nOutput: ${event.tokensUsed.output.toLocaleString()}\nTotal: ${(event.tokensUsed.input + event.tokensUsed.output).toLocaleString()}`,
-                            expanded: true
-                        });
-                    }
-                    // Report link is already included in agent output text (via formatReportLink)
                     break;
 
                 default:
                     message = event.message || event.type;
-                    // Show all event data for unknown types
-                    details.push({
-                        label: 'Raw Event Data',
-                        content: JSON.stringify(event, null, 2),
-                        expanded: false
-                    });
+                    details.push({ label: 'Raw Event Data', content: JSON.stringify(event, null, 2), expanded: false });
             }
 
-            // Build meta line
             const metaHtml = metaItems.length > 0
                 ? `<div class="progress-event-meta">${metaItems.map(m => `<span class="meta-item">${escapeHtml(m)}</span>`).join('')}</div>`
                 : '';
 
-            // Build details sections
             const detailsHtml = details.map(d => `
                 <details class="progress-event-details" ${d.expanded ? 'open' : ''}>
                     <summary>${escapeHtml(d.label)}</summary>
@@ -4573,8 +4379,6 @@ body { padding: 0; }
             `;
 
             progressLog.appendChild(eventEl);
-
-            // Mirror to pop-out modal if active
             mirrorToPopoutModal();
         }
 
@@ -4586,37 +4390,16 @@ body { padding: 0; }
 
         function getEventIcon(type) {
             const icons = {
-                init: '🚀',
-                api_request: '📤',
-                api_response: '📥',
-                tool_start: '🔧',
-                tool_end: '✅',
-                tool_call_start: '🔧',
-                tool_call_end: '✅',
-                thinking: '💭',
-                plan: '📋',
-                step_start: '▶️',
-                step_complete: '✅',
-                step_error: '❌',
-                intermediate_result: '📊',
-                error: '❌',
-                done: '🎉',
-                specialist_start: '🧠',
-                specialist_complete: '✅',
-                specialist_error: '❌',
-                specialists_batch_start: '🔬',
-                specialists_batch_complete: '🎯',
-                discussion_round_start: '💬',
-                discussion_question: '❓',
-                discussion_answer: '💡',
-                discussion_recruit: '📢',
-                discussion_recruit_result: '📋',
-                discussion_round_complete: '✅',
-                discussion_synthesis_start: '🔮',
-                debate_start: '⚔️',
-                debate_draft: '📋',
-                debate_critique: '🔍',
-                debate_final: '🏆',
+                init: '🚀', api_request: '📤', api_response: '📥',
+                tool_start: '🔧', tool_end: '✅', tool_call_start: '🔧', tool_call_end: '✅',
+                thinking: '💭', plan: '📋', step_start: '▶️', step_complete: '✅',
+                step_error: '❌', intermediate_result: '📊', error: '❌', done: '🎉',
+                specialist_start: '🧠', specialist_complete: '✅', specialist_error: '❌',
+                specialists_batch_start: '🔬', specialists_batch_complete: '🎯',
+                discussion_round_start: '💬', discussion_question: '❓', discussion_answer: '💡',
+                discussion_recruit: '📢', discussion_recruit_result: '📋',
+                discussion_round_complete: '✅', discussion_synthesis_start: '🔮',
+                debate_start: '⚔️', debate_draft: '📋', debate_critique: '🔍', debate_final: '🏆',
                 stopped: '⏹'
             };
             return icons[type] || '•';
@@ -4624,37 +4407,16 @@ body { padding: 0; }
 
         function getEventTypeLabel(type) {
             const labels = {
-                init: 'INIT',
-                api_request: 'API',
-                api_response: 'API',
-                tool_start: 'TOOL',
-                tool_end: 'TOOL',
-                tool_call_start: 'TOOL',
-                tool_call_end: 'TOOL',
-                thinking: 'THINK',
-                plan: 'PLAN',
-                step_start: 'STEP',
-                step_complete: 'STEP',
-                step_error: 'ERROR',
-                intermediate_result: 'DATA',
-                error: 'ERROR',
-                done: 'DONE',
-                specialist_start: 'SPEC',
-                specialist_complete: 'SPEC',
-                specialist_error: 'SPEC',
-                specialists_batch_start: 'BATCH',
-                specialists_batch_complete: 'BATCH',
-                discussion_round_start: 'DISC',
-                discussion_question: 'DISC',
-                discussion_answer: 'DISC',
-                discussion_recruit: 'DISC',
-                discussion_recruit_result: 'DISC',
-                discussion_round_complete: 'DISC',
-                discussion_synthesis_start: 'SYNTH',
-                debate_start: 'DEBATE',
-                debate_draft: 'DRAFT',
-                debate_critique: 'CRIT',
-                debate_final: 'FINAL',
+                init: 'INIT', api_request: 'API', api_response: 'API',
+                tool_start: 'TOOL', tool_end: 'TOOL', tool_call_start: 'TOOL', tool_call_end: 'TOOL',
+                thinking: 'THINK', plan: 'PLAN', step_start: 'STEP', step_complete: 'STEP',
+                step_error: 'ERROR', intermediate_result: 'DATA', error: 'ERROR', done: 'DONE',
+                specialist_start: 'SPEC', specialist_complete: 'SPEC', specialist_error: 'SPEC',
+                specialists_batch_start: 'BATCH', specialists_batch_complete: 'BATCH',
+                discussion_round_start: 'DISC', discussion_question: 'DISC', discussion_answer: 'DISC',
+                discussion_recruit: 'DISC', discussion_recruit_result: 'DISC',
+                discussion_round_complete: 'DISC', discussion_synthesis_start: 'SYNTH',
+                debate_start: 'DEBATE', debate_draft: 'DRAFT', debate_critique: 'CRIT', debate_final: 'FINAL',
                 stopped: 'STOP'
             };
             return labels[type] || type.toUpperCase();
@@ -4693,7 +4455,6 @@ body { padding: 0; }
                     <span>Warte auf Events...</span>
                 </div>
             `;
-            // Reset specialist state
             specialistState = { active: false, total: 0, completed: 0, specialists: {} };
             const overview = document.getElementById('specialistOverview');
             if (overview) overview.classList.remove('active');
@@ -4701,7 +4462,6 @@ body { padding: 0; }
             if (cards) cards.innerHTML = '';
             updateSpecialistProgress();
 
-            // Reset KG visualizer
             const kgContainer = document.getElementById('kgVisualizerContainer');
             if (kgContainer) kgContainer.classList.remove('active');
             const kgFrame = document.getElementById('kgVisualizerFrame');
@@ -4713,7 +4473,6 @@ body { padding: 0; }
             const kgCenter = document.getElementById('kgStatCenter');
             if (kgCenter) kgCenter.textContent = '—';
         }
-
 
         // ═══════════════════════════════════════════════════════
         // KG Visualizer Event Handler
@@ -4730,7 +4489,7 @@ body { padding: 0; }
                         frame.src = '/kg-impact-visualizer.html';
                     }
                     setTimeout(() => {
-                        frame.contentWindow?.postMessage({ type: 'reset' }, window.location.origin);
+                        frame.contentWindow?.postMessage({ type: 'reset' }, '*');
                         frame.contentWindow?.postMessage({
                             type: 'set_narration',
                             text: (event.scenarioName || 'Impact') + ': ' + (event.entityId || '')
@@ -4784,7 +4543,6 @@ body { padding: 0; }
         function toggleKgVisualizer() {
             const frame = document.getElementById('kgVisualizerFrame');
             const btn = document.getElementById('kgCollapseBtn');
-
             if (frame.style.display === 'none') {
                 frame.style.display = 'block';
                 btn.textContent = 'Collapse';
@@ -4794,10 +4552,7 @@ body { padding: 0; }
             }
         }
 
-        // Listen for messages from KG visualizer iframe
         window.addEventListener('message', function(evt) {
-            // Only accept messages from same origin
-            if (evt.origin !== window.location.origin) return;
             const msg = evt.data;
             if (!msg || !msg.type) return;
             if (msg.type === 'node_clicked') {
@@ -4862,64 +4617,111 @@ body { padding: 0; }
             qtyGroup.style.display = config.hasQty ? 'block' : 'none';
         }
 
+        // V8: Load impact entities via MCP — per entityType different tools
+        const impactEntityCache = {};
         async function loadImpactEntities() {
             const scenarioId = document.getElementById('impactScenarioSelect').value;
+            const config = impactScenarios[scenarioId];
+            const entityType = config?.entityType || 'machine';
             const entitySelect = document.getElementById('impactEntitySelect');
+
+            // Use cache if available
+            if (impactEntityCache[entityType]) {
+                renderImpactEntities(entitySelect, impactEntityCache[entityType]);
+                return;
+            }
+
             entitySelect.innerHTML = '<option value="">Laden...</option>';
 
             try {
-                // V8: /api/impact/entities not available; try MCP tool, fallback to static list
-                const res = await fetch('/api/mcp', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: Date.now(),
-                        method: 'tools/call',
-                        params: { name: 'impact_entities', arguments: { scenario: scenarioId } }
-                    })
-                });
-                const data = await res.json();
                 let entities = [];
-                if (data.result && data.result.content) {
-                    const content = typeof data.result.content[0] === 'object' ? data.result.content[0].text : data.result.content;
-                    const parsed = typeof content === 'string' ? JSON.parse(content) : content;
-                    entities = parsed.entities || parsed || [];
+                if (entityType === 'machine') {
+                    // kg_type_overview → all machine instances
+                    const data = await mcpCall('kg_type_overview', {});
+                    const parsed = JSON.parse(data);
+                    for (const type of (parsed.types || [])) {
+                        for (const inst of (type.instances || [])) {
+                            entities.push({ id: inst.id, label: inst.name || inst.id });
+                        }
+                    }
+                } else if (entityType === 'material') {
+                    // factory_get_md07 → shortages[].teilId
+                    const data = await mcpCall('factory_get_md07', {});
+                    const parsed = JSON.parse(data);
+                    for (const item of (parsed.shortages || [])) {
+                        entities.push({ id: item.teilId, label: item.teilId });
+                    }
+                } else if (entityType === 'supplier') {
+                    // factory_get_pending_purchases → unique lieferant
+                    const data = await mcpCall('factory_get_pending_purchases', {});
+                    const parsed = JSON.parse(data);
+                    const seen = new Set();
+                    for (const o of (parsed.orders || [])) {
+                        if (o.lieferant && !seen.has(o.lieferant)) {
+                            seen.add(o.lieferant);
+                            entities.push({ id: o.lieferant, label: o.lieferant });
+                        }
+                    }
+                } else if (entityType === 'customer') {
+                    // factory_get_customer_orders → unique kundeName
+                    const data = await mcpCall('factory_get_customer_orders', {});
+                    const parsed = JSON.parse(data);
+                    const seen = new Set();
+                    for (const o of (parsed.orders || [])) {
+                        if (o.kundeName && !seen.has(o.kundeName)) {
+                            seen.add(o.kundeName);
+                            entities.push({ id: o.kundeName, label: o.kundeName });
+                        }
+                    }
+                } else if (entityType === 'article') {
+                    // factory_get_customer_orders → unique artikelNr
+                    const data = await mcpCall('factory_get_customer_orders', {});
+                    const parsed = JSON.parse(data);
+                    const seen = new Set();
+                    for (const o of (parsed.orders || [])) {
+                        if (o.artikelNr && !seen.has(o.artikelNr)) {
+                            seen.add(o.artikelNr);
+                            entities.push({ id: o.artikelNr, label: o.artikelNr });
+                        }
+                    }
                 }
 
-                entitySelect.innerHTML = '';
-                if (entities.length > 0) {
-                    for (const entity of entities) {
-                        const opt = document.createElement('option');
-                        opt.value = entity.id || entity;
-                        opt.textContent = entity.label || entity.id || entity;
-                        entitySelect.appendChild(opt);
-                    }
-                } else {
-                    // Static fallback entities
-                    const fallback = [
-                        { id: 'ML-1', label: 'ML-1' },
-                        { id: 'ML-2', label: 'ML-2' },
-                        { id: 'ML-3', label: 'ML-3' },
-                        { id: 'ML-4', label: 'ML-4' },
-                    ];
-                    for (const entity of fallback) {
-                        const opt = document.createElement('option');
-                        opt.value = entity.id;
-                        opt.textContent = entity.label;
-                        entitySelect.appendChild(opt);
-                    }
-                }
+                impactEntityCache[entityType] = entities;
+                renderImpactEntities(entitySelect, entities);
             } catch (err) {
                 console.error('[Impact] Failed to load entities:', err);
-                // Static fallback on error
-                entitySelect.innerHTML = '';
-                ['ML-1', 'ML-2', 'ML-3', 'ML-4'].forEach(id => {
+                entitySelect.innerHTML = '<option value="">Fehler beim Laden</option>';
+            }
+        }
+
+        async function mcpCall(toolName, args) {
+            const res = await fetch('/api/mcp', {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 'impact-' + Date.now(),
+                    method: 'tools/call',
+                    params: { name: toolName, arguments: args || {} }
+                })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message || 'MCP error');
+            const textContent = data.result?.content?.find(c => c.type === 'text');
+            return textContent ? textContent.text : '{}';
+        }
+
+        function renderImpactEntities(select, entities) {
+            select.innerHTML = '';
+            if (entities.length > 0) {
+                for (const entity of entities) {
                     const opt = document.createElement('option');
-                    opt.value = id;
-                    opt.textContent = id;
-                    entitySelect.appendChild(opt);
-                });
+                    opt.value = entity.id;
+                    opt.textContent = entity.label || entity.id;
+                    select.appendChild(opt);
+                }
+            } else {
+                select.innerHTML = '<option value="">Keine Entities gefunden</option>';
             }
         }
 
@@ -4963,5 +4765,5 @@ body { padding: 0; }
         // === START ===
         document.addEventListener('DOMContentLoaded', init);
     </script>
-<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v1.2.0</div></body>
+<div style="position:fixed;bottom:10px;right:10px;font-size:11px;color:#64748b;opacity:0.7;font-family:monospace;">v8.1.0</div></body>
 </html>
