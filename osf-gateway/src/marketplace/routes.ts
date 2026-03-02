@@ -8,6 +8,24 @@ import { getChain } from '../chains/registry';
 
 const router = Router();
 
+// GET /marketplace — list all available items (agents, chains, code-agents)
+router.get('/', async (_req: Request, res: Response) => {
+  try {
+    const { getAllAgents } = await import('../agents/registry');
+    const { getAllChains } = await import('../chains/registry');
+    const [agents, chains] = await Promise.all([getAllAgents(), getAllChains()]);
+
+    const items = [
+      ...agents.map(a => ({ id: a.id, name: a.name, type: 'agent' as const, category: a.category, description: a.description, icon: a.icon, difficulty: a.difficulty, authorName: a.authorName })),
+      ...chains.map(c => ({ id: c.id, name: c.name, type: 'chain' as const, category: c.category, description: c.description, icon: c.icon, difficulty: c.difficulty, authorName: c.authorName })),
+    ];
+    res.json({ items });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Marketplace list error');
+    res.status(500).json({ error: 'Failed to list marketplace items' });
+  }
+});
+
 const deploySchema = z.object({
   sourceType: z.enum(['agent', 'chain', 'code_agent', 'flow']),
   sourceId: z.string().min(1).max(200),

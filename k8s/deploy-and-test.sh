@@ -224,18 +224,19 @@ deploy_factory_sim() {
   ok "imagePullPolicy set to Always"
 
   # ── 1.10 Start fertigung FIRST (leader, DB init) ─────────────────────
-  log "Starting fertigung (leader — may take up to 10 min for DB init)..."
-  kubectl -n factory scale deploy factory-v3-fertigung --replicas=1
+  log "Starting fertigung leader+backup (may take up to 10 min for DB init)..."
+  kubectl -n factory scale deploy factory-v3-fertigung --replicas=2
   kubectl -n factory rollout status deploy/factory-v3-fertigung --timeout=600s || {
     fail "Fertigung rollout timed out!"
     kubectl -n factory logs -l app=factory-v3-fertigung --tail=50
     return 1
   }
-  ok "Fertigung ready"
+  ok "Fertigung ready (leader+backup)"
 
-  # ── 1.11 Start remaining services ─────────────────────────────────────
-  log "Starting wms, montage, chef..."
-  kubectl -n factory scale deploy factory-v3-wms factory-v3-montage factory-v3-chef --replicas=1
+  # ── 1.11 Start remaining services (leader+backup) ───────────────────
+  log "Starting wms, montage (leader+backup), chef..."
+  kubectl -n factory scale deploy factory-v3-wms factory-v3-montage --replicas=2
+  kubectl -n factory scale deploy factory-v3-chef --replicas=1
 
   for svc in wms montage chef; do
     kubectl -n factory rollout status "deploy/factory-v3-${svc}" --timeout=180s || {
@@ -546,9 +547,9 @@ deploy_osf() {
   kubectl -n osf patch deploy osf-frontend --type=json \
     -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Always"}]' 2>/dev/null || true
 
-  log "Scaling OSF deployments to 1..."
-  kubectl -n osf scale deploy osf-gateway --replicas=1
-  kubectl -n osf scale deploy osf-frontend --replicas=1
+  log "Scaling OSF deployments to 2..."
+  kubectl -n osf scale deploy osf-gateway --replicas=2
+  kubectl -n osf scale deploy osf-frontend --replicas=2
 
   # 2.6 Wait for rollouts
   log "Waiting for gateway rollout..."
