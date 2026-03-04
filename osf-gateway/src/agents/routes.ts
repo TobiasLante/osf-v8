@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
 import { getAllAgents, getAgent, getUserAgents, createAgent, updateAgent, deleteAgent } from './registry';
 import { runAgent } from './runner';
+import { runDiscussionAgent } from './discussion-runner';
 import { runChain } from '../chains/runner';
 import { getChain } from '../chains/registry';
 import { pool } from '../db/pool';
@@ -238,12 +239,18 @@ router.post('/run/:id', requireAuth, async (req: Request, res: Response) => {
   res.flushHeaders();
 
   // Extract options from request body
-  const { userMessage, ...params } = req.body || {};
+  const body = req.body || {};
+  const userMessage = body.userMessage;
+  const params = body.params || {};
   const options = (userMessage || Object.keys(params).length > 0)
     ? { userMessage, params }
     : undefined;
 
-  await runAgent(agent, req.user!.userId, tier, res, options);
+  if (agent.type === 'strategic') {
+    await runDiscussionAgent(agent, req.user!.userId, tier, res, options);
+  } else {
+    await runAgent(agent, req.user!.userId, tier, res, options);
+  }
   res.end();
 });
 
