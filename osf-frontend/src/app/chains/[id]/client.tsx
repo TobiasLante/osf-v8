@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { BackgroundOrbs } from "@/components/BackgroundOrbs";
 import { ChainRunner } from "@/components/chains/ChainRunner";
-import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 interface ChainStep {
@@ -38,8 +37,8 @@ const difficultyColors: Record<string, string> = {
 export function ChainDetailClient({ id: paramId }: { id: string }) {
   const { user } = useAuth();
 
-  // In static export the param may be "placeholder", so read the real ID from the URL
-  const id = typeof window !== 'undefined'
+  // Use the prop from the server component; only fall back to URL if prop is "placeholder"
+  const id = paramId === 'placeholder' && typeof window !== 'undefined'
     ? window.location.pathname.split('/').pop() || paramId
     : paramId;
 
@@ -48,7 +47,12 @@ export function ChainDetailClient({ id: paramId }: { id: string }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiFetch<{ chain: Chain }>(`/chains/${id}`)
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://osf-api.zeroguess.ai';
+    fetch(`${API_BASE}/chains/${id}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(({ chain }) => setChain(chain))
       .catch((err) => setError(err.message || "Chain not found"))
       .finally(() => setLoading(false));

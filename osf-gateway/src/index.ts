@@ -49,6 +49,7 @@ async function main() {
         imgSrc: ["'self'", 'data:'],
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrcAttr: ["'unsafe-inline'"],
       },
     },
     crossOriginEmbedderPolicy: false,
@@ -75,7 +76,9 @@ async function main() {
     next();
   });
   app.use((req, res, next) => {
-    if (req.path.startsWith('/flows/editor')) {
+    if (req.path.startsWith('/demo-ui')) {
+      return next(); // Skip helmet for proxied chat-ui (needs iframe embedding)
+    } else if (req.path.startsWith('/flows/editor')) {
       editorHelmet(req, res, next);
     } else {
       defaultHelmet(req, res, next);
@@ -466,6 +469,47 @@ async function main() {
   });
   } // END V7-DISABLED
 
+  // Chat-UI reverse proxy (NodePort 30881 not externally reachable)
+  const CHAT_UI_URL = process.env.CHAT_UI_URL || 'http://osf-chat-ui:80';
+
+  // /demo-ui/api/* → strip /demo-ui prefix and forward internally (chat-ui JS calls /api/mcp etc.)
+  app.use('/demo-ui/api', (req, res, next) => {
+    // Rewrite path: /demo-ui/api/mcp → /mcp, /demo-ui/api/chat/completions → /chat/completions
+    req.url = req.url; // already stripped /demo-ui/api by express mount
+    req.path; // recalculated by express
+    next('route'); // skip to next matching route
+  });
+  // Actually re-route: since next('route') won't work across app.use, use explicit redirect
+  app.all('/demo-ui/api/*', (req, res) => {
+    // Forward /demo-ui/api/X to /X by re-dispatching
+    const newPath = req.originalUrl.replace('/demo-ui/api', '');
+    req.url = newPath || '/';
+    req.app.handle(req, res, () => {
+      res.status(404).json({ error: 'Not found' });
+    });
+  });
+
+  // /demo-ui/* → proxy static files from chat-ui
+  app.use('/demo-ui', async (req, res) => {
+    try {
+      const target = `${CHAT_UI_URL}${req.url}`;
+      const upstream = await fetch(target, { signal: AbortSignal.timeout(10000) });
+      res.status(upstream.status);
+      for (const [key, value] of upstream.headers) {
+        if (!['transfer-encoding', 'connection', 'content-security-policy', 'x-frame-options'].includes(key.toLowerCase())) {
+          res.setHeader(key, value);
+        }
+      }
+      // Allow embedding in iframe
+      res.removeHeader('X-Frame-Options');
+      res.setHeader('X-Frame-Options', 'ALLOWALL');
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.send(buf);
+    } catch (err: any) {
+      res.status(502).json({ error: 'Chat UI unreachable' });
+    }
+  });
+
   // UNS live stream (MQTT → SSE)
   app.use('/uns', unsRoutes);
 
@@ -473,6 +517,16 @@ async function main() {
   app.use('/internal', internalApiRoutes);
 
   // Routes
+  // /api/* aliases (chat-ui JS calls /api/mcp, /api/chat/*, /api/agents/*, etc.)
+  app.use('/api/mcp', mcpProxy);
+  app.use('/api/chat', chatRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/agents', agentRoutes);
+  app.get('/api/llm/status', (_req, res) => {
+    const queueInfo = getLlmStatus();
+    const safeServers = queueInfo.servers.map((s, i) => ({ name: `llm-${i}`, active: s.active, queued: s.queued }));
+    res.json({ online: true, servers: safeServers });
+  });
   app.use('/auth', authRoutes);
   app.use('/chat', chatRoutes);
   app.use('/mcp', mcpProxy);

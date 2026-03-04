@@ -138,8 +138,44 @@ async function callLlmJson<T>(
   const text = (response.content || '').trim();
   // Extract JSON from markdown code blocks if needed
   const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = jsonMatch ? jsonMatch[1].trim() : text;
-  return cleanLlmOutput(JSON.parse(jsonStr)) as T;
+  let jsonStr = jsonMatch ? jsonMatch[1].trim() : text;
+
+  // Try parsing directly first
+  try {
+    return cleanLlmOutput(JSON.parse(jsonStr)) as T;
+  } catch {
+    // Attempt to repair truncated JSON — close open brackets/braces
+    jsonStr = repairTruncatedJson(jsonStr);
+    return cleanLlmOutput(JSON.parse(jsonStr)) as T;
+  }
+}
+
+/** Attempt to close truncated JSON by balancing brackets/braces */
+function repairTruncatedJson(input: string): string {
+  let s = input.trim();
+  // Remove trailing comma
+  s = s.replace(/,\s*$/, '');
+  // Remove incomplete key-value (e.g. trailing "key": or "key": "unfinished)
+  s = s.replace(/,?\s*"[^"]*":\s*"?[^"}\]]*$/, '');
+  // Count open/close brackets
+  let braces = 0, brackets = 0;
+  let inString = false, escape = false;
+  for (const ch of s) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') braces++;
+    if (ch === '}') braces--;
+    if (ch === '[') brackets++;
+    if (ch === ']') brackets--;
+  }
+  // Close any unclosed strings
+  if (inString) s += '"';
+  // Close brackets then braces
+  while (brackets > 0) { s += ']'; brackets--; }
+  while (braces > 0) { s += '}'; braces--; }
+  return s;
 }
 
 // ─── Phase 0: KG Traversal ─────────────────────────────────────────────
@@ -230,6 +266,37 @@ function extractKgGraph(toolResults: Array<{ name: string; result: string }>, ce
   return { nodes: Array.from(nodesMap.values()), edges: uniqueEdges };
 }
 
+/** Map generic params to tool-specific arguments */
+function mapKgToolArgs(toolName: string, params: Record<string, unknown>, entityId: string): Record<string, unknown> {
+  switch (toolName) {
+    case 'kg_what_if_machine_down':
+      return { machineId: entityId };
+    case 'kg_dependency_graph':
+      return { machineId: entityId, depth: 2 };
+    case 'kg_impact_analysis':
+      return { entityType: 'Machine', entityId };
+    case 'kg_bottleneck_analysis':
+      return { limit: 10 };
+    case 'kg_customer_delivery_risk':
+      return {};
+    case 'kg_critical_path_orders':
+      return { limit: 10 };
+    case 'kg_type_overview':
+      return {};
+    case 'kg_oee_vs_target':
+    case 'kg_quality_impact':
+    case 'kg_supply_chain_risk':
+    case 'kg_pool_demand_forecast':
+    case 'kg_procurement_status':
+      return {};
+    case 'kg_energy_efficiency':
+    case 'kg_maintenance_risk':
+      return { machineId: entityId };
+    default:
+      return { ...params, machineId: entityId, entityId };
+  }
+}
+
 async function runKgPhase(
   agent: AgentDef,
   res: Response,
@@ -248,11 +315,11 @@ async function runKgPhase(
     entityId,
   });
 
-  // Call all KG tools in parallel
+  // Call all KG tools in parallel — map params per tool
   const toolResults: Array<{ name: string; result: string }> = [];
   const kgPromises = kgTools.map(async (toolName) => {
     try {
-      const args: Record<string, unknown> = { ...params };
+      const args = mapKgToolArgs(toolName, params, entityId);
       const result = await callMcpTool(toolName, args);
       toolResults.push({ name: toolName, result });
     } catch (err: any) {
@@ -699,7 +766,7 @@ Format: Strukturierter Markdown-Text mit Executive Summary, Maßnahmen, Risiken.
 
 // ─── Phase 4: Report Generation ─────────────────────────────────────────
 
-function generateReport(
+function generateHtmlReport(
   finalText: string,
   reports: Map<string, SpecialistReport>,
   kgNodes: KgNode[],
@@ -707,98 +774,154 @@ function generateReport(
   transcript: string,
   params: Record<string, unknown>,
 ): string {
-  const entityId = String(params.entityId || params.machineId || 'unknown');
-  const scenario = String(params.scenario || 'Impact-Analyse');
-  const dateStr = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const entityId = esc(String(params.entityId || params.machineId || 'unknown'));
+  const scenario = esc(String(params.scenario || 'Impact-Analyse'));
+  const now = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
 
-  // Extract severity from final text
   const severityMatch = finalText.match(/severity[:\s]*(critical|high|medium|low)/i)
     || finalText.match(/(CRITICAL|HIGH|MEDIUM|LOW)/);
   const severity = severityMatch ? severityMatch[1].toUpperCase() : 'HIGH';
-  const severityEmoji = severity === 'CRITICAL' ? '\u{1F534}' : severity === 'HIGH' ? '\u{1F7E0}' : severity === 'MEDIUM' ? '\u{1F7E1}' : '\u{1F7E2}';
+  const sevColor = severity === 'CRITICAL' ? '#f87171' : severity === 'HIGH' ? '#fbbf24' : severity === 'MEDIUM' ? '#60a5fa' : '#34d399';
 
-  // Count stats
-  const totalFindings = Array.from(reports.values())
-    .reduce((sum, r) => sum + safeArray(r.kritischeFindings).length, 0);
-  const totalRecs = Array.from(reports.values())
-    .reduce((sum, r) => sum + safeArray(r.empfehlungen).length, 0);
+  const totalFindings = Array.from(reports.values()).reduce((sum, r) => sum + safeArray(r.kritischeFindings).length, 0);
+  const totalRecs = Array.from(reports.values()).reduce((sum, r) => sum + safeArray(r.empfehlungen).length, 0);
   const affectedOrders = kgNodes.filter(n => n.type === 'order').length;
-  const affectedCustomers = kgNodes.filter(n => n.type === 'customer').length;
-  const alternatives = kgNodes.filter(n => n.type === 'alternative').length;
 
-  let md = '';
-
-  // ── Header ──
-  md += `## ${severityEmoji} Impact-Analyse: ${scenario}\n\n`;
-  md += `**Entity:** ${entityId} | **Datum:** ${dateStr} | **Severity:** ${severity}\n\n`;
-
-  // ── KPI Overview ──
-  md += `### Ueberblick\n\n`;
-  md += `| Metrik | Wert |\n|--------|------|\n`;
-  md += `| KG-Knoten | ${kgNodes.length} |\n`;
-  md += `| KG-Kanten | ${kgEdges.length} |\n`;
-  md += `| Betroffene Auftraege | ${affectedOrders} |\n`;
-  md += `| Betroffene Kunden | ${affectedCustomers} |\n`;
-  md += `| Alternativen | ${alternatives} |\n`;
-  md += `| Findings gesamt | ${totalFindings} |\n`;
-  md += `| Empfehlungen gesamt | ${totalRecs} |\n\n`;
-
-  // ── Specialist Summaries ──
-  md += `### Spezialisten-Analyse\n\n`;
+  // Build specialist cards HTML
+  let specialistHtml = '';
   for (const [name, report] of reports.entries()) {
     const specDef = IMPACT_SPECIALISTS.find(s => s.name === name);
-    const displayName = specDef?.displayName || name;
+    const displayName = esc(specDef?.displayName || name);
     const findings = safeArray(report.kritischeFindings);
     const recs = safeArray(report.empfehlungen);
 
-    md += `**${displayName}** (${report.domain || name})\n`;
-    if (report.zahlenDatenFakten) {
-      md += `> ${String(report.zahlenDatenFakten).substring(0, 300)}\n`;
-    }
-    md += `\n`;
-
-    if (findings.length > 0) {
-      md += `Findings:\n`;
-      for (const f of findings.slice(0, 3)) {
-        const finding = typeof f === 'string' ? f : f?.finding || JSON.stringify(f);
-        const sev = typeof f === 'object' ? f?.severity || '' : '';
-        md += `- ${sev ? `[${sev}] ` : ''}${finding}\n`;
-      }
-      md += `\n`;
+    let findingsHtml = '';
+    for (const f of findings.slice(0, 5)) {
+      const finding = esc(typeof f === 'string' ? f : f?.finding || JSON.stringify(f));
+      const sev = typeof f === 'object' ? (f?.severity || '') : '';
+      const badge = sev === 'hoch' ? 'badge-sofort' : sev === 'mittel' ? 'badge-heute' : 'badge-woche';
+      findingsHtml += `<li>${sev ? `<span class="badge ${badge}">${esc(sev)}</span> ` : ''}${finding}</li>`;
     }
 
-    if (recs.length > 0) {
-      md += `Empfehlungen:\n`;
-      for (const r of recs.slice(0, 3)) {
-        const action = typeof r === 'string' ? r : r?.maßnahme || JSON.stringify(r);
-        const prio = typeof r === 'object' ? r?.priorität || '' : '';
-        md += `- ${prio ? `[${prio}] ` : ''}${action}\n`;
-      }
-      md += `\n`;
+    let recsHtml = '';
+    for (const r of recs.slice(0, 5)) {
+      const action = esc(typeof r === 'string' ? r : r?.maßnahme || JSON.stringify(r));
+      const prio = typeof r === 'object' ? (r?.priorität || '') : '';
+      const badge = prio === 'sofort' ? 'badge-sofort' : prio === 'heute' ? 'badge-heute' : 'badge-woche';
+      recsHtml += `<li>${prio ? `<span class="badge ${badge}">${esc(String(prio))}</span> ` : ''}${action}</li>`;
     }
+
+    specialistHtml += `
+    <div class="card">
+      <h3>${displayName}</h3>
+      ${report.zahlenDatenFakten ? `<div class="summary">${esc(String(report.zahlenDatenFakten).substring(0, 400))}</div>` : ''}
+      ${findingsHtml ? `<h4>Findings</h4><ul>${findingsHtml}</ul>` : ''}
+      ${recsHtml ? `<h4>Empfehlungen</h4><ul>${recsHtml}</ul>` : ''}
+    </div>`;
   }
 
-  // ── Discussion Summary ──
+  // Discussion transcript HTML
+  let discussionHtml = '';
   if (transcript.trim()) {
-    md += `### Diskussion\n\n`;
-    const lines = transcript.split('\n').filter(l => l.trim());
-    for (const line of lines.slice(0, 20)) {
-      if (line.includes('Moderator →') || line.includes('Moderator →')) {
-        md += `**${line.trim()}**\n`;
+    const lines = transcript.split('\n').filter(l => l.trim()).slice(0, 30);
+    for (const line of lines) {
+      if (line.includes('Moderator')) {
+        discussionHtml += `<p><strong>${esc(line.trim())}</strong></p>`;
       } else {
-        md += `${line.trim()}\n`;
+        discussionHtml += `<p>${esc(line.trim())}</p>`;
       }
     }
-    md += `\n`;
   }
 
-  // ── Final Mitigation Plan ──
-  md += `### Finaler Mitigation-Plan\n\n`;
-  md += finalText;
-  md += `\n\n---\n`;
-  md += `*Impact-Analyse generiert am ${dateStr} | ${kgNodes.length} KG-Knoten | ${reports.size} Spezialisten | Severity: ${severity}*\n`;
+  // Final text — convert basic markdown bold/bullets to HTML
+  const finalHtml = esc(finalText)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^- (.*)$/gm, '<li>$1</li>')
+    .replace(/\n/g, '<br>');
 
-  return md;
+  return `<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Impact-Analyse: ${scenario} — ${now}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a0f; color: #e2e8f0; line-height: 1.6; }
+  .slide { min-height: 100vh; padding: 3rem; display: flex; flex-direction: column; border-bottom: 1px solid #1e293b; }
+  h1 { font-size: 2.5rem; background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  h2 { font-size: 1.8rem; color: #a78bfa; margin-bottom: 1.5rem; }
+  h3 { font-size: 1.2rem; color: #60a5fa; margin: 1rem 0 0.5rem; }
+  h4 { font-size: 0.95rem; color: #94a3b8; margin: 0.8rem 0 0.3rem; }
+  .card { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 1.5rem; margin: 0.5rem 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; margin-right: 4px; }
+  .badge-sofort { background: #f8717122; color: #f87171; border: 1px solid #f8717133; }
+  .badge-heute { background: #fbbf2422; color: #fbbf24; border: 1px solid #fbbf2433; }
+  .badge-woche { background: #60a5fa22; color: #60a5fa; border: 1px solid #60a5fa33; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #1e293b; font-size: 0.9rem; }
+  th { color: #94a3b8; font-weight: 600; }
+  ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.3rem 0; font-size: 0.9rem; }
+  .subtitle { color: #94a3b8; font-size: 1rem; margin-top: 0.5rem; }
+  .summary { background: #1e293b; border-left: 3px solid #a78bfa; padding: 1rem 1.5rem; border-radius: 0 8px 8px 0; margin: 0.5rem 0; font-size: 0.9rem; }
+  .sev-badge { display: inline-block; font-size: 0.8rem; font-weight: 700; padding: 4px 12px; border-radius: 4px; color: ${sevColor}; background: ${sevColor}22; border: 1px solid ${sevColor}44; }
+  .footer { text-align: center; color: #64748b; font-size: 0.8rem; padding: 2rem; }
+  @media print { .slide { min-height: auto; page-break-after: always; } body { background: white; color: #1e293b; } .card { border-color: #e2e8f0; } }
+</style>
+</head>
+<body>
+
+<!-- Slide 1: Title -->
+<div class="slide" style="justify-content:center;align-items:center;text-align:center;">
+  <h1>Impact-Analyse</h1>
+  <p class="subtitle">${scenario} &mdash; Entity: ${entityId}</p>
+  <p class="subtitle">${now}</p>
+  <div style="margin-top:2rem;"><span class="sev-badge">Severity: ${severity}</span></div>
+</div>
+
+<!-- Slide 2: Overview -->
+<div class="slide">
+  <h2>Ueberblick</h2>
+  <div class="grid">
+    <div class="card"><h3>${kgNodes.length}</h3><p class="subtitle">Knowledge-Graph Knoten</p></div>
+    <div class="card"><h3>${kgEdges.length}</h3><p class="subtitle">Knowledge-Graph Kanten</p></div>
+    <div class="card"><h3>${affectedOrders}</h3><p class="subtitle">Betroffene Auftraege</p></div>
+    <div class="card"><h3>${totalFindings}</h3><p class="subtitle">Findings</p></div>
+    <div class="card"><h3>${totalRecs}</h3><p class="subtitle">Empfehlungen</p></div>
+    <div class="card"><h3>${reports.size}</h3><p class="subtitle">Spezialisten</p></div>
+  </div>
+</div>
+
+<!-- Slide 3: Specialist Analysis -->
+<div class="slide">
+  <h2>Spezialisten-Analyse</h2>
+  ${specialistHtml}
+</div>
+
+${discussionHtml ? `
+<!-- Slide 4: Discussion -->
+<div class="slide">
+  <h2>Moderator-Diskussion</h2>
+  <div class="card">${discussionHtml}</div>
+</div>
+` : ''}
+
+<!-- Slide 5: Mitigation Plan -->
+<div class="slide">
+  <h2>Finaler Mitigation-Plan</h2>
+  <div class="card">${finalHtml}</div>
+</div>
+
+<div class="footer">
+  Impact-Analyse generiert am ${now} | ${kgNodes.length} KG-Knoten | ${reports.size} Spezialisten | Severity: ${severity}<br>
+  OpenShopFloor v8.2.0 &mdash; ZeroGuess AI
+</div>
+
+</body>
+</html>`;
 }
 
 // ─── Main: Run Discussion Agent ─────────────────────────────────────────
@@ -904,29 +1027,34 @@ export async function runDiscussionAgent(
       userId, res,
     );
 
-    // ── Phase 4: Generate Report ──
-    const fullReport = generateReport(
+    // ── Phase 4: Generate HTML Report ──
+    const htmlReport = generateHtmlReport(
       finalMitigation, reports,
       kgNodes, kgEdges,
       transcript, params,
     );
 
-    // Stream final content
-    const chunkSize = 30;
-    for (let i = 0; i < fullReport.length; i += chunkSize) {
-      emitSSE(res, { type: 'content', text: fullReport.slice(i, i + chunkSize) });
-    }
-
-    // Save run
+    // Save report to DB — embed HTML in result JSON (no extra column needed)
     await pool.query(
       `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
       [JSON.stringify({
-        content: fullReport,
+        content: finalMitigation,
+        reportHtml: htmlReport,
         specialists: Array.from(reports.keys()),
         kgNodes: kgNodes.length,
         kgEdges: kgEdges.length,
       }), runId],
     );
+
+    // Stream final mitigation text as content
+    const chunkSize = 30;
+    for (let i = 0; i < finalMitigation.length; i += chunkSize) {
+      emitSSE(res, { type: 'content', text: finalMitigation.slice(i, i + chunkSize) });
+    }
+
+    // Send report download link
+    const reportUrl = `/agents/impact-analysis/runs/${runId}/report`;
+    emitSSE(res, { type: 'report_ready', reportUrl });
 
     emitSSE(res, { type: 'done', runId });
   } catch (err: any) {

@@ -61,6 +61,15 @@ interface TokenUsage {
   percentUsed: number;
 }
 
+interface Chain {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  steps: Array<{ agentId: string; label?: string }>;
+  difficulty: string;
+}
+
 const ACTION_CARDS = [
   {
     href: "/chat",
@@ -77,6 +86,14 @@ const ACTION_CARDS = [
     subtitle: "Design workflows",
     color: "from-orange-500/20 to-orange-600/5",
     borderColor: "hover:border-accent/30",
+  },
+  {
+    href: "/chains",
+    icon: "\u{1F517}",
+    title: "Chains",
+    subtitle: "Multi-agent pipelines",
+    color: "from-cyan-500/20 to-cyan-600/5",
+    borderColor: "hover:border-cyan-500/30",
   },
   {
     href: "/agents",
@@ -101,6 +118,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [flows, setFlows] = useState<Flow[]>([]);
+  const [chains, setChains] = useState<Chain[]>([]);
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [deployedAgents, setDeployedAgents] = useState<DeployedAgent[]>([]);
@@ -137,6 +155,10 @@ export default function DashboardPage() {
       apiFetch<ChallengeProgress>("/challenges/my-progress")
         .then(data => setChallengeProgress(data))
         .catch(() => {});
+      // Chains
+      apiFetch<{ chains: Chain[] }>("/chains")
+        .then(({ chains }) => setChains(chains.slice(0, 3)))
+        .catch(() => {});
     }
   }, [user]);
 
@@ -167,7 +189,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Action Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
             {ACTION_CARDS.map((card) => (
               <Link
                 key={card.href}
@@ -201,6 +223,43 @@ export default function DashboardPage() {
             <RecentFlowsSection flows={flows} />
             <RecentChatsSection sessions={sessions} />
           </div>
+
+          {/* Chains */}
+          {chains.length > 0 && (
+            <div className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-text-muted">Multi-Agent Chains</h2>
+                <Link href="/chains" className="text-sm text-accent hover:text-accent-hover transition-colors">
+                  View all →
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {chains.map(chain => (
+                  <Link
+                    key={chain.id}
+                    href={`/chains/${chain.id}`}
+                    className="group p-5 rounded-lg border border-border bg-bg-surface hover:border-border-hover hover:-translate-y-0.5 transition-all"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-xl">{chain.icon}</span>
+                      <h3 className="text-sm font-semibold group-hover:text-accent transition-colors">{chain.name}</h3>
+                    </div>
+                    <p className="text-xs text-text-muted line-clamp-2 mb-3">{chain.description}</p>
+                    <div className="flex items-center gap-1.5">
+                      {chain.steps.map((step, i) => (
+                        <div key={i} className="flex items-center gap-1">
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-bg-surface-2 border border-border text-text-dim">
+                            {step.label || step.agentId}
+                          </span>
+                          {i < chain.steps.length - 1 && <span className="text-text-dim text-[9px]">→</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Account Info */}
           <div className="bg-bg-surface border border-border rounded-md p-6">

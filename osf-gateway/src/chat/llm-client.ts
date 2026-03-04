@@ -305,7 +305,7 @@ export async function callLlm(
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000); // 60s timeout (was 300s)
+    const timeout = setTimeout(() => controller.abort(), 300_000); // 5min timeout for large models
 
     let resp: globalThis.Response;
     try {

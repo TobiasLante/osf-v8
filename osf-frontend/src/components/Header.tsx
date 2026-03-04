@@ -48,8 +48,8 @@ export function Header() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [menuOpen]);
 
-  // Hide header on full-screen pages like the flow editor
-  if (pathname === "/flows/editor") return null;
+  // Hide header on full-screen pages like the flow editor and demo chat
+  if (pathname === "/flows/editor" || pathname.startsWith("/demo-chat")) return null;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-bg/80 backdrop-blur-xl">

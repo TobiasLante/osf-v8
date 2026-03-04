@@ -28,9 +28,11 @@ export async function runAgent(
 
   try {
     // Get all MCP tools, filter to agent's allowed tools
+    // Strategic agents (e.g. impact-analysis) use premium LLM (5001) for better multi-step tool calling + larger context
+    const effectiveTier = agent.type === 'strategic' ? 'premium' : tier;
     const [allTools, llmConfig] = await Promise.all([
       getMcpTools(),
-      getLlmConfig(userId, tier),
+      getLlmConfig(userId, effectiveTier),
     ]);
     const agentTools = allTools.filter((t: any) =>
       agent.tools.includes(t.function.name)
@@ -38,8 +40,12 @@ export async function runAgent(
 
     // Build user message — use custom message if provided, append params if relevant
     let userMsg = options?.userMessage || 'Please run your full analysis now.';
-    if (options?.params?.periodMode) {
-      userMsg += `\n\nperiodMode: ${options.params.periodMode}`;
+    if (options?.params) {
+      const relevantParams = Object.entries(options.params)
+        .filter(([k]) => !['sessionId', 'language'].includes(k))
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n');
+      if (relevantParams) userMsg += `\n\n${relevantParams}`;
     }
 
     const messages: ChatMessage[] = [
@@ -54,7 +60,16 @@ export async function runAgent(
     const maxIterations = agent.type === 'strategic' ? 10 : 6;
 
     for (let i = 0; i < maxIterations; i++) {
-      const response = await callLlm(messages, agentTools, llmConfig);
+      // Send heartbeat every 15s to keep SSE connection alive (Cloudflare kills idle connections after ~100s)
+      const heartbeat = setInterval(() => {
+        res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`);
+      }, 15_000);
+      let response;
+      try {
+        response = await callLlm(messages, agentTools, llmConfig);
+      } finally {
+        clearInterval(heartbeat);
+      }
 
       if (response.tool_calls && response.tool_calls.length > 0) {
         messages.push({
@@ -72,7 +87,9 @@ export async function runAgent(
 
           res.write(`data: ${JSON.stringify({ type: 'tool_start', name: toolName, arguments: toolArgs })}\n\n`);
 
-          const result = await callMcpTool(toolName, toolArgs);
+          const rawResult = await callMcpTool(toolName, toolArgs);
+          // Truncate extremely large tool results to avoid context overflow
+          const result = rawResult.length > 12000 ? rawResult.slice(0, 12000) + '\n... (truncated)' : rawResult;
 
           res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 

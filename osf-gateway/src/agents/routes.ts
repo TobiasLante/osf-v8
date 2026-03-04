@@ -268,4 +268,31 @@ router.get('/:id/runs', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// GET /agents/:id/runs/:runId/report — download HTML report
+router.get('/:id/runs/:runId/report', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const r = await pool.query(
+      `SELECT result FROM agent_runs WHERE id = $1 AND user_id = $2`,
+      [req.params.runId, req.user!.userId]
+    );
+    const result = r.rows[0]?.result;
+    if (!result) {
+      res.status(404).json({ error: 'Report not found' });
+      return;
+    }
+    const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+    const html = parsed?.reportHtml;
+    if (!html) {
+      res.status(404).json({ error: 'Report not found' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Report download error');
+    res.status(500).json({ error: 'Failed to fetch report' });
+  }
+});
+
 export default router;

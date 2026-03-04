@@ -175,10 +175,7 @@ export default function UnsPage() {
     setDisplayMessages(new Map());
     setMsgCount(0);
 
-    // Pass auth token for cross-origin SSE (EventSource can't set headers)
-    const token = typeof window !== 'undefined' ? localStorage.getItem('osf_token') : null;
-    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-    const es = new EventSource(`${API_BASE}/uns/stream?filter=${encodeURIComponent("Factory/#")}${tokenParam}`);
+    const es = new EventSource(`${API_BASE}/uns/stream?filter=${encodeURIComponent("Factory/#")}`);
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {

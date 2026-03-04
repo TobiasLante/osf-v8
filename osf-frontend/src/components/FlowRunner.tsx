@@ -86,19 +86,12 @@ export default function FlowRunner({ flowId }: FlowRunnerProps) {
       // Pre-flight failed — proceed anyway, backend will enforce limits
     }
 
-    try {
-      setRunning(true);
-      setEvents([]);
-      setCompleted(false);
-      setPendingInput(null);
-      const { runId } = await apiFetch<{ runId: string }>(`/flows/api/run/${flowId}`, { method: 'POST' });
-      await processStream(pollFlowEvents(runId));
-    } catch (err: any) {
-      setEvents(prev => [...prev, { type: 'error', data: err.message || 'Flow execution failed' }]);
-    } finally {
-      setRunning(false);
-      setCompleted(true);
-    }
+    setRunning(true);
+    setEvents([]);
+    setCompleted(false);
+    setPendingInput(null);
+    const { runId } = await apiFetch<{ runId: string }>(`/flows/api/run/${flowId}`, { method: 'POST' });
+    await processStream(pollFlowEvents(runId));
   }, [flowId, processStream]);
 
   const submitHumanInput = useCallback(async () => {

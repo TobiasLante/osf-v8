@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { BackgroundOrbs } from "@/components/BackgroundOrbs";
 import { UseCaseCard } from "@/components/UseCaseCard";
 import { useCases } from "@/lib/use-cases-data";
@@ -35,12 +34,12 @@ export default function UseCasesPage() {
               Get access to the full platform with chat,
               code editor, and agent runtime.
             </p>
-            <Link
+            <a
               href="/#waitlist"
               className="inline-block px-6 py-3 rounded-sm bg-accent-gradient text-bg font-semibold text-sm hover:opacity-90 transition-opacity"
             >
               Get Started
-            </Link>
+            </a>
           </div>
         </div>
       </section>

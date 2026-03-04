@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
 
 interface GitHubStatus {
@@ -54,11 +53,6 @@ export function GitHubTab() {
   const handleConnect = async () => {
     try {
       const data = await apiFetch<{ url: string }>('/code-agents/github/connect');
-      // Validate redirect URL to prevent open redirect
-      if (!data.url.startsWith('https://github.com/')) {
-        setMsg({ type: 'error', text: 'Invalid GitHub redirect URL' });
-        return;
-      }
       window.location.href = data.url;
     } catch (err: any) {
       setMsg({ type: 'error', text: err.message });
@@ -128,7 +122,7 @@ export function GitHubTab() {
         <ol className="text-text-dim text-sm space-y-2 list-decimal list-inside">
           <li>Connect your GitHub account above</li>
           <li>Create a repo with <code className="text-accent bg-accent/10 px-1 rounded text-xs">osf-agent.yaml</code> and <code className="text-accent bg-accent/10 px-1 rounded text-xs">src/main.ts</code></li>
-          <li>Deploy the agent from the <Link href="/agents" className="text-accent hover:underline">Agents page</Link></li>
+          <li>Deploy the agent from the <a href="/agents" className="text-accent hover:underline">Agents page</a></li>
           <li>Push changes to GitHub &mdash; auto-syncs via webhook</li>
         </ol>
       </section>

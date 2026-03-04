@@ -1408,6 +1408,10 @@
 
         .progress-event.type-done .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
         .progress-event.type-done .progress-event-type { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .progress-event.type-report_ready .progress-event-icon { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+        .progress-event.type-report_ready .progress-event-type { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+        a.report-link { color: #818cf8; text-decoration: underline; font-weight: 600; }
+        a.report-link:hover { color: #a5b4fc; }
 
         .progress-event.type-stopped .progress-event-icon { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
         .progress-event.type-stopped .progress-event-type { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
@@ -2279,7 +2283,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge">v8.1.0</span>
+                    <span class="version-badge">v8.2.0</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -2288,6 +2292,9 @@
             </div>
 
             <div class="header-actions">
+                <a href="https://openshopfloor.zeroguess.ai" class="header-btn" title="Zurück zum Dashboard">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:3px"><path d="M15 18l-6-6 6-6"/></svg>OSF
+                </a>
                 <a href="/help/index.html" class="header-btn">Wiki</a>
                 <a href="/help.html" class="header-btn">Hilfe</a>
                 <button class="header-btn streaming-toggle" id="themeToggle" title="Dark/Light Mode">
@@ -3279,6 +3286,7 @@
 
             const typingId = addTyping();
             let agentOutput = '';
+            let agentReportUrl = null;
 
             try {
                 currentFetchController = new AbortController();
@@ -3322,6 +3330,10 @@
                         case 'done':
                             handleProgressEvent({ type: 'done', message: 'Fertig', timestamp: new Date().toISOString() });
                             break;
+                        case 'report_ready':
+                            agentReportUrl = event.reportUrl;
+                            handleProgressEvent({ type: 'report_ready', message: 'Report bereit', timestamp: new Date().toISOString() });
+                            break;
                         case 'heartbeat':
                             break; // Silently ignore
                         default:
@@ -3335,7 +3347,14 @@
 
                 currentFetchController = null;
                 removeTyping(typingId);
-                addMessage('assistant', agentOutput || 'Agent ausgeführt.');
+
+                // Build output with optional report link
+                let finalOutput = agentOutput || 'Agent ausgeführt.';
+                if (agentReportUrl) {
+                    const reportLink = agentReportUrl + (agentReportUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken);
+                    finalOutput += `\n\n---\n📊 **[Report öffnen](${reportLink})**`;
+                }
+                addMessage('assistant', finalOutput);
 
             } catch (err) {
                 currentFetchController = null;
@@ -4444,6 +4463,7 @@ body { padding: 0; }
                 discussion_round_complete: '✅', discussion_synthesis_start: '🔮',
                 kg_summary: '🕸️',
                 debate_start: '⚔️', debate_draft: '📋', debate_critique: '🔍', debate_final: '🏆',
+                report_ready: '📊',
                 stopped: '⏹'
             };
             return icons[type] || '•';
@@ -4462,6 +4482,7 @@ body { padding: 0; }
                 discussion_round_complete: 'DISC', discussion_synthesis_start: 'SYNTH',
                 kg_summary: 'KG',
                 debate_start: 'DEBATE', debate_draft: 'DRAFT', debate_critique: 'CRIT', debate_final: 'FINAL',
+                report_ready: 'REPORT',
                 stopped: 'STOP'
             };
             return labels[type] || type.toUpperCase();

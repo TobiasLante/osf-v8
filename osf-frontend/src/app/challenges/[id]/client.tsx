@@ -1,19 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BackgroundOrbs } from "@/components/BackgroundOrbs";
 import { getChallenge } from "@/lib/challenges-data";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api";
-
-interface LeaderboardEntry {
-  rank: number;
-  username: string;
-  score: number;
-  time: string;
-}
 
 const difficultyColors: Record<string, string> = {
   Beginner: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -26,15 +17,6 @@ export function ChallengeDetailClient({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const challenge = getChallenge(id);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [loadingLeaderboard, setLoadingLeaderboard] = useState(true);
-
-  useEffect(() => {
-    apiFetch<{ entries: LeaderboardEntry[] }>(`/challenges/leaderboard/${id}`)
-      .then(({ entries }) => setLeaderboard(entries))
-      .catch(() => {})
-      .finally(() => setLoadingLeaderboard(false));
-  }, [id]);
 
   if (!challenge) {
     return (
@@ -124,29 +106,10 @@ export function ChallengeDetailClient({ id }: { id: string }) {
 
           <div className="bg-bg-surface border border-border rounded-md p-6 mb-6">
             <h2 className="text-sm font-semibold text-text-muted mb-4">Leaderboard</h2>
-            {loadingLeaderboard ? (
-              <div className="text-center py-8 text-text-dim text-sm">Loading leaderboard...</div>
-            ) : leaderboard.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-text-dim text-sm mb-2">No submissions yet</p>
-                <p className="text-xs text-text-dim">Be the first to complete this challenge!</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {leaderboard.map((entry, i) => (
-                  <div key={i} className="flex items-center justify-between py-2 px-3 rounded bg-bg-surface-2 text-sm">
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 text-center font-mono text-text-dim">{entry.rank}</span>
-                      <span className="text-text font-medium">{entry.username}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-accent font-mono">{entry.score}</span>
-                      <span className="text-text-dim text-xs">{entry.time}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="text-center py-8">
+              <p className="text-text-dim text-sm mb-2">No submissions yet</p>
+              <p className="text-xs text-text-dim">Be the first to complete this challenge!</p>
+            </div>
           </div>
 
           <div className="flex gap-3">

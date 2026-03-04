@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { Header } from '@/components/Header';
 import { BackgroundOrbs } from '@/components/BackgroundOrbs';
 import { ProfileTab } from './ProfileTab';
 import { LlmTab } from './LlmTab';
@@ -30,6 +31,7 @@ function SettingsContent() {
 
   return (
     <>
+      <Header />
       <BackgroundOrbs />
       <main className="relative z-10 max-w-2xl mx-auto pt-32 pb-20 px-6">
         <h1 className="text-3xl font-bold text-text mb-8">Settings</h1>

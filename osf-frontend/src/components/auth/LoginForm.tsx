@@ -87,9 +87,9 @@ export function LoginForm() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          minLength={8}
+          minLength={6}
           className="w-full px-4 py-3 rounded-sm bg-bg-surface-2 border border-border text-text placeholder:text-text-dim focus:border-accent/40 focus:outline-none transition-colors"
-          placeholder="Min. 8 characters"
+          placeholder="Min. 6 characters"
         />
       </div>
 

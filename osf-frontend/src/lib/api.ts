@@ -8,29 +8,26 @@ export class ApiError extends Error {
   }
 }
 
-let refreshPromise: Promise<boolean> | null = null;
+let isRefreshing = false;
 
-async function tryRefreshToken(): Promise<boolean> {
-  if (typeof window === 'undefined') return false;
-
-  const storedRefresh = localStorage.getItem(LS_REFRESH_TOKEN);
-  if (!storedRefresh) return false;
+async function tryRefreshToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  const refreshToken = localStorage.getItem(LS_REFRESH_TOKEN);
+  if (!refreshToken) return null;
 
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ refreshToken: storedRefresh }),
+      body: JSON.stringify({ refreshToken }),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const data = await res.json();
-    // Keep localStorage as fallback for backwards compat during migration
-    if (data.token) localStorage.setItem(LS_TOKEN, data.token);
-    if (data.refreshToken) localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
-    return true;
+    localStorage.setItem(LS_TOKEN, data.token);
+    localStorage.setItem(LS_REFRESH_TOKEN, data.refreshToken);
+    return data.token;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -38,43 +35,42 @@ function forceLogout() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_REFRESH_TOKEN);
-  // Don't redirect if already on login/register/public pages to avoid infinite loop
-  const path = window.location.pathname;
-  if (!['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/'].includes(path)) {
-    window.location.href = '/login';
-  }
+  window.location.href = '/login';
 }
 
 export async function apiFetch<T = any>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+
   const headers: Record<string, string> = {
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
 
-  // Fallback: send Bearer token from localStorage if cookie not yet set
-  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-  if (token && !headers['Authorization']) {
+  if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
-    credentials: 'include',
   });
 
   // On 401, try to refresh the token once, then retry
-  if (res.status === 401) {
-    if (!refreshPromise) {
-      refreshPromise = tryRefreshToken().finally(() => { refreshPromise = null; });
+  if (res.status === 401 && token && !isRefreshing) {
+    isRefreshing = true;
+    const newToken = await tryRefreshToken();
+    isRefreshing = false;
+
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      if (retry.ok) return retry.json();
     }
-    const refreshed = await refreshPromise;
-    if (refreshed) {
-      return apiFetch(path, options);
-    }
+
+    // Refresh failed or retry failed — force logout
     forceLogout();
     throw new ApiError(401, 'Session expired');
   }
@@ -111,9 +107,7 @@ export function executeV7Agent(
   });
 
   // 1. Connect SSE first
-  const sseToken = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-  const tokenParam = sseToken ? `?token=${encodeURIComponent(sseToken)}` : '';
-  eventSource = new EventSource(`${API_BASE}/v7/progress/${sessionId}${tokenParam}`);
+  eventSource = new EventSource(`${API_BASE}/v7/progress/${sessionId}`);
 
   eventSource.addEventListener('progress', (e: MessageEvent) => {
     if (cancelled) return;
@@ -143,12 +137,13 @@ export function executeV7Agent(
   };
 
   // 2. POST to execute — returns 202 immediately (fire-and-forget)
-  const execHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (sseToken) execHeaders['Authorization'] = `Bearer ${sseToken}`;
+  const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   fetch(`${API_BASE}/v7/agents/${agentName}/execute`, {
     method: 'POST',
-    headers: execHeaders,
-    credentials: 'include',
+    headers,
     body: JSON.stringify({ sessionId, language: options.language || 'de' }),
   }).then(async (res) => {
     if (!res.ok && res.status !== 202) {
@@ -173,7 +168,6 @@ export function executeV7Agent(
       fetch(`${API_BASE}/v7/agents/${agentName}/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ sessionId }),
       }).catch(() => {});
     },
@@ -210,13 +204,17 @@ export async function* streamSSE(
   body: any
 ): AsyncGenerator<SSEEvent> {
   const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
-  const sseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) sseHeaders['Authorization'] = `Bearer ${token}`;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: sseHeaders,
-    credentials: 'include',
+    headers,
     body: JSON.stringify(body),
   });
 

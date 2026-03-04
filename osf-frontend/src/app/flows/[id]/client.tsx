@@ -32,8 +32,8 @@ export function FlowDetailClient({ id: paramId }: { id: string }) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  // In static export the param is always "placeholder", so read the real ID from the URL
-  const flowId = typeof window !== 'undefined'
+  // Use the prop; only fall back to URL if prop is "placeholder"
+  const flowId = paramId === 'placeholder' && typeof window !== 'undefined'
     ? window.location.pathname.split('/').pop() || paramId
     : paramId;
 

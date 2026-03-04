@@ -741,9 +741,9 @@ deploy_chat_ui() {
 
   # 3.1 Build Chat-UI
   log "Building Chat-UI..."
-  docker build --no-cache -t "$REGISTRY/osf-chat-ui:8.1.0" -f "$V8_ROOT/chat-ui/Dockerfile" "$V8_ROOT/chat-ui" 2>&1 | tail -5
+  docker build --no-cache -t "$REGISTRY/osf-chat-ui:8.2.0" -f "$V8_ROOT/chat-ui/Dockerfile" "$V8_ROOT/chat-ui" 2>&1 | tail -5
   ok "Chat-UI image built"
-  docker push "$REGISTRY/osf-chat-ui:8.1.0" 2>&1 | tail -3
+  docker push "$REGISTRY/osf-chat-ui:8.2.0" 2>&1 | tail -3
   ok "Chat-UI pushed"
 
   # 3.2 Deploy

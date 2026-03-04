@@ -385,7 +385,7 @@ router.get('/connectivity', async (_req: Request, res: Response) => {
     { name: 'MCP Manufacturing', url: (process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
     { name: 'MCP QMS', url: (process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
     { name: 'MCP WMS/TMS', url: (process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'Factory Simulator', url: (process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888') + '/api/health' },
+    { name: 'Factory Simulator', url: (process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888') + '/api/health/live' },
     { name: 'LLM Free', url: (process.env.LLM_URL_FREE || 'http://192.168.178.120:5002') + '/health' },
     { name: 'LLM Premium', url: (process.env.LLM_URL_PREMIUM || 'http://192.168.178.120:5001') + '/health' },
   ];

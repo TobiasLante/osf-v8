@@ -9,7 +9,12 @@ interface ToolCallCardProps {
   status: "running" | "done" | "error";
 }
 
-import { formatToolName } from '@/lib/markdown';
+function formatToolName(name: string): string {
+  return (name || "")
+    .replace(/^factory_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export function ToolCallCard({ name, arguments: args, result, status }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
