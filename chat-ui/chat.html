@@ -1173,9 +1173,14 @@
             border-color: var(--border-hover);
         }
 
-        .progress-panel-content {
+        .progress-panel-body {
             flex: 1;
             overflow-y: auto;
+            scroll-behavior: smooth;
+            min-height: 0; /* allow flex shrink */
+        }
+
+        .progress-panel-content {
             padding: 12px;
         }
 
@@ -1685,9 +1690,6 @@
             gap: 6px;
             padding: 8px 10px;
             border-top: 1px solid var(--border);
-            max-height: 60vh;
-            overflow-y: auto;
-            scroll-behavior: smooth;
         }
 
         .discussion-thread.active {
@@ -1889,7 +1891,7 @@
 
         .kg-visualizer-container iframe {
             width: 100%;
-            height: 400px;
+            height: 300px;
             border: none;
         }
 
@@ -2486,6 +2488,8 @@
             <div class="progress-status-phase" id="progressStatusPhase">Starte...</div>
             <div class="progress-status-timer" id="progressStatusTimer">0s</div>
         </div>
+        <!-- Scrollable body (KG + Specialists + Discussion + Log) -->
+        <div class="progress-panel-body" id="progressPanelBody">
         <!-- KG Impact Visualizer -->
         <div class="kg-visualizer-container" id="kgVisualizerContainer">
             <iframe id="kgVisualizerFrame" src="" allow=""></iframe>
@@ -2512,7 +2516,6 @@
             <div class="discussion-header">Diskussion</div>
             <div id="discussionMessages" class="discussion-messages" style="display:flex;flex-direction:column;gap:6px;"></div>
         </div>
-        <!-- Stream Pop-out: uses window.open() for real OS window -->
         <!-- Classic Event Log -->
         <div class="progress-panel-content" id="progressLog">
             <div class="progress-empty">
@@ -2522,6 +2525,7 @@
                 <span>Warte auf Events...</span>
             </div>
         </div>
+        </div><!-- /progress-panel-body -->
     </div>
 
     <script>
@@ -3807,7 +3811,8 @@ ${status} **${otd}%**
                 isLoading = false;
                 updateSendBtn();
                 renderProgressEvent(event);
-                progressLog.scrollTop = progressLog.scrollHeight;
+                const panelBody = document.getElementById('progressPanelBody');
+                if (panelBody) panelBody.scrollTop = panelBody.scrollHeight;
                 return;
             }
 
@@ -3827,7 +3832,8 @@ ${status} **${otd}%**
             if (kgTypes.includes(event.type)) {
                 handleKgEvent(event);
                 renderProgressEvent(event);
-                progressLog.scrollTop = progressLog.scrollHeight;
+                const panelBody = document.getElementById('progressPanelBody');
+                if (panelBody) panelBody.scrollTop = panelBody.scrollHeight;
                 return;
             }
 
@@ -4061,7 +4067,8 @@ ${status} **${otd}%**
                 }
             }
 
-            thread.scrollTop = thread.scrollHeight;
+            const panelBody2 = document.getElementById('progressPanelBody');
+            if (panelBody2) panelBody2.scrollTop = panelBody2.scrollHeight;
             mirrorToPopoutModal();
         }
 
@@ -4149,6 +4156,15 @@ body { padding: 0; }
             const wasAtBottom = (streamPopoutWindow.document.documentElement.scrollHeight - streamPopoutWindow.scrollY - streamPopoutWindow.innerHeight) < 100;
 
             let html = '';
+            const kgInline = document.getElementById('kgInlineDiagram');
+            if (kgInline) html += kgInline.outerHTML;
+            const kgContainer = document.getElementById('kgVisualizerContainer');
+            if (kgContainer && kgContainer.classList.contains('active')) {
+                html += '<div style="padding:8px;font-size:11px;opacity:0.6;border-bottom:1px solid rgba(255,255,255,0.1);">' +
+                    (document.getElementById('kgStatCenter')?.textContent || '') + ' · ' +
+                    (document.getElementById('kgStatNodes')?.textContent || '0') + ' Nodes · ' +
+                    (document.getElementById('kgStatEdges')?.textContent || '0') + ' Edges</div>';
+            }
             const specOverview = document.getElementById('specialistOverview');
             if (specOverview) html += specOverview.outerHTML;
             const discThread = document.getElementById('discussionThread');
@@ -4615,7 +4631,7 @@ body { padding: 0; }
             }
 
             // Build SVG
-            let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="background:rgba(0,0,0,0.3);border-radius:8px;">`;
+            let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="background:rgba(0,0,0,0.3);border-radius:8px;max-height:340px;">`;
 
             // Ring guide circles
             for (let r = 1; r <= 3; r++) {

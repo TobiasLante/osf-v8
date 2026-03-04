@@ -156,59 +156,78 @@ function extractKgGraph(toolResults: Array<{ name: string; result: string }>, ce
     try { data = JSON.parse(result); } catch { continue; }
     if (!data || typeof data !== 'object') continue;
 
-    // Extract affected orders → ring 1
-    for (const order of safeArray(data.affectedOrders || data.affected_orders)) {
-      const id = order?.id || order?.orderId || order?.kundenauftragNr || String(order);
-      if (!id) continue;
-      nodesMap.set(id, { id, type: 'order', label: order?.label || id, ring: 1 });
-      edges.push({ from: centerEntityId, to: id, label: 'betrifft' });
-    }
-
-    // Extract tools at risk → ring 1
-    for (const tool of safeArray(data.toolsAtRisk || data.tools_at_risk)) {
-      const id = tool?.id || tool?.toolId || String(tool);
-      if (!id) continue;
-      nodesMap.set(id, { id, type: 'tool', label: tool?.label || id, ring: 1 });
-      edges.push({ from: centerEntityId, to: id, label: 'Werkzeug' });
-    }
-
-    // Extract affected customers → ring 2
-    for (const cust of safeArray(data.affectedCustomers || data.affected_customers)) {
-      const id = cust?.id || cust?.customerId || cust?.name || String(cust);
-      if (!id) continue;
-      nodesMap.set(id, { id, type: 'customer', label: cust?.label || cust?.name || id, ring: 2 });
-      // Connect to orders if possible
-      const linked = safeArray(cust?.orders || cust?.orderIds);
-      if (linked.length > 0) {
-        for (const oid of linked) {
-          const orderId = typeof oid === 'string' ? oid : oid?.id;
-          if (orderId && nodesMap.has(orderId)) {
-            edges.push({ from: orderId, to: id, label: 'Kunde' });
-          }
+    // ── Strategy 1: KG tools return pre-built nodes/edges (source/target format) ──
+    if (Array.isArray(data.nodes) && data.nodes.length > 0) {
+      for (const n of data.nodes) {
+        if (!n?.id) continue;
+        const existing = nodesMap.get(n.id);
+        if (!existing) {
+          nodesMap.set(n.id, {
+            id: n.id,
+            type: (n.type || 'unknown').toLowerCase(),
+            label: n.label || n.id,
+            ring: n.ring ?? 1,
+          });
         }
-      } else {
-        edges.push({ from: centerEntityId, to: id, label: 'Kunde betroffen' });
+      }
+    }
+    if (Array.isArray(data.edges) && data.edges.length > 0) {
+      for (const e of data.edges) {
+        const from = e.source || e.from;
+        const to = e.target || e.to;
+        if (from && to) {
+          edges.push({ from, to, label: e.relationship || e.label || '' });
+        }
       }
     }
 
-    // Extract alternatives / rerouting → ring 3
-    for (const alt of safeArray(data.alternatives || data.reroutingOptions || data.rerouting_options)) {
-      const id = alt?.id || alt?.machineId || alt?.machine_id || String(alt);
-      if (!id) continue;
-      nodesMap.set(id, { id, type: 'alternative', label: alt?.label || id, ring: 3 });
-      edges.push({ from: centerEntityId, to: id, label: 'Alternative' });
+    // ── Strategy 2: Extract rerouting alternatives (nested object, not array) ──
+    if (data.reroutingOptions && typeof data.reroutingOptions === 'object' && !Array.isArray(data.reroutingOptions)) {
+      for (const [poolName, poolData] of Object.entries(data.reroutingOptions as Record<string, any>)) {
+        for (const m of safeArray(poolData?.machines)) {
+          const id = m?.id || m?.machineId || String(m);
+          if (!id || nodesMap.has(id)) continue;
+          nodesMap.set(id, { id, type: 'alternative', label: `${id} (${poolName})`, ring: 3 });
+          edges.push({ from: centerEntityId, to: id, label: 'Alternative' });
+        }
+      }
     }
 
-    // Extract material dependencies → ring 1
-    for (const mat of safeArray(data.materials || data.affectedMaterials)) {
-      const id = mat?.id || mat?.materialId || mat?.materialNr || String(mat);
-      if (!id) continue;
-      nodesMap.set(id, { id, type: 'material', label: mat?.label || id, ring: 1 });
-      edges.push({ from: centerEntityId, to: id, label: 'Material' });
+    // ── Strategy 3: Fallback — extract from common fields if no nodes array ──
+    if (!Array.isArray(data.nodes)) {
+      for (const order of safeArray(data.affectedOrders || data.affected_orders).slice(0, 30)) {
+        const id = order?.id || order?.orderId || String(order);
+        if (!id || nodesMap.has(id)) continue;
+        nodesMap.set(id, { id, type: 'order', label: order?.label || order?.article || id, ring: 1 });
+        edges.push({ from: centerEntityId, to: id, label: 'betrifft' });
+      }
+
+      for (const cust of safeArray(data.affectedCustomers || data.affected_customers).slice(0, 15)) {
+        const id = cust?.id || cust?.name || String(cust);
+        if (!id || nodesMap.has(id)) continue;
+        nodesMap.set(id, { id, type: 'customer', label: cust?.label || cust?.name || id, ring: 2 });
+        edges.push({ from: centerEntityId, to: id, label: 'Kunde' });
+      }
+
+      for (const alt of safeArray(data.alternatives).slice(0, 10)) {
+        const id = alt?.id || alt?.machineId || String(alt);
+        if (!id || nodesMap.has(id)) continue;
+        nodesMap.set(id, { id, type: 'alternative', label: alt?.label || id, ring: 3 });
+        edges.push({ from: centerEntityId, to: id, label: 'Alternative' });
+      }
     }
   }
 
-  return { nodes: Array.from(nodesMap.values()), edges };
+  // Deduplicate edges
+  const edgeSet = new Set<string>();
+  const uniqueEdges = edges.filter(e => {
+    const key = `${e.from}→${e.to}`;
+    if (edgeSet.has(key)) return false;
+    edgeSet.add(key);
+    return true;
+  });
+
+  return { nodes: Array.from(nodesMap.values()), edges: uniqueEdges };
 }
 
 async function runKgPhase(
@@ -678,6 +697,110 @@ Format: Strukturierter Markdown-Text mit Executive Summary, Maßnahmen, Risiken.
   return finalText;
 }
 
+// ─── Phase 4: Report Generation ─────────────────────────────────────────
+
+function generateReport(
+  finalText: string,
+  reports: Map<string, SpecialistReport>,
+  kgNodes: KgNode[],
+  kgEdges: KgEdge[],
+  transcript: string,
+  params: Record<string, unknown>,
+): string {
+  const entityId = String(params.entityId || params.machineId || 'unknown');
+  const scenario = String(params.scenario || 'Impact-Analyse');
+  const dateStr = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  // Extract severity from final text
+  const severityMatch = finalText.match(/severity[:\s]*(critical|high|medium|low)/i)
+    || finalText.match(/(CRITICAL|HIGH|MEDIUM|LOW)/);
+  const severity = severityMatch ? severityMatch[1].toUpperCase() : 'HIGH';
+  const severityEmoji = severity === 'CRITICAL' ? '\u{1F534}' : severity === 'HIGH' ? '\u{1F7E0}' : severity === 'MEDIUM' ? '\u{1F7E1}' : '\u{1F7E2}';
+
+  // Count stats
+  const totalFindings = Array.from(reports.values())
+    .reduce((sum, r) => sum + safeArray(r.kritischeFindings).length, 0);
+  const totalRecs = Array.from(reports.values())
+    .reduce((sum, r) => sum + safeArray(r.empfehlungen).length, 0);
+  const affectedOrders = kgNodes.filter(n => n.type === 'order').length;
+  const affectedCustomers = kgNodes.filter(n => n.type === 'customer').length;
+  const alternatives = kgNodes.filter(n => n.type === 'alternative').length;
+
+  let md = '';
+
+  // ── Header ──
+  md += `## ${severityEmoji} Impact-Analyse: ${scenario}\n\n`;
+  md += `**Entity:** ${entityId} | **Datum:** ${dateStr} | **Severity:** ${severity}\n\n`;
+
+  // ── KPI Overview ──
+  md += `### Ueberblick\n\n`;
+  md += `| Metrik | Wert |\n|--------|------|\n`;
+  md += `| KG-Knoten | ${kgNodes.length} |\n`;
+  md += `| KG-Kanten | ${kgEdges.length} |\n`;
+  md += `| Betroffene Auftraege | ${affectedOrders} |\n`;
+  md += `| Betroffene Kunden | ${affectedCustomers} |\n`;
+  md += `| Alternativen | ${alternatives} |\n`;
+  md += `| Findings gesamt | ${totalFindings} |\n`;
+  md += `| Empfehlungen gesamt | ${totalRecs} |\n\n`;
+
+  // ── Specialist Summaries ──
+  md += `### Spezialisten-Analyse\n\n`;
+  for (const [name, report] of reports.entries()) {
+    const specDef = IMPACT_SPECIALISTS.find(s => s.name === name);
+    const displayName = specDef?.displayName || name;
+    const findings = safeArray(report.kritischeFindings);
+    const recs = safeArray(report.empfehlungen);
+
+    md += `**${displayName}** (${report.domain || name})\n`;
+    if (report.zahlenDatenFakten) {
+      md += `> ${String(report.zahlenDatenFakten).substring(0, 300)}\n`;
+    }
+    md += `\n`;
+
+    if (findings.length > 0) {
+      md += `Findings:\n`;
+      for (const f of findings.slice(0, 3)) {
+        const finding = typeof f === 'string' ? f : f?.finding || JSON.stringify(f);
+        const sev = typeof f === 'object' ? f?.severity || '' : '';
+        md += `- ${sev ? `[${sev}] ` : ''}${finding}\n`;
+      }
+      md += `\n`;
+    }
+
+    if (recs.length > 0) {
+      md += `Empfehlungen:\n`;
+      for (const r of recs.slice(0, 3)) {
+        const action = typeof r === 'string' ? r : r?.maßnahme || JSON.stringify(r);
+        const prio = typeof r === 'object' ? r?.priorität || '' : '';
+        md += `- ${prio ? `[${prio}] ` : ''}${action}\n`;
+      }
+      md += `\n`;
+    }
+  }
+
+  // ── Discussion Summary ──
+  if (transcript.trim()) {
+    md += `### Diskussion\n\n`;
+    const lines = transcript.split('\n').filter(l => l.trim());
+    for (const line of lines.slice(0, 20)) {
+      if (line.includes('Moderator →') || line.includes('Moderator →')) {
+        md += `**${line.trim()}**\n`;
+      } else {
+        md += `${line.trim()}\n`;
+      }
+    }
+    md += `\n`;
+  }
+
+  // ── Final Mitigation Plan ──
+  md += `### Finaler Mitigation-Plan\n\n`;
+  md += finalText;
+  md += `\n\n---\n`;
+  md += `*Impact-Analyse generiert am ${dateStr} | ${kgNodes.length} KG-Knoten | ${reports.size} Spezialisten | Severity: ${severity}*\n`;
+
+  return md;
+}
+
 // ─── Main: Run Discussion Agent ─────────────────────────────────────────
 
 export async function runDiscussionAgent(
@@ -775,23 +898,30 @@ export async function runDiscussionAgent(
     }
 
     // ── Phase 3: Debate + Synthesis ──
-    const finalOutput = await runDebate(
+    const finalMitigation = await runDebate(
       reports, transcript,
       premiumLlmConfig, freeLlmConfig,
       userId, res,
     );
 
+    // ── Phase 4: Generate Report ──
+    const fullReport = generateReport(
+      finalMitigation, reports,
+      kgNodes, kgEdges,
+      transcript, params,
+    );
+
     // Stream final content
     const chunkSize = 30;
-    for (let i = 0; i < finalOutput.length; i += chunkSize) {
-      emitSSE(res, { type: 'content', text: finalOutput.slice(i, i + chunkSize) });
+    for (let i = 0; i < fullReport.length; i += chunkSize) {
+      emitSSE(res, { type: 'content', text: fullReport.slice(i, i + chunkSize) });
     }
 
     // Save run
     await pool.query(
       `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
       [JSON.stringify({
-        content: finalOutput,
+        content: fullReport,
         specialists: Array.from(reports.keys()),
         kgNodes: kgNodes.length,
         kgEdges: kgEdges.length,
