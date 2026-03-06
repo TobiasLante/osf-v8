@@ -683,45 +683,58 @@ router.get('/activity', async (req: Request, res: Response) => {
 
     const trunc = granularity === 'daily' ? 'day' : granularity === 'weekly' ? 'week' : 'month';
 
-    // Per-user activity based on chat_sessions
+    // Per-user activity: time span from first to last event per period
+    // Combines chat sessions, messages, agent runs, and flow runs
     const userActivity = await pool.query(`
+      WITH all_events AS (
+        SELECT user_id, created_at AS ts FROM chat_sessions
+        UNION ALL
+        SELECT cs.user_id, cm.created_at AS ts FROM chat_messages cm JOIN chat_sessions cs ON cs.id = cm.session_id
+        UNION ALL
+        SELECT user_id, started_at AS ts FROM agent_runs
+        UNION ALL
+        SELECT user_id, finished_at AS ts FROM agent_runs WHERE finished_at IS NOT NULL
+        UNION ALL
+        SELECT user_id, started_at AS ts FROM flow_runs WHERE started_at IS NOT NULL
+        UNION ALL
+        SELECT user_id, finished_at AS ts FROM flow_runs WHERE finished_at IS NOT NULL
+      )
       SELECT
-        cs.user_id,
+        ae.user_id,
         u.email AS user_email,
         u.name AS user_name,
-        date_trunc($1, cs.created_at)::date AS period,
+        date_trunc($1, ae.ts)::date AS period,
         COUNT(*)::int AS session_count,
-        COALESCE(SUM(
-          EXTRACT(EPOCH FROM (
-            COALESCE(
-              (SELECT MAX(cm.created_at) FROM chat_messages cm WHERE cm.session_id = cs.id),
-              cs.created_at
-            ) - cs.created_at
-          )) / 60
-        ), 0)::int AS total_minutes
-      FROM chat_sessions cs
-      JOIN users u ON u.id = cs.user_id
-      WHERE cs.created_at >= $2::date AND cs.created_at < ($3::date + INTERVAL '1 day')
-      GROUP BY cs.user_id, u.email, u.name, date_trunc($1, cs.created_at)
+        ROUND(EXTRACT(EPOCH FROM (MAX(ae.ts) - MIN(ae.ts))) / 60)::int AS total_minutes
+      FROM all_events ae
+      JOIN users u ON u.id = ae.user_id
+      WHERE ae.ts >= $2::date AND ae.ts < ($3::date + INTERVAL '1 day')
+      GROUP BY ae.user_id, u.email, u.name, date_trunc($1, ae.ts)
       ORDER BY period DESC, total_minutes DESC
     `, [trunc, from, to]);
 
     // Totals per period
     const totals = await pool.query(`
+      WITH all_events AS (
+        SELECT user_id, created_at AS ts FROM chat_sessions
+        UNION ALL
+        SELECT cs.user_id, cm.created_at AS ts FROM chat_messages cm JOIN chat_sessions cs ON cs.id = cm.session_id
+        UNION ALL
+        SELECT user_id, started_at AS ts FROM agent_runs
+        UNION ALL
+        SELECT user_id, finished_at AS ts FROM agent_runs WHERE finished_at IS NOT NULL
+        UNION ALL
+        SELECT user_id, started_at AS ts FROM flow_runs WHERE started_at IS NOT NULL
+        UNION ALL
+        SELECT user_id, finished_at AS ts FROM flow_runs WHERE finished_at IS NOT NULL
+      )
       SELECT
-        date_trunc($1, cs.created_at)::date AS period,
-        COALESCE(SUM(
-          EXTRACT(EPOCH FROM (
-            COALESCE(
-              (SELECT MAX(cm.created_at) FROM chat_messages cm WHERE cm.session_id = cs.id),
-              cs.created_at
-            ) - cs.created_at
-          )) / 60
-        ), 0)::int AS total_minutes,
-        COUNT(DISTINCT cs.user_id)::int AS active_users
-      FROM chat_sessions cs
-      WHERE cs.created_at >= $2::date AND cs.created_at < ($3::date + INTERVAL '1 day')
-      GROUP BY date_trunc($1, cs.created_at)
+        date_trunc($1, ae.ts)::date AS period,
+        ROUND(EXTRACT(EPOCH FROM (MAX(ae.ts) - MIN(ae.ts))) / 60)::int AS total_minutes,
+        COUNT(DISTINCT ae.user_id)::int AS active_users
+      FROM all_events ae
+      WHERE ae.ts >= $2::date AND ae.ts < ($3::date + INTERVAL '1 day')
+      GROUP BY date_trunc($1, ae.ts)
       ORDER BY period DESC
     `, [trunc, from, to]);
 
