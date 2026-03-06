@@ -96,6 +96,7 @@ stamp_versions() {
 
   # osf-gateway.yaml
   sed -i "s|image: ${REGISTRY}/osf-gateway:.*|image: ${REGISTRY}/osf-gateway:${GATEWAY_TAG}|" "$SCRIPT_DIR/osf-gateway.yaml"
+  sed -i "s|value: \".*\" # APP_VERSION|value: \"${GATEWAY_TAG}\" # APP_VERSION|" "$SCRIPT_DIR/osf-gateway.yaml" 2>/dev/null || true
   # osf-frontend.yaml
   sed -i "s|image: ${REGISTRY}/osf-frontend:.*|image: ${REGISTRY}/osf-frontend:${FRONTEND_TAG}|" "$SCRIPT_DIR/osf-frontend.yaml"
   # osf-chat-ui.yaml

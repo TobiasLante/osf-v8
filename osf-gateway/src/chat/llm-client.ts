@@ -39,8 +39,8 @@ class CircuitBreaker {
   private lastFailure = 0;
   private state: 'closed' | 'open' | 'half-open' = 'closed';
   constructor(
-    private threshold: number = 3,
-    private resetTimeMs: number = 30_000 // 30s before half-open
+    private threshold: number = 10,
+    private resetTimeMs: number = 120_000 // 2min before half-open — discussions make 10+ LLM calls
   ) {}
 
   recordSuccess(): void {

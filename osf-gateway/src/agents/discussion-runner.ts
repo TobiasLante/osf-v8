@@ -920,7 +920,7 @@ ${discussionHtml ? `
 
 <div class="footer">
   Impact-Analyse generiert am ${now} | ${kgNodes.length} KG-Knoten | ${reports.size} Spezialisten | Severity: ${severity}<br>
-  OpenShopFloor v8.2.0 &mdash; ZeroGuess AI
+  OpenShopFloor &mdash; ZeroGuess AI
 </div>
 
 </body>
