@@ -713,7 +713,7 @@ router.get('/activity', async (req: Request, res: Response) => {
       ORDER BY period DESC, total_minutes DESC
     `, [trunc, from, to]);
 
-    // Totals per period
+    // Totals per period (sum of per-user spans, not overall span)
     const totals = await pool.query(`
       WITH all_events AS (
         SELECT user_id, created_at AS ts FROM chat_sessions
@@ -727,14 +727,22 @@ router.get('/activity', async (req: Request, res: Response) => {
         SELECT user_id, started_at AS ts FROM flow_runs WHERE started_at IS NOT NULL
         UNION ALL
         SELECT user_id, finished_at AS ts FROM flow_runs WHERE finished_at IS NOT NULL
+      ),
+      per_user AS (
+        SELECT
+          date_trunc($1, ae.ts)::date AS period,
+          ae.user_id,
+          ROUND(EXTRACT(EPOCH FROM (MAX(ae.ts) - MIN(ae.ts))) / 60)::int AS user_minutes
+        FROM all_events ae
+        WHERE ae.ts >= $2::date AND ae.ts < ($3::date + INTERVAL '1 day')
+        GROUP BY date_trunc($1, ae.ts), ae.user_id
       )
       SELECT
-        date_trunc($1, ae.ts)::date AS period,
-        ROUND(EXTRACT(EPOCH FROM (MAX(ae.ts) - MIN(ae.ts))) / 60)::int AS total_minutes,
-        COUNT(DISTINCT ae.user_id)::int AS active_users
-      FROM all_events ae
-      WHERE ae.ts >= $2::date AND ae.ts < ($3::date + INTERVAL '1 day')
-      GROUP BY date_trunc($1, ae.ts)
+        period,
+        SUM(user_minutes)::int AS total_minutes,
+        COUNT(*)::int AS active_users
+      FROM per_user
+      GROUP BY period
       ORDER BY period DESC
     `, [trunc, from, to]);
 
