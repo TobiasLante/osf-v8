@@ -25,7 +25,8 @@ import { SEED_FLOW } from './seed-flow';
 
 const NAMESPACE = process.env.K8S_NAMESPACE || 'osf';
 const POOL_SIZE = parseInt(process.env.NR_POOL_SIZE || '3', 10);
-const IDLE_TIMEOUT_MS = parseInt(process.env.NR_IDLE_TIMEOUT_MIN || '20', 10) * 60 * 1000;
+const IDLE_TIMEOUT_MS = parseInt(process.env.NR_IDLE_TIMEOUT_MIN || '30', 10) * 60 * 1000;
+const IDLE_WARN_MS = IDLE_TIMEOUT_MS - 5 * 60 * 1000; // warn 5 min before kill
 const CHECK_INTERVAL_MS = 30_000;
 const RECONCILE_INTERVAL_MS = 60_000;
 const POD_READY_TIMEOUT_MS = 60_000;
@@ -300,6 +301,67 @@ export class NrPodManager {
     if (!this.shuttingDown) {
       this.fillPool().catch(() => {});
     }
+  }
+
+  /**
+   * Reset idle timer for a user's pod (called by keepalive endpoint).
+   */
+  async touchActivity(userId: string): Promise<boolean> {
+    const result = await pool.query(
+      `SELECT pod_name, pod_ip FROM nodered_pods WHERE assigned_user_id = $1 AND status = 'assigned'`,
+      [userId]
+    );
+    if (result.rows.length === 0) return false;
+
+    const { pod_name, pod_ip } = result.rows[0];
+    await pool.query(`UPDATE nodered_pods SET last_activity = NOW() WHERE pod_name = $1`, [pod_name]);
+
+    // Also reset the NR-side activity tracker
+    if (pod_ip) {
+      try {
+        await fetch(`http://${pod_ip}:1880/nr/touch`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(3000),
+        });
+      } catch {
+        // best-effort
+      }
+    }
+
+    logger.info({ pod: pod_name, userId }, '[PodManager] Activity extended by user');
+    return true;
+  }
+
+  /**
+   * Get idle status for a user's pod (for frontend countdown).
+   */
+  async getIdleStatus(userId: string): Promise<{
+    idleMs: number;
+    timeoutMs: number;
+    warnMs: number;
+    remainingMs: number;
+    warning: boolean;
+  } | null> {
+    const result = await pool.query(
+      `SELECT pod_name, pod_ip FROM nodered_pods WHERE assigned_user_id = $1 AND status = 'assigned'`,
+      [userId]
+    );
+    if (result.rows.length === 0) return null;
+
+    const { pod_ip } = result.rows[0];
+    if (!pod_ip) return null;
+
+    const activity = await this.fetchActivity(pod_ip);
+    const idleMs = activity?.idleMs ?? 0;
+    const remainingMs = Math.max(0, IDLE_TIMEOUT_MS - idleMs);
+
+    return {
+      idleMs,
+      timeoutMs: IDLE_TIMEOUT_MS,
+      warnMs: IDLE_WARN_MS,
+      remainingMs,
+      warning: idleMs >= IDLE_WARN_MS,
+    };
   }
 
   // --- Admin APIs ---
@@ -809,11 +871,11 @@ export class NrPodManager {
           return;
         }
 
-        // Kill protection: never kill while flows are running
-        if (activity.flowsRunning > 0) return;
-
+        // Kill protection: only protect pods with active user interaction
+        // A deployed flow alone (flowsRunning > 0) does NOT protect against idle timeout.
+        // Flows are persisted in DB and will be re-loaded on next assign.
         if (activity.idleMs > IDLE_TIMEOUT_MS) {
-          logger.info({ pod: row.pod_name, idleMin: Math.round(activity.idleMs / 60000) }, '[PodManager] Idle timeout');
+          logger.info({ pod: row.pod_name, idleMin: Math.round(activity.idleMs / 60000), flowsRunning: activity.flowsRunning }, '[PodManager] Idle timeout');
           await this.releasePod(row.pod_name, 'idle_killed');
         }
       }));
@@ -1060,8 +1122,8 @@ export class NrPodManager {
             { name: 'POD_NAME', value: podName },
           ],
           resources: {
-            requests: { memory: '128Mi', cpu: '100m' },
-            limits: { memory: '512Mi', cpu: '500m' },
+            requests: { memory: '128Mi', cpu: '50m' },
+            limits: { memory: '512Mi', cpu: '250m' },
           },
           volumeMounts: [
             { name: 'tmp', mountPath: '/tmp' },

@@ -118,6 +118,36 @@ export async function initNodeRedProxy(
     }
   });
 
+  // --- Idle status (for frontend countdown banner) ---
+  app.get('/flows/editor/idle-status', async (req, res) => {
+    const userId = getUserIdFromReq(req);
+    if (!userId) { res.status(401).json({ error: 'Auth required' }); return; }
+
+    try {
+      const status = await podManager.getIdleStatus(userId);
+      if (!status) {
+        res.json({ active: false });
+        return;
+      }
+      res.json({ active: true, ...status });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Keepalive (reset idle timer) ---
+  app.post('/flows/editor/keepalive', async (req, res) => {
+    const userId = getUserIdFromReq(req);
+    if (!userId) { res.status(401).json({ error: 'Auth required' }); return; }
+
+    try {
+      const ok = await podManager.touchActivity(userId);
+      res.json({ ok });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // --- Override GET /flows/editor/flows — load from DB + ensure pod assigned ---
   app.get('/flows/editor/flows', async (req, res) => {
     const userId = getUserIdFromReq(req);
@@ -178,9 +208,16 @@ export async function initNodeRedProxy(
       const podIp = await podManager.getPodForUser(userId);
       if (podIp) {
         try {
+          const proxyHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          // Forward the API version header so the pod's NR uses the correct format (v1 vs v2)
+          const apiVersion = req.get('Node-RED-API-Version');
+          if (apiVersion) proxyHeaders['Node-RED-API-Version'] = apiVersion;
+          const deployType = req.get('Node-RED-Deployment-Type');
+          if (deployType) proxyHeaders['Node-RED-Deployment-Type'] = deployType;
+
           await fetch(`http://${podIp}:1880/flows/editor/flows`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: proxyHeaders,
             body: JSON.stringify(req.body),
             signal: AbortSignal.timeout(10000),
           });

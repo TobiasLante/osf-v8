@@ -5,7 +5,7 @@ const JWT_SECRET: string = process.env.JWT_SECRET || '';
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required');
 }
-const ACCESS_TOKEN_EXPIRY = '15m';
+const ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '4h';
 const REFRESH_TOKEN_EXPIRY = '7d';
 
 export interface JwtPayload {
@@ -22,7 +22,7 @@ export interface RefreshPayload {
 }
 
 export function signAccessToken(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_EXPIRY });
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_EXPIRY as any });
 }
 
 export function signRefreshToken(userId: string): { token: string; tokenId: string } {

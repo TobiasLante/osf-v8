@@ -59,6 +59,11 @@ app.get('/nr/activity', (req, res) => {
   });
 });
 
+app.post('/nr/touch', (req, res) => {
+  lastActivity = Date.now();
+  res.json({ ok: true, lastActivity });
+});
+
 app.post('/nr/load-flows', express.json({ limit: '10mb' }), async (req, res) => {
   const { userId, flows, gatewayUrl, podSecret } = req.body;
 

@@ -484,7 +484,7 @@ async function main() {
     // Forward /demo-ui/api/X to /X by re-dispatching
     const newPath = req.originalUrl.replace('/demo-ui/api', '');
     req.url = newPath || '/';
-    req.app.handle(req, res, () => {
+    (req.app as any).handle(req, res, () => {
       res.status(404).json({ error: 'Not found' });
     });
   });
