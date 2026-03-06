@@ -46,7 +46,7 @@ interface KgEdge {
   label?: string;
 }
 
-interface SpecialistDef {
+export interface SpecialistDef {
   name: string;
   domain: string;
   displayName: string;
@@ -62,7 +62,7 @@ const IMPACT_SPECIALISTS: SpecialistDef[] = [
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-function emitSSE(res: Response, event: Record<string, unknown>): void {
+export function emitSSE(res: Response, event: Record<string, unknown>): void {
   try {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   } catch { /* connection closed */ }
@@ -129,7 +129,7 @@ function parseCritiqueItems(critique: any): Array<{ type: string; text: string }
 }
 
 /** Call LLM expecting JSON response, parse + clean */
-async function callLlmJson<T>(
+export async function callLlmJson<T>(
   messages: ChatMessage[],
   config: LlmConfig,
   userId?: string,
@@ -404,20 +404,21 @@ async function runSpecialistsParallel(
   freeLlmConfig: LlmConfig,
   userId: string,
   res: Response,
+  specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
 ): Promise<Map<string, SpecialistReport>> {
   const reports = new Map<string, SpecialistReport>();
-  const specialistNames = IMPACT_SPECIALISTS.map(s => s.name);
+  const specialistNames = specialists.map(s => s.name);
 
   emitSSE(res, {
     type: 'specialists_batch_start',
-    specialistCount: IMPACT_SPECIALISTS.length,
+    specialistCount: specialists.length,
     specialistNames,
   });
 
   const startTime = Date.now();
 
   const results = await Promise.allSettled(
-    IMPACT_SPECIALISTS.map(async (spec) => {
+    specialists.map(async (spec) => {
       const specStart = Date.now();
       emitSSE(res, {
         type: 'specialist_start',
@@ -458,7 +459,7 @@ async function runSpecialistsParallel(
 
   // Emit batch complete with compressed results for discussion thread
   const specialistResults = results.map((r, i) => {
-    const spec = IMPACT_SPECIALISTS[i];
+    const spec = specialists[i];
     if (r.status === 'fulfilled' && r.value.report) {
       const rpt = r.value.report as SpecialistReport;
       return {
@@ -482,7 +483,7 @@ async function runSpecialistsParallel(
 
   emitSSE(res, {
     type: 'specialists_batch_complete',
-    specialistCount: IMPACT_SPECIALISTS.length,
+    specialistCount: specialists.length,
     specialistResults,
     totalDurationMs: Date.now() - startTime,
   });
@@ -616,6 +617,7 @@ async function runDebate(
   freeLlmConfig: LlmConfig,
   userId: string,
   res: Response,
+  specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
 ): Promise<string> {
   // 3a: Moderator drafts mitigation plan
   emitSSE(res, { type: 'debate_start' });
@@ -672,7 +674,7 @@ Antworte als strukturierter Text (Markdown).`;
     const batchEntries = specEntries.slice(batch, batch + 2);
     const batchResults = await Promise.allSettled(
       batchEntries.map(async ([name, report]) => {
-        const specDef = IMPACT_SPECIALISTS.find(s => s.name === name);
+        const specDef = specialists.find(s => s.name === name);
         const displayName = specDef?.displayName || name;
 
         const critiquePrompt = `Du bist der ${displayName}. Kritisiere folgenden Mitigation-Plan aus deiner Fachperspektive.
@@ -773,6 +775,7 @@ function generateHtmlReport(
   kgEdges: KgEdge[],
   transcript: string,
   params: Record<string, unknown>,
+  specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
 ): string {
   const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const entityId = esc(String(params.entityId || params.machineId || 'unknown'));
@@ -791,7 +794,7 @@ function generateHtmlReport(
   // Build specialist cards HTML
   let specialistHtml = '';
   for (const [name, report] of reports.entries()) {
-    const specDef = IMPACT_SPECIALISTS.find(s => s.name === name);
+    const specDef = specialists.find(s => s.name === name);
     const displayName = esc(specDef?.displayName || name);
     const findings = safeArray(report.kritischeFindings);
     const recs = safeArray(report.empfehlungen);
@@ -1065,4 +1068,214 @@ export async function runDiscussionAgent(
     );
     emitSSE(res, { type: 'error', message: 'Discussion agent execution failed' });
   }
+}
+
+// ─── Dynamic Discussion (triggered from chat intent classifier) ──────────
+
+/** Phase 0 NEW: 32B plans which specialists are needed for a given question */
+async function planSpecialists(
+  userQuestion: string,
+  toolNames: string[],
+  premiumLlmConfig: LlmConfig,
+  userId: string,
+): Promise<{ specialists: SpecialistDef[]; relevantTools: string[] }> {
+  const prompt = `Du bist ein Manufacturing-Experte. Analysiere die User-Frage und plane 3-5 Spezialisten für eine Multi-Agent-Diskussion.
+
+VERFÜGBARE MCP-TOOLS: ${toolNames.join(', ')}
+
+USER-FRAGE: "${userQuestion}"
+
+Bestimme welche Spezialisten benötigt werden und welche Tools relevant sind.
+
+ANTWORT-FORMAT: Reines JSON, KEIN Markdown.
+{
+  "specialists": [
+    { "name": "slug-name", "domain": "DOMAIN_KEY", "displayName": "Anzeigename", "focus": "Worauf dieser Spezialist achten soll" }
+  ],
+  "relevantTools": ["tool_name_1", "tool_name_2"]
+}
+
+Regeln:
+- 3-5 Spezialisten, passend zur Frage
+- name: kurzer slug (z.B. "inventory-optimizer", "production-planner")
+- domain: Großbuchstaben-Key (z.B. "BESTANDSOPTIMIERUNG", "PRODUKTIONSPLANUNG")
+- relevantTools: nur Tools aus der verfügbaren Liste die zur Frage passen
+- Sei kreativ mit den Spezialisten — sie müssen nicht die Standard-4 sein`;
+
+  try {
+    const result = await callLlmJson<{ specialists: SpecialistDef[]; relevantTools: string[] }>(
+      [
+        { role: 'system', content: 'Du bist ein strategischer Fertigungsplaner.' },
+        { role: 'user', content: prompt },
+      ],
+      premiumLlmConfig,
+      userId,
+    );
+
+    // Validate: need at least 2 specialists
+    if (!result.specialists || result.specialists.length < 2) {
+      throw new Error('Too few specialists planned');
+    }
+
+    // Filter relevantTools to only those that actually exist
+    const validTools = (result.relevantTools || []).filter(t => toolNames.includes(t));
+
+    return {
+      specialists: result.specialists.slice(0, 5).map(s => ({
+        name: s.name || 'unknown',
+        domain: s.domain || 'GENERAL',
+        displayName: s.displayName || s.name || 'Spezialist',
+        focus: s.focus || '',
+      })),
+      relevantTools: validTools,
+    };
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'planSpecialists failed, falling back to defaults');
+    return {
+      specialists: IMPACT_SPECIALISTS,
+      relevantTools: toolNames.filter(t => t.startsWith('kg_') || t.startsWith('factory_')),
+    };
+  }
+}
+
+/** Run a full dynamic multi-agent discussion triggered by chat intent classifier */
+export async function runDynamicDiscussion(
+  userMessage: string,
+  userId: string,
+  tier: string,
+  sessionId: string,
+  res: Response,
+): Promise<string> {
+  const [premiumLlmConfig, freeLlmConfig, tools] = await Promise.all([
+    getLlmConfig(userId, 'premium'),
+    getLlmConfig(userId, 'free'),
+    getMcpTools(),
+  ]);
+
+  const toolNames = tools.map((t: any) => t.function?.name || t.name).filter(Boolean);
+
+  // ── Phase 0: Plan specialists dynamically ──
+  emitSSE(res, { type: 'intent_classification', result: 'complex', message: 'Strategische Frage erkannt — starte Multi-Agent-Diskussion' });
+
+  const { specialists, relevantTools } = await planSpecialists(
+    userMessage, toolNames, premiumLlmConfig, userId,
+  );
+
+  emitSSE(res, {
+    type: 'specialists_planned',
+    specialists: specialists.map(s => ({ name: s.name, displayName: s.displayName, domain: s.domain })),
+    relevantTools,
+  });
+
+  // Build a dynamic agent definition
+  const dynamicAgent: AgentDef = {
+    id: 'dynamic-discussion',
+    name: 'Dynamic Discussion',
+    type: 'strategic',
+    category: 'Strategic',
+    description: `Dynamische Analyse: ${userMessage.slice(0, 80)}`,
+    systemPrompt: '',
+    tools: relevantTools,
+    difficulty: 'Expert',
+    icon: '🧠',
+  };
+
+  // ── Phase 0b: KG traversal ──
+  const params: Record<string, unknown> = { scenario: userMessage.slice(0, 100) };
+  const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(dynamicAgent, res, params);
+
+  const kgContext = kgToolResults.length > 0
+    ? `KG-DATEN (${kgNodes.length} Knoten, ${kgEdges.length} Kanten):\n` +
+      kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 1500)}`).join('\n\n')
+    : 'Keine KG-Daten verfügbar.';
+
+  // ── Load factory data via non-KG tools ──
+  const factoryToolNames = relevantTools.filter(t => !t.startsWith('kg_'));
+  const factoryResults: string[] = [];
+
+  if (factoryToolNames.length > 0) {
+    const settled = await Promise.allSettled(
+      factoryToolNames.map(async (toolName) => {
+        try {
+          const result = await callMcpTool(toolName, {});
+          return `[${toolName}]: ${result.substring(0, 800)}`;
+        } catch {
+          return `[${toolName}]: Fehler`;
+        }
+      })
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled') factoryResults.push(r.value);
+    }
+  }
+
+  const factoryContext = factoryResults.length > 0
+    ? factoryResults.join('\n\n')
+    : 'Keine Fabrikdaten verfügbar.';
+
+  // ── Phase 1: Specialists (with dynamic list) ──
+  const reports = await runSpecialistsParallel(
+    `USER-FRAGE: ${userMessage}\n\n${kgContext}`,
+    factoryContext,
+    dynamicAgent,
+    freeLlmConfig,
+    userId,
+    res,
+    specialists,
+  );
+
+  if (reports.size === 0) {
+    const fallback = 'Die Multi-Agent-Analyse konnte keine Spezialisten-Berichte erzeugen. Bitte stelle die Frage anders oder versuche es erneut.';
+    emitSSE(res, { type: 'done' });
+    return fallback;
+  }
+
+  // ── Phase 2: Moderator Discussion ──
+  let readyForSynthesis = false;
+  let transcript = '';
+
+  for (let round = 1; round <= 2 && !readyForSynthesis; round++) {
+    const result = await runModeratorReview(
+      reports, round, transcript,
+      premiumLlmConfig, freeLlmConfig,
+      userId, res,
+    );
+    readyForSynthesis = result.readyForSynthesis;
+    transcript = result.followUpTranscript;
+  }
+
+  // ── Phase 3: Debate + Synthesis ──
+  const finalText = await runDebate(
+    reports, transcript,
+    premiumLlmConfig, freeLlmConfig,
+    userId, res,
+    specialists,
+  );
+
+  // ── Phase 4: Generate HTML Report ──
+  const htmlReport = generateHtmlReport(
+    finalText, reports,
+    kgNodes, kgEdges,
+    transcript, params,
+    specialists,
+  );
+
+  // Save to agent_runs for report download
+  const runResult = await pool.query(
+    `INSERT INTO agent_runs (user_id, agent_id, status, result, finished_at)
+     VALUES ($1, 'dynamic-discussion', 'completed', $2, NOW()) RETURNING id`,
+    [userId, JSON.stringify({
+      content: finalText,
+      reportHtml: htmlReport,
+      specialists: specialists.map(s => s.name),
+      kgNodes: kgNodes.length,
+      kgEdges: kgEdges.length,
+    })],
+  );
+  const runId = runResult.rows[0].id;
+
+  const reportUrl = `/agents/impact-analysis/runs/${runId}/report`;
+  emitSSE(res, { type: 'report_ready', reportUrl });
+
+  return finalText;
 }

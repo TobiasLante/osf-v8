@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('v7_theme') || 'dark');</script>
+    <script>try{document.documentElement.setAttribute('data-theme', localStorage.getItem('v7_theme') || 'dark');}catch(e){}</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZeroGuess AI | Manufacturing Intelligence</title>
@@ -43,6 +43,9 @@
             margin: 0 auto;
             padding: 0 32px;
         }
+
+        /* Hide header when embedded in iframe (parent page has its own header) */
+        .embedded .header { display: none; }
 
         /* === HEADER (v6 topbar style) === */
         .header {
@@ -1417,6 +1420,11 @@
         .progress-event.type-stopped .progress-event-type { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
 
         /* Specialist event colors */
+        .progress-event.type-intent_classification .progress-event-icon { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .progress-event.type-intent_classification .progress-event-type { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .progress-event.type-specialists_planned .progress-event-icon { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .progress-event.type-specialists_planned .progress-event-type { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+
         .progress-event.type-specialist_start .progress-event-icon { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
         .progress-event.type-specialist_start .progress-event-type { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
         .progress-event.type-specialist_complete .progress-event-icon { background: rgba(16, 185, 129, 0.2); color: #34d399; }
@@ -2272,6 +2280,7 @@
         </div>
     </div>
 
+    <script>if (window !== window.parent) document.currentScript.nextElementSibling.classList.add('embedded');</script>
     <div class="app">
         <!-- Header (v6 topbar) -->
         <header class="header">
@@ -2283,7 +2292,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge">v8.2.0</span>
+                    <span class="version-badge">v8.2.2</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -2412,6 +2421,16 @@
                         <div class="accord-header-left">
                             <span class="accord-icon">&#127981;</span>
                             <span>Shopfloor</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Material/Lager Pill -->
+                <div class="accord-section" data-domain="material">
+                    <div class="accord-header" data-section="material">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#128230;</span>
+                            <span>Material</span>
                         </div>
                     </div>
                 </div>
@@ -2548,7 +2567,7 @@
             });
         }
 
-        let sessionId = generateUUID();
+        let sessionId = null; // Created by server on first message
         let isLoading = false;
         let currentFetchController = null;
 
@@ -2558,10 +2577,19 @@
         let inlineSpecialistsDone = 0;
         let inlineSpecialistsTotal = 0;
 
+        // Storage availability check (Firefox blocks localStorage in cross-origin iframes)
+        let _memToken = '';
+        function _storageAvailable() {
+            try { localStorage.setItem('_t', '1'); localStorage.removeItem('_t'); return true; } catch { return false; }
+        }
+        const _hasStorage = _storageAvailable();
+        function _getLS(key, fallback) { try { return _hasStorage ? (localStorage.getItem(key) ?? fallback) : fallback; } catch { return fallback; } }
+        function _setLS(key, val) { try { if (_hasStorage) localStorage.setItem(key, val); } catch {} }
+
         // === SSE STATE ===
         let eventSource = null;
-        let streamingEnabled = localStorage.getItem('v7_streaming_enabled') !== 'false';
-        let currentLanguage = localStorage.getItem('v7_language') || 'de';
+        let streamingEnabled = _getLS('v7_streaming_enabled', 'true') !== 'false';
+        let currentLanguage = _getLS('v7_language', 'de');
         let progressEvents = [];
 
         // Specialist orchestration state
@@ -2572,21 +2600,22 @@
             specialists: {}
         };
 
-        // === AUTH ===
-        // Accept token from URL param (iframe embedding) and persist to localStorage
         (function() {
             const params = new URLSearchParams(window.location.search);
             const urlToken = params.get('token');
             if (urlToken) {
-                localStorage.setItem('osf_token', urlToken);
+                _memToken = urlToken;
+                _setLS('osf_token', urlToken);
                 // Clean URL
                 const clean = window.location.pathname + window.location.hash;
                 window.history.replaceState(null, '', clean);
             }
         })();
 
+        const API_BASE = '/api';
+
         function getToken() {
-            return localStorage.getItem('osf_token') || '';
+            return _getLS('osf_token', null) || _memToken || '';
         }
 
         function authHeaders(extra = {}) {
@@ -2595,13 +2624,55 @@
             if (token) h['Authorization'] = 'Bearer ' + token;
             return h;
         }
+        // Auto-refresh: on 401, try to refresh the token and retry once
+        let _refreshing = null;
+        async function tryRefreshToken() {
+            if (_refreshing) return _refreshing;
+            _refreshing = (async () => {
+                try {
+                    const refreshUrl = '/api/auth/refresh';
+                    const res = await _origFetch(refreshUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                    });
+                    if (!res.ok) return false;
+                    const data = await res.json();
+                    if (data.token) {
+                        _memToken = data.token;
+                        _memToken = data.token;
+                        _setLS('osf_token', data.token);
+                        return true;
+                    }
+                    return false;
+                } catch { return false; }
+                finally { _refreshing = null; }
+            })();
+            return _refreshing;
+        }
+
         // All fetches include credentials so httpOnly cookies are sent (same-origin)
+        // + auto-retry on 401 after token refresh
         const _origFetch = window.fetch;
         window.fetch = function(url, opts = {}) {
             if (typeof url === 'string' && url.startsWith('/api/')) {
                 opts.credentials = 'include';
             }
-            return _origFetch.call(this, url, opts);
+            return _origFetch.call(this, url, opts).then(async (res) => {
+                if (res.status === 401 && typeof url === 'string' && url.startsWith('/api/') && !url.includes('/auth/refresh')) {
+                    const refreshed = await tryRefreshToken();
+                    if (refreshed) {
+                        // Retry with new token
+                        const retryOpts = { ...opts, headers: { ...opts.headers } };
+                        const newToken = getToken();
+                        if (newToken && retryOpts.headers) {
+                            retryOpts.headers['Authorization'] = 'Bearer ' + newToken;
+                        }
+                        return _origFetch.call(this, url, retryOpts);
+                    }
+                }
+                return res;
+            });
         };
 
         // === ELEMENTS ===
@@ -2637,7 +2708,7 @@
 
         // === INIT ===
         async function init() {
-            sessionIdEl.textContent = sessionId.substring(0, 8);
+            sessionIdEl.textContent = sessionId ? sessionId.substring(0, 8) : 'new';
             await loadUserInfo();
             checkHealth();
             setInterval(checkHealth, 30000);
@@ -2711,7 +2782,7 @@
                 const current = document.documentElement.getAttribute('data-theme');
                 const next = current === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', next);
-                localStorage.setItem('v7_theme', next);
+                _setLS('v7_theme', next);
                 updateThemeIcon();
             });
 
@@ -3044,6 +3115,12 @@
                     { label: 'Fast', dot: 'blue', action: 'agent', agent: 'goodmorning' },
                 ]
             },
+            'material': {
+                buttons: [
+                    { label: 'Diskussion', dot: 'orange', action: 'agent', agent: 'material-optimize' },
+                    { label: 'Low Stock', dot: 'red', action: 'skill', skill: 'material_low_stock' },
+                ]
+            },
             'impact': {
                 buttons: [
                     { label: 'Maschine faellt aus', dot: 'red', action: 'impact', scenario: 'machine_down' },
@@ -3351,10 +3428,11 @@
                 // Build output with optional report link
                 let finalOutput = agentOutput || 'Agent ausgeführt.';
                 if (agentReportUrl) {
-                    const reportLink = agentReportUrl + (agentReportUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken);
+                    const reportLink = agentReportUrl + (agentReportUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(getToken());
                     finalOutput += `\n\n---\n📊 **[Report öffnen](${reportLink})**`;
                 }
                 addMessage('assistant', finalOutput);
+                addNewChatButton();
 
             } catch (err) {
                 currentFetchController = null;
@@ -3418,7 +3496,10 @@
                     switch (event.type) {
                         case 'session':
                             // Server may return a session ID
-                            if (event.sessionId) sessionId = event.sessionId;
+                            if (event.sessionId) {
+                                sessionId = event.sessionId;
+                                sessionIdEl.textContent = sessionId.substring(0, 8);
+                            }
                             break;
                         case 'content':
                             assistantText += (event.text || '');
@@ -3433,6 +3514,27 @@
                         case 'kg_nodes_discovered':
                         case 'kg_traversal_end':
                         case 'kg_summary':
+                            handleProgressEvent({ ...event, timestamp: event.timestamp || new Date().toISOString() });
+                            break;
+                        // Dynamic discussion events → forward to progress panel
+                        case 'intent_classification':
+                        case 'specialists_planned':
+                        case 'specialists_batch_start':
+                        case 'specialist_start':
+                        case 'specialist_complete':
+                        case 'specialist_error':
+                        case 'specialists_batch_complete':
+                        case 'discussion_round_start':
+                        case 'discussion_question':
+                        case 'discussion_answer':
+                        case 'discussion_round_complete':
+                        case 'discussion_synthesis_start':
+                        case 'debate_start':
+                        case 'debate_draft':
+                        case 'debate_critique':
+                        case 'debate_final':
+                        case 'report_ready':
+                        case 'run_start':
                             handleProgressEvent({ ...event, timestamp: event.timestamp || new Date().toISOString() });
                             break;
                         case 'heartbeat':
@@ -3467,8 +3569,8 @@
         }
 
         function clearChat() {
-            sessionId = generateUUID();
-            sessionIdEl.textContent = sessionId.substring(0, 8);
+            sessionId = null;
+            sessionIdEl.textContent = 'new';
             messages.innerHTML = '';
             messages.classList.add('hidden');
             welcome.classList.remove('hidden');
@@ -3517,6 +3619,14 @@
             `;
 
             messages.appendChild(msg);
+            main.scrollTop = main.scrollHeight;
+        }
+
+        function addNewChatButton() {
+            const btn = document.createElement('div');
+            btn.style.cssText = 'text-align:center;margin:12px 0 4px;';
+            btn.innerHTML = '<button onclick="clearChat()" style="background:var(--surface-2);border:1px solid var(--border);color:var(--accent-primary);padding:6px 16px;border-radius:8px;cursor:pointer;font-size:13px;">Neuer Chat</button>';
+            messages.appendChild(btn);
             main.scrollTop = main.scrollHeight;
         }
 
@@ -3630,6 +3740,12 @@
                     break;
                 case 'step_start':
                     if (event.message) phase.textContent = event.message;
+                    break;
+                case 'intent_classification':
+                    phase.textContent = event.message || (event.result === 'complex' ? 'Strategische Frage erkannt...' : 'Einfache Anfrage...');
+                    break;
+                case 'specialists_planned':
+                    phase.textContent = `${(event.specialists || []).length} Spezialisten geplant...`;
                     break;
                 case 'specialists_batch_start':
                     inlineSpecialistsTotal = event.specialistCount || 0;
@@ -3800,7 +3916,7 @@ ${status} **${otd}%**
             }
             btn.addEventListener('click', () => {
                 currentLanguage = currentLanguage === 'de' ? 'en' : 'de';
-                localStorage.setItem('v7_language', currentLanguage);
+                _setLS('v7_language', currentLanguage);
                 label.textContent = currentLanguage.toUpperCase();
                 btn.classList.toggle('active', currentLanguage === 'en');
             });
@@ -3809,7 +3925,7 @@ ${status} **${otd}%**
 
         function toggleStreaming() {
             streamingEnabled = !streamingEnabled;
-            localStorage.setItem('v7_streaming_enabled', streamingEnabled);
+            _setLS('v7_streaming_enabled', streamingEnabled);
 
             if (streamingEnabled) {
                 streamingToggle.classList.add('active');
@@ -4411,6 +4527,24 @@ body { padding: 0; }
                     if (event.duration) metaItems.push(`Duration: ${formatDuration(event.duration)}`);
                     break;
 
+                case 'intent_classification':
+                    message = event.message || (event.result === 'complex' ? 'Strategische Frage erkannt' : 'Einfache Anfrage');
+                    metaItems.push(`Ergebnis: ${event.result || 'unknown'}`);
+                    break;
+
+                case 'specialists_planned': {
+                    const specNames = (event.specialists || []).map(s => s.displayName || s.name).join(', ');
+                    message = `${(event.specialists || []).length} Spezialisten geplant`;
+                    if (specNames) metaItems.push(specNames);
+                    if (event.relevantTools) metaItems.push(`${event.relevantTools.length} Tools`);
+                    break;
+                }
+
+                case 'report_ready':
+                    message = 'Report bereit';
+                    if (event.reportUrl) metaItems.push(`Download: ${event.reportUrl}`);
+                    break;
+
                 default:
                     message = event.message || event.type;
                     details.push({ label: 'Raw Event Data', content: JSON.stringify(event, null, 2), expanded: false });
@@ -4456,6 +4590,7 @@ body { padding: 0; }
                 tool_start: '🔧', tool_end: '✅', tool_call_start: '🔧', tool_call_end: '✅',
                 thinking: '💭', plan: '📋', step_start: '▶️', step_complete: '✅',
                 step_error: '❌', intermediate_result: '📊', error: '❌', done: '🎉',
+                intent_classification: '🎯', specialists_planned: '📐',
                 specialist_start: '🧠', specialist_complete: '✅', specialist_error: '❌',
                 specialists_batch_start: '🔬', specialists_batch_complete: '🎯',
                 discussion_round_start: '💬', discussion_question: '❓', discussion_answer: '💡',
@@ -4475,6 +4610,7 @@ body { padding: 0; }
                 tool_start: 'TOOL', tool_end: 'TOOL', tool_call_start: 'TOOL', tool_call_end: 'TOOL',
                 thinking: 'THINK', plan: 'PLAN', step_start: 'STEP', step_complete: 'STEP',
                 step_error: 'ERROR', intermediate_result: 'DATA', error: 'ERROR', done: 'DONE',
+                intent_classification: 'INTENT', specialists_planned: 'PLAN',
                 specialist_start: 'SPEC', specialist_complete: 'SPEC', specialist_error: 'SPEC',
                 specialists_batch_start: 'BATCH', specialists_batch_complete: 'BATCH',
                 discussion_round_start: 'DISC', discussion_question: 'DISC', discussion_answer: 'DISC',

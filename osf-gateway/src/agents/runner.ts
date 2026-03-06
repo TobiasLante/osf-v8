@@ -89,7 +89,7 @@ export async function runAgent(
 
           const rawResult = await callMcpTool(toolName, toolArgs);
           // Truncate extremely large tool results to avoid context overflow
-          const result = rawResult.length > 12000 ? rawResult.slice(0, 12000) + '\n... (truncated)' : rawResult;
+          const result = rawResult.length > 24000 ? rawResult.slice(0, 24000) + '\n... (truncated)' : rawResult;
 
           res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 

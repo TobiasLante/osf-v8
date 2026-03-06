@@ -679,19 +679,19 @@ router.get('/health', async (req: Request, res: Response) => {
 
   // --- Databases (direct connection check to all PG instances) ---
   const DB_CHECKS = [
-    { name: 'ERP (erpdb)', host: '192.168.178.150', port: 30431 },
-    { name: 'OEE (bigdata)', host: '192.168.178.150', port: 30432 },
-    { name: 'QMS (qmsdb)', host: '192.168.178.150', port: 30433 },
-    { name: 'TMS (wmsdb)', host: '192.168.178.150', port: 30435 },
-    { name: 'Montage-OEE', host: '192.168.178.150', port: 30436 },
-    { name: 'Warehouse', host: '192.168.178.150', port: 30437 },
+    { name: 'ERP (erpdb)', host: '192.168.178.150', port: 30431, database: 'erpdb' },
+    { name: 'OEE (bigdata)', host: '192.168.178.150', port: 30432, database: 'bigdata_homelab' },
+    { name: 'QMS (qmsdb)', host: '192.168.178.150', port: 30433, database: 'qmsdb' },
+    { name: 'TMS (wmsdb)', host: '192.168.178.150', port: 30435, database: 'wmsdb' },
+    { name: 'Montage-OEE', host: '192.168.178.150', port: 30436, database: 'oee_montage' },
+    { name: 'Warehouse', host: '192.168.178.150', port: 30437, database: 'warehousedb' },
   ];
   const dbChecks = await Promise.all(
     DB_CHECKS.map(async (db) => {
       const start = Date.now();
       try {
         const { Pool: PgPool } = await import('pg');
-        const p = new PgPool({ host: db.host, port: db.port, database: 'postgres', user: 'admin', password: process.env.DB_PASSWORD || 'Kohlgrub.123', max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 1000 });
+        const p = new PgPool({ host: db.host, port: db.port, database: db.database, user: 'admin', password: process.env.DB_PASSWORD || 'Kohlgrub.123', max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 1000 });
         await p.query('SELECT 1');
         await p.end();
         return { name: db.name, ok: true, latencyMs: Date.now() - start };

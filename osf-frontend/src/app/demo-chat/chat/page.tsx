@@ -26,7 +26,7 @@ export default function DemoChatPage() {
   if (loading || !user || !iframeSrc) return null;
 
   return (
-    <div className="fixed inset-0 bg-bg flex flex-col">
+    <div className="fixed inset-0 z-50 bg-bg flex flex-col">
       <div className="h-12 bg-bg-surface border-b border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-3">
           <button

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
-import { callLlm, getLlmConfig, ChatMessage, ToolCall } from './llm-client';
+import { callLlm, getLlmConfig, ChatMessage, ToolCall, LlmConfig } from './llm-client';
 import { getMcpTools, callMcpTool } from './tool-executor';
 import {
   createSession,
@@ -12,6 +12,7 @@ import {
 } from './session-store';
 import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
+import { callLlmJson, runDynamicDiscussion, emitSSE } from '../agents/discussion-runner';
 
 const router = Router();
 
@@ -20,6 +21,44 @@ const SYSTEM_PROMPT = `You are an AI factory assistant for OpenShopFloor. You ha
 You can query machine status, OEE metrics, stock levels, work orders, quality data, energy consumption, and much more. When the user asks about factory operations, use the available tools to get real data.
 
 Always respond in the same language as the user's message. Be concise and data-driven. When showing metrics, format numbers clearly. If a tool call fails, explain what happened and suggest alternatives.`;
+
+// ─── Intent Classifier ──────────────────────────────────────────────────
+
+async function classifyIntent(
+  message: string,
+  freeLlmConfig: LlmConfig,
+  userId: string,
+): Promise<boolean> {
+  const classifierPrompt = `Klassifiziere die folgende User-Frage:
+
+"${message}"
+
+EINFACH (complex=false): NUR wenn die Frage einen EINZELNEN konkreten Datenpunkt abfragt, den ein einziger Tool-Aufruf beantworten kann.
+Beispiele EINFACH: "Wie ist der Status von BZ-1?", "Wie viel Bestand haben wir von Artikel X?", "Hallo"
+
+KOMPLEX (complex=true): ALLES ANDERE — insbesondere Vergleiche, Ranglisten, Optimierung, Ursachen, Trends, Zusammenhänge, Empfehlungen, was-wäre-wenn, warum/wieso.
+Beispiele KOMPLEX: "Welche Maschine hat die schlechteste OEE?", "Warum ist die OEE so niedrig?", "Wie können wir die Liefertreue verbessern?", "Vergleiche BZ-1 und BZ-2", "Was sind die größten Probleme?"
+
+ANTWORT-FORMAT: Reines JSON, KEIN Markdown.
+{"complex": true}  oder  {"complex": false}
+
+WICHTIG: Im Zweifel IMMER complex = true. Lieber eine gute Analyse zu viel als eine falsche einfache Antwort.`;
+
+  try {
+    const result = await callLlmJson<{ complex: boolean }>(
+      [
+        { role: 'system', content: 'Du bist ein Intent-Classifier für eine Manufacturing-AI. Antworte nur mit JSON.' },
+        { role: 'user', content: classifierPrompt },
+      ],
+      freeLlmConfig,
+      userId,
+    );
+    return result.complex === true;
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Intent classifier failed, defaulting to simple');
+    return false;
+  }
+}
 
 // GET /chat/sessions — list user sessions
 router.get('/sessions', requireAuth, async (req: Request, res: Response) => {
@@ -142,6 +181,45 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
         content: m.content,
       })),
     ];
+
+    // ── Intent Classification: simple vs complex ──
+    // Always use free tier (14B) for classification — fast, consistent, independent of user tier
+    const freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
+    const isComplex = await classifyIntent(message, freeLlmConfig, req.user!.userId);
+
+    if (isComplex) {
+      logger.info({ userId: req.user!.userId, message: message.slice(0, 80) }, 'Complex intent → dynamic discussion');
+
+      try {
+        const finalText = await runDynamicDiscussion(
+          message,
+          req.user!.userId,
+          tier,
+          sessionId,
+          res,
+        );
+
+        // Stream final text as content chunks
+        const chunkSize = 20;
+        for (let i = 0; i < finalText.length; i += chunkSize) {
+          const chunk = finalText.slice(i, i + chunkSize);
+          res.write(`data: ${JSON.stringify({ type: 'content', text: chunk })}\n\n`);
+        }
+
+        // Save assistant message
+        await saveMessage(sessionId, 'assistant', finalText);
+
+        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        res.end();
+      } catch (err: any) {
+        logger.error({ err: err.message }, 'Dynamic discussion error');
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Multi-Agent-Diskussion fehlgeschlagen. Versuche es erneut.' })}\n\n`);
+        res.end();
+      }
+      return;
+    }
+
+    // ── Simple intent → normal tool-loop flow ──
 
     // Tool loop (max 5 iterations)
     let fullContent = '';

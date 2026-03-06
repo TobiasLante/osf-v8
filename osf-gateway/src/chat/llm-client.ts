@@ -30,7 +30,7 @@ class Semaphore {
   get pending(): number { return this.queue.length; }
 }
 
-const LLM_MAX_CONCURRENCY = parseInt(process.env.LLM_MAX_CONCURRENCY || '2', 10);
+const LLM_MAX_CONCURRENCY = parseInt(process.env.LLM_MAX_CONCURRENCY || '4', 10);
 const semaphores = new Map<string, Semaphore>();
 
 // ─── LLM Circuit Breaker ─────────────────────────────────────────────────────
