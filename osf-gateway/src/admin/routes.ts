@@ -679,12 +679,12 @@ router.get('/health', async (req: Request, res: Response) => {
 
   // --- Databases (direct connection check to all PG instances) ---
   const DB_CHECKS = [
-    { name: 'ERP (erpdb)', host: '192.168.178.150', port: 30431, database: 'erpdb' },
-    { name: 'OEE (bigdata)', host: '192.168.178.150', port: 30432, database: 'bigdata_homelab' },
-    { name: 'QMS (qmsdb)', host: '192.168.178.150', port: 30433, database: 'qmsdb' },
-    { name: 'TMS (wmsdb)', host: '192.168.178.150', port: 30435, database: 'wmsdb' },
-    { name: 'Montage-OEE', host: '192.168.178.150', port: 30436, database: 'oee_montage' },
-    { name: 'Warehouse', host: '192.168.178.150', port: 30437, database: 'warehousedb' },
+    { name: 'ERP (erpdb)', host: 'postgress-erp-svc.default.svc.cluster.local', port: 5432, database: 'erpdb' },
+    { name: 'OEE (bigdata)', host: 'postgress-big-svc.bigdata.svc.cluster.local', port: 5433, database: 'bigdata_homelab' },
+    { name: 'QMS (qmsdb)', host: 'qms-postgres.default.svc.cluster.local', port: 5432, database: 'qmsdb' },
+    { name: 'TMS (wmsdb)', host: 'wms-postgres.default.svc.cluster.local', port: 5432, database: 'wmsdb' },
+    { name: 'Montage-OEE', host: 'oee-montage-postgres.default.svc.cluster.local', port: 5432, database: 'oee_montage' },
+    { name: 'Warehouse', host: 'wms-warehouse-postgres.default.svc.cluster.local', port: 5432, database: 'warehousedb' },
   ];
   const dbChecks = await Promise.all(
     DB_CHECKS.map(async (db) => {
