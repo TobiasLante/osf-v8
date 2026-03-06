@@ -129,6 +129,22 @@ interface HealthComponent {
   [key: string]: any;
 }
 
+interface FactoryService {
+  name: string;
+  ok: boolean;
+  latencyMs: number;
+  leader: boolean | null;
+  ready: boolean;
+  podId?: string | null;
+}
+
+interface DbCheck {
+  name: string;
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
 interface HealthData {
   overall: "healthy" | "degraded" | "critical";
   components: {
@@ -137,7 +153,9 @@ interface HealthData {
     llm: HealthComponent;
     nodered: HealthComponent;
     mcp: HealthComponent & { services: { name: string; ok: boolean; latencyMs: number }[] };
-    factorySim: HealthComponent;
+    factory: HealthComponent & { services: FactoryService[] };
+    databases: HealthComponent & { checks: DbCheck[] };
+    mqtt: HealthComponent & { reachable: boolean };
     cloudflare: HealthComponent;
   };
   alerts: { severity: "warning" | "critical"; component: string; message: string }[];
@@ -180,34 +198,29 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
     {
       key: "gateway", label: "Gateway", status: data.components.gateway.status,
       metrics: `${formatUptime(data.components.gateway.uptimeSeconds)} uptime, ${data.components.gateway.memoryMb} MB RAM`,
-      navigateTo: "infra",
     },
     {
-      key: "database", label: "Database", status: data.components.database.status,
+      key: "database", label: "Gateway DB", status: data.components.database.status,
       metrics: `${data.components.database.connectionsUsed}/${data.components.database.connectionsMax} conns, ${data.components.database.latencyMs}ms`,
-      navigateTo: "infra",
     },
     {
       key: "llm", label: "LLM", status: data.components.llm.status,
       metrics: data.components.llm.online
         ? `Online, ${data.components.llm.activeRequests} active, ${data.components.llm.queuedRequests} queued`
         : "Offline",
-      navigateTo: "infra",
     },
     {
       key: "nodered", label: "Node-RED Pods", status: data.components.nodered.status,
-      metrics: `${data.components.nodered.warm} warm, ${data.components.nodered.assigned} assigned, target ${data.components.nodered.targetSize}`,
+      metrics: `${data.components.nodered.warm} warm, ${data.components.nodered.assigned} assigned`,
       navigateTo: "nrpods",
     },
     {
-      key: "mcp", label: "MCP Services", status: data.components.mcp.status,
+      key: "mcp", label: "MCP Tools", status: data.components.mcp.status,
       metrics: `${data.components.mcp.services.filter((s: any) => s.ok).length}/${data.components.mcp.services.length} online`,
-      navigateTo: "infra",
     },
     {
-      key: "factorySim", label: "Factory Simulator", status: data.components.factorySim.status,
-      metrics: data.components.factorySim.reachable ? `${data.components.factorySim.latencyMs}ms latency` : "Unreachable",
-      navigateTo: "infra",
+      key: "mqtt", label: "MQTT Broker", status: data.components.mqtt.status,
+      metrics: data.components.mqtt.reachable ? "Connected" : "Unreachable",
     },
     {
       key: "cloudflare", label: "Cloudflare", status: data.components.cloudflare.status,
@@ -230,29 +243,78 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
         </div>
       </div>
 
-      {/* Component Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {components.map((c) => {
-          const cfg = STATUS_CONFIG[c.status];
-          return (
-            <button
-              key={c.key}
-              onClick={() => c.navigateTo && onNavigate(c.navigateTo)}
-              className={`text-left rounded-lg border border-border/50 bg-bg-surface p-4 transition-colors ${
-                c.navigateTo ? "hover:border-accent/25 cursor-pointer" : "cursor-default"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
-                <span className="text-sm font-medium text-text">{c.label}</span>
-                <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
-                  {c.status}
-                </span>
+      {/* Platform Services Grid */}
+      <div>
+        <h3 className="text-sm font-medium text-text mb-3">Platform</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {components.map((c) => {
+            const cfg = STATUS_CONFIG[c.status];
+            return (
+              <button
+                key={c.key}
+                onClick={() => c.navigateTo && onNavigate(c.navigateTo)}
+                className={`text-left rounded-lg border border-border/50 bg-bg-surface p-3 transition-colors ${
+                  c.navigateTo ? "hover:border-accent/25 cursor-pointer" : "cursor-default"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${c.status !== "healthy" ? "animate-pulse" : ""}`} />
+                  <span className="text-sm font-medium text-text">{c.label}</span>
+                </div>
+                <p className="text-xs text-text-muted font-mono pl-4">{c.metrics}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Factory Services */}
+      <div>
+        <h3 className="text-sm font-medium text-text mb-3">Factory Services</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {data.components.factory.services.map((svc) => {
+            const status = !svc.ok ? "critical" : svc.leader === false ? "degraded" : "healthy";
+            const cfg = STATUS_CONFIG[status];
+            return (
+              <div key={svc.name} className="rounded-lg border border-border/50 bg-bg-surface p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${status !== "healthy" ? "animate-pulse" : ""}`} />
+                  <span className="text-sm font-medium text-text">{svc.name}</span>
+                  {svc.leader === true && (
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">LEADER</span>
+                  )}
+                  {svc.leader === false && svc.ok && (
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 font-medium">STANDBY</span>
+                  )}
+                </div>
+                <p className="text-xs text-text-muted font-mono pl-4">
+                  {!svc.ok ? "Offline" : `${svc.latencyMs}ms`}
+                </p>
               </div>
-              <p className="text-xs text-text-muted font-mono">{c.metrics}</p>
-            </button>
-          );
-        })}
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Databases */}
+      <div>
+        <h3 className="text-sm font-medium text-text mb-3">Databases</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {data.components.databases.checks.map((db) => {
+            const cfg = STATUS_CONFIG[db.ok ? "healthy" : "critical"];
+            return (
+              <div key={db.name} className="rounded-lg border border-border/50 bg-bg-surface p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${!db.ok ? "animate-pulse" : ""}`} />
+                  <span className="text-xs font-medium text-text truncate">{db.name}</span>
+                </div>
+                <p className="text-xs text-text-muted font-mono pl-4">
+                  {db.ok ? `${db.latencyMs}ms` : "Offline"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Active Alerts */}

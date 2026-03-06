@@ -622,24 +622,104 @@ router.get('/health', async (req: Request, res: Response) => {
       }
     })
   );
-  const mcpAllOk = mcpResults.every(m => m.ok);
   const mcpAnyDown = mcpResults.some(m => !m.ok);
   let mcpStatus: HealthStatus = 'healthy';
   if (mcpResults.every(m => !m.ok)) { mcpStatus = 'critical'; alerts.push({ severity: 'critical', component: 'mcp', message: 'All MCP services offline' }); }
-  else if (mcpAnyDown) { mcpStatus = 'degraded'; const down = mcpResults.filter(m => !m.ok).map(m => m.name); alerts.push({ severity: 'warning', component: 'mcp', message: `MCP offline: ${down.join(', ')}` }); }
+  else if (mcpAnyDown) { const down = mcpResults.filter(m => !m.ok).map(m => m.name); mcpStatus = 'degraded'; alerts.push({ severity: 'warning', component: 'mcp', message: `MCP offline: ${down.join(', ')}` }); }
 
-  // --- Factory Simulator ---
+  // --- All Factory Services (comprehensive check) ---
+  const FACTORY_SERVICES = [
+    { name: 'Fertigung', url: process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888', hasLeader: true, hasMcp: true, mcpPort: 8020 },
+    { name: 'Montage', url: process.env.MONTAGE_URL || 'http://factory-v3-montage.factory.svc.cluster.local:8890', hasLeader: true },
+    { name: 'WMS', url: process.env.WMS_URL || 'http://factory-v3-wms.factory.svc.cluster.local:8889', hasLeader: true },
+    { name: 'Chef-Nadja', url: process.env.CHEF_URL || 'http://factory-v3-chef.factory.svc.cluster.local:8891', hasLeader: false },
+  ];
+
+  const factoryResults = await Promise.all(
+    FACTORY_SERVICES.map(async (svc) => {
+      const start = Date.now();
+      const result: any = { name: svc.name, ok: false, latencyMs: 0, leader: null, ready: false };
+      try {
+        const [liveRes, readyRes] = await Promise.all([
+          fetch(`${svc.url}/api/health/live`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+          svc.hasLeader
+            ? fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        result.latencyMs = Date.now() - start;
+        result.ok = liveRes !== null && liveRes.ok;
+        if (readyRes) {
+          try {
+            const readyData: any = await readyRes.json();
+            result.ready = readyRes.ok;
+            result.leader = readyData.ready === true;
+            result.podId = readyData.podId || null;
+          } catch { result.ready = readyRes.ok; }
+        } else if (!svc.hasLeader) {
+          result.ready = result.ok;
+        }
+      } catch { result.latencyMs = Date.now() - start; }
+      return result;
+    })
+  );
+
   let factoryStatus: HealthStatus = 'healthy';
-  let factoryReachable = false;
-  let factoryLatencyMs = 0;
+  const factoryDown = factoryResults.filter(f => !f.ok);
+  const factoryNoLeader = factoryResults.filter(f => f.ok && !f.ready);
+  if (factoryDown.length === factoryResults.length) {
+    factoryStatus = 'critical';
+    alerts.push({ severity: 'critical', component: 'factory', message: 'All factory services offline' });
+  } else if (factoryDown.length > 0) {
+    factoryStatus = 'critical';
+    alerts.push({ severity: 'critical', component: 'factory', message: `Offline: ${factoryDown.map(f => f.name).join(', ')}` });
+  } else if (factoryNoLeader.length > 0) {
+    factoryStatus = 'degraded';
+    alerts.push({ severity: 'warning', component: 'factory', message: `No leader: ${factoryNoLeader.map(f => f.name).join(', ')}` });
+  }
+
+  // --- Databases (direct connection check to all PG instances) ---
+  const DB_CHECKS = [
+    { name: 'ERP (erpdb)', host: '192.168.178.150', port: 30431 },
+    { name: 'OEE (bigdata)', host: '192.168.178.150', port: 30432 },
+    { name: 'QMS (qmsdb)', host: '192.168.178.150', port: 30433 },
+    { name: 'TMS (wmsdb)', host: '192.168.178.150', port: 30435 },
+    { name: 'Montage-OEE', host: '192.168.178.150', port: 30436 },
+    { name: 'Warehouse', host: '192.168.178.150', port: 30437 },
+  ];
+  const dbChecks = await Promise.all(
+    DB_CHECKS.map(async (db) => {
+      const start = Date.now();
+      try {
+        const { Pool: PgPool } = await import('pg');
+        const p = new PgPool({ host: db.host, port: db.port, database: 'postgres', user: 'admin', password: process.env.DB_PASSWORD || 'Kohlgrub.123', max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 1000 });
+        await p.query('SELECT 1');
+        await p.end();
+        return { name: db.name, ok: true, latencyMs: Date.now() - start };
+      } catch (err: any) {
+        return { name: db.name, ok: false, latencyMs: Date.now() - start, error: err.message };
+      }
+    })
+  );
+  let dbsStatus: HealthStatus = 'healthy';
+  const dbsDown = dbChecks.filter(d => !d.ok);
+  if (dbsDown.length > 0) {
+    dbsStatus = dbsDown.length === dbChecks.length ? 'critical' : 'degraded';
+    alerts.push({ severity: dbsDown.length >= 3 ? 'critical' : 'warning', component: 'databases', message: `Offline: ${dbsDown.map(d => d.name).join(', ')}` });
+  }
+
+  // --- MQTT Broker ---
+  let mqttStatus: HealthStatus = 'healthy';
+  let mqttReachable = false;
   try {
-    const start = Date.now();
-    const r = await fetch(`${FACTORY_SIM_BASE}/api/health`, { signal: AbortSignal.timeout(5000) });
-    factoryLatencyMs = Date.now() - start;
-    factoryReachable = r.ok;
+    const net = await import('net');
+    mqttReachable = await new Promise<boolean>((resolve) => {
+      const sock = net.createConnection({ host: '192.168.178.150', port: 31883, timeout: 3000 });
+      sock.on('connect', () => { sock.destroy(); resolve(true); });
+      sock.on('error', () => resolve(false));
+      sock.on('timeout', () => { sock.destroy(); resolve(false); });
+    });
   } catch { /* unreachable */ }
-  if (!factoryReachable) { factoryStatus = 'critical'; alerts.push({ severity: 'critical', component: 'factorySim', message: 'Factory simulator unreachable' }); }
-  else if (factoryLatencyMs > 2000) { factoryStatus = 'degraded'; alerts.push({ severity: 'warning', component: 'factorySim', message: `High latency (${factoryLatencyMs}ms)` }); }
+  if (!mqttReachable) { mqttStatus = 'critical'; alerts.push({ severity: 'critical', component: 'mqtt', message: 'MQTT broker unreachable' }); }
 
   // --- Cloudflare ---
   let cfStatus: HealthStatus = 'healthy';
@@ -651,7 +731,7 @@ router.get('/health', async (req: Request, res: Response) => {
   if (!cfReachable) { cfStatus = 'degraded'; alerts.push({ severity: 'warning', component: 'cloudflare', message: 'Cloudflare unreachable' }); }
 
   // --- Overall ---
-  const statuses = [gatewayStatus, dbStatus, llmStatus, nrStatus, mcpStatus, factoryStatus, cfStatus];
+  const statuses = [gatewayStatus, dbStatus, llmStatus, nrStatus, mcpStatus, factoryStatus, dbsStatus, mqttStatus, cfStatus];
   let overall: HealthStatus = 'healthy';
   if (statuses.includes('critical')) overall = 'critical';
   else if (statuses.includes('degraded')) overall = 'degraded';
@@ -664,7 +744,9 @@ router.get('/health', async (req: Request, res: Response) => {
       llm: { status: llmStatus, online: llmOnline, activeRequests: llmActiveRequests, queuedRequests: llmQueuedRequests },
       nodered: { status: nrStatus, ...nrStats },
       mcp: { status: mcpStatus, services: mcpResults },
-      factorySim: { status: factoryStatus, reachable: factoryReachable, latencyMs: factoryLatencyMs },
+      factory: { status: factoryStatus, services: factoryResults },
+      databases: { status: dbsStatus, checks: dbChecks },
+      mqtt: { status: mqttStatus, reachable: mqttReachable },
       cloudflare: { status: cfStatus, reachable: cfReachable },
     },
     alerts,

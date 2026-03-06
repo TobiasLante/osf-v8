@@ -16,9 +16,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 V8_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Load central .env for versions
+if [[ -f "$V8_ROOT/.env" ]]; then
+  set -a; source "$V8_ROOT/.env"; set +a
+fi
+
 FACTORY_ROOT="/home/tlante/factory-simulator-v3"
 FACTORY_K8S="$FACTORY_ROOT/k8s/v3"
-REGISTRY="192.168.178.150:32000"
+REGISTRY="${OSF_REGISTRY:-192.168.178.150:32000}"
+
+# Image tags from .env (with defaults)
+GATEWAY_TAG="${OSF_GATEWAY_VERSION:-1.2.0}"
+FRONTEND_TAG="${OSF_FRONTEND_VERSION:-1.3.0}"
+CHAT_UI_TAG="${OSF_CHAT_UI_VERSION:-8.2.1}"
+NODERED_TAG="${OSF_NODERED_VERSION:-latest}"
 BUGS_FILE="/home/tlante/non-critical-bugs.md"
 FACTORY_NODE="192.168.178.150"
 FACTORY_PORT="30888"
@@ -43,6 +55,56 @@ section() { echo -e "\n${BLUE}════════════════�
 
 CRITICAL_FAIL=0
 NON_CRITICAL=0
+
+# ────────────────────────────────────────────────────────────────────────────
+# Docker conflict check — abort if factory Docker containers are running
+# ────────────────────────────────────────────────────────────────────────────
+check_docker_conflicts() {
+  log "Checking for conflicting Docker containers..."
+  local conflicts=""
+  for name in factory-v3-fertigung factory-v3-montage factory-v3-wms factory-v3-chef; do
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${name}$"; then
+      conflicts="$conflicts $name"
+    fi
+  done
+  if [[ -n "$conflicts" ]]; then
+    fail "DOCKER CONFLICT: These containers are running and will conflict with K8s:$conflicts"
+    fail "Run: docker stop$conflicts"
+    fail "Or:  cd /opt/factory-simulator-v3 && docker compose down"
+    echo ""
+    read -p "Stop them now? [y/N] " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      for name in $conflicts; do
+        docker stop "$name" 2>/dev/null && docker rm "$name" 2>/dev/null && ok "Stopped $name"
+      done
+    else
+      fail "Aborting deploy — fix Docker conflicts first!"
+      exit 1
+    fi
+  else
+    ok "No Docker container conflicts"
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Stamp versions from .env into K8s YAML files (MUST run before any deploy)
+# ────────────────────────────────────────────────────────────────────────────
+stamp_versions() {
+  log "Stamping versions from .env → K8s YAMLs..."
+  log "  Gateway=$GATEWAY_TAG  Frontend=$FRONTEND_TAG  Chat-UI=$CHAT_UI_TAG  Node-RED=$NODERED_TAG"
+
+  # osf-gateway.yaml
+  sed -i "s|image: ${REGISTRY}/osf-gateway:.*|image: ${REGISTRY}/osf-gateway:${GATEWAY_TAG}|" "$SCRIPT_DIR/osf-gateway.yaml"
+  # osf-frontend.yaml
+  sed -i "s|image: ${REGISTRY}/osf-frontend:.*|image: ${REGISTRY}/osf-frontend:${FRONTEND_TAG}|" "$SCRIPT_DIR/osf-frontend.yaml"
+  # osf-chat-ui.yaml
+  sed -i "s|image: ${REGISTRY}/osf-chat-ui:.*|image: ${REGISTRY}/osf-chat-ui:${CHAT_UI_TAG}|" "$SCRIPT_DIR/osf-chat-ui.yaml"
+  # chat.html version badge
+  sed -i "s|<span class=\"version-badge\">v[0-9.]*</span>|<span class=\"version-badge\">v${CHAT_UI_TAG}</span>|" "$V8_ROOT/chat-ui/chat.html"
+
+  ok "K8s YAMLs + chat.html stamped with current versions"
+}
 
 bug() {
   local severity="$1"; shift
@@ -110,6 +172,7 @@ get_nodeport() {
 # ════════════════════════════════════════════════════════════════════════════
 deploy_factory_sim() {
   section "SECTION 1: Deploy Factory Simulator v3"
+  check_docker_conflicts
   init_bugs
 
   # ── 1.1 Compile TypeScript ──────────────────────────────────────────────
@@ -483,15 +546,23 @@ except:
 # ════════════════════════════════════════════════════════════════════════════
 deploy_osf() {
   section "SECTION 2: Deploy OSF v8 (Gateway + Frontend)"
+  check_docker_conflicts
   init_bugs
 
   # 2.1 Build Gateway
   log "Building OSF Gateway..."
   cd "$V8_ROOT/osf-gateway"
-  docker build --no-cache -t "$REGISTRY/osf-gateway:1.2.0" -f Dockerfile "$V8_ROOT/osf-gateway" 2>&1 | tail -5
+  docker build --no-cache -t "$REGISTRY/osf-gateway:$GATEWAY_TAG" -f Dockerfile "$V8_ROOT/osf-gateway" 2>&1 | tail -5
   ok "Gateway image built"
-  docker push "$REGISTRY/osf-gateway:1.2.0" 2>&1 | tail -3
+  docker push "$REGISTRY/osf-gateway:$GATEWAY_TAG" 2>&1 | tail -3
   ok "Gateway pushed"
+
+  # 2.1b Build Node-RED Pod image
+  log "Building Node-RED pod image..."
+  docker build --no-cache -t "$REGISTRY/osf-nodered:$NODERED_TAG" -f Dockerfile.nodered "$V8_ROOT/osf-gateway" 2>&1 | tail -5
+  ok "Node-RED image built"
+  docker push "$REGISTRY/osf-nodered:$NODERED_TAG" 2>&1 | tail -3
+  ok "Node-RED pushed"
 
   # 2.2 Build Frontend
   log "Building OSF Frontend..."
@@ -504,14 +575,14 @@ deploy_osf() {
     return 1
   fi
 
-  docker build --no-cache -t "$REGISTRY/osf-frontend:1.3.0" \
+  docker build --no-cache -t "$REGISTRY/osf-frontend:$FRONTEND_TAG" \
     --build-arg NEXT_PUBLIC_API_URL=https://osf-api.zeroguess.ai \
     --build-arg NEXT_PUBLIC_FACTORY_URL=http://${FACTORY_NODE}:${FACTORY_PORT} \
     --build-arg NEXT_PUBLIC_MQTT_EXPLORER_URL=http://${FACTORY_NODE}:31884 \
     -f "$FRONTEND_DOCKERFILE" \
     "$V8_ROOT/osf-frontend" 2>&1 | tail -5
   ok "Frontend image built"
-  docker push "$REGISTRY/osf-frontend:1.3.0" 2>&1 | tail -3
+  docker push "$REGISTRY/osf-frontend:$FRONTEND_TAG" 2>&1 | tail -3
   ok "Frontend pushed"
 
   # 2.3 Scale to 0 if deployments exist (clean slate)
@@ -597,10 +668,10 @@ test_osf() {
   log "T3: Version check..."
   local version
   version=$(echo "$gw_health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
-  if [[ "$version" == "1.2.0" ]]; then
+  if [[ "$version" == "$GATEWAY_TAG" ]]; then
     ok "Gateway version: $version"
   else
-    bug "MINOR" "Gateway version mismatch: got $version, expected 1.2.0"
+    bug "MINOR" "Gateway version mismatch: got $version, expected $GATEWAY_TAG"
   fi
 
   # T4: Auth endpoints exist
@@ -741,9 +812,9 @@ deploy_chat_ui() {
 
   # 3.1 Build Chat-UI
   log "Building Chat-UI..."
-  docker build --no-cache -t "$REGISTRY/osf-chat-ui:8.2.0" -f "$V8_ROOT/chat-ui/Dockerfile" "$V8_ROOT/chat-ui" 2>&1 | tail -5
+  docker build --no-cache -t "$REGISTRY/osf-chat-ui:$CHAT_UI_TAG" -f "$V8_ROOT/chat-ui/Dockerfile" "$V8_ROOT/chat-ui" 2>&1 | tail -5
   ok "Chat-UI image built"
-  docker push "$REGISTRY/osf-chat-ui:8.2.0" 2>&1 | tail -3
+  docker push "$REGISTRY/osf-chat-ui:$CHAT_UI_TAG" 2>&1 | tail -3
   ok "Chat-UI pushed"
 
   # 3.2 Deploy
@@ -1045,6 +1116,9 @@ run_security_audit() {
 # ════════════════════════════════════════════════════════════════════════════
 main() {
   local cmd="${1:-help}"
+
+  # Always stamp versions first (idempotent, fast)
+  stamp_versions
 
   case "$cmd" in
     factory-sim)

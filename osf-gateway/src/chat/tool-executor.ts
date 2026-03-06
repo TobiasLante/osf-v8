@@ -1,8 +1,8 @@
 import { logger } from '../logger';
 
 // ─── Retry Helper ─────────────────────────────────────────────────────────────
-const RETRY_BACKOFF = [1000, 2000, 4000];
-const PER_ATTEMPT_TIMEOUT = 10_000;
+const RETRY_BACKOFF = [2000, 4000, 8000];
+const PER_ATTEMPT_TIMEOUT = 60_000;
 
 async function fetchWithRetry(
   url: string,
