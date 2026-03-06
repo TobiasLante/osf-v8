@@ -640,22 +640,27 @@ router.get('/health', async (req: Request, res: Response) => {
       const start = Date.now();
       const result: any = { name: svc.name, ok: false, latencyMs: 0, leader: null, ready: false };
       try {
-        const [liveRes, readyRes] = await Promise.all([
-          fetch(`${svc.url}/api/health/live`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
-          svc.hasLeader
-            ? fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).catch(() => null)
-            : Promise.resolve(null),
-        ]);
+        const liveRes = await fetch(`${svc.url}/api/health/live`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
         result.latencyMs = Date.now() - start;
         result.ok = liveRes !== null && liveRes.ok;
-        if (readyRes) {
-          try {
-            const readyData: any = await readyRes.json();
-            result.ready = readyRes.ok;
-            result.leader = readyData.ready === true;
-            result.podId = readyData.podId || null;
-          } catch { result.ready = readyRes.ok; }
-        } else if (!svc.hasLeader) {
+        if (svc.hasLeader) {
+          // With 2 replicas (leader+backup), a single request may hit the backup.
+          // Fire 3 ready checks in parallel to maximize chance of hitting the leader.
+          const readyChecks = await Promise.all([
+            fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+            fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+            fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+          ]);
+          const leaderHit = readyChecks.find((d: any) => d?.ready === true || d?.status === 'ready' || d?.leader === true);
+          if (leaderHit) {
+            result.ready = true;
+            result.leader = true;
+            result.podId = leaderHit.podId || null;
+          } else if (readyChecks.some((d: any) => d !== null)) {
+            result.ready = false;
+            result.leader = false;
+          }
+        } else {
           result.ready = result.ok;
         }
       } catch { result.latencyMs = Date.now() - start; }
