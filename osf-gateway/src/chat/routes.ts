@@ -155,6 +155,11 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
   }
   res.flushHeaders();
 
+  // Heartbeat to keep Cloudflare alive during long-running discussions (CF drops idle SSE after ~100s)
+  const cfHeartbeat = setInterval(() => {
+    try { res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); } catch { /* closed */ }
+  }, 15_000);
+
   try {
     // Create or use session
     let sessionId = reqSessionId;
@@ -210,10 +215,12 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
         await saveMessage(sessionId, 'assistant', finalText);
 
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        clearInterval(cfHeartbeat);
         res.end();
       } catch (err: any) {
         logger.error({ err: err.message }, 'Dynamic discussion error');
         res.write(`data: ${JSON.stringify({ type: 'error', message: 'Multi-Agent-Diskussion fehlgeschlagen. Versuche es erneut.' })}\n\n`);
+        clearInterval(cfHeartbeat);
         res.end();
       }
       return;
@@ -321,10 +328,12 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     await saveMessage(sessionId, 'assistant', fullContent, allToolCalls.length > 0 ? allToolCalls : undefined);
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    clearInterval(cfHeartbeat);
     res.end();
   } catch (err: any) {
     logger.error({ err: err.message }, 'Chat completion error');
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'An error occurred processing your request' })}\n\n`);
+    clearInterval(cfHeartbeat);
     res.end();
   }
 });
