@@ -691,7 +691,7 @@ router.get('/health', async (req: Request, res: Response) => {
       const start = Date.now();
       try {
         const { Pool: PgPool } = await import('pg');
-        const p = new PgPool({ host: db.host, port: db.port, database: db.database, user: 'admin', password: process.env.DB_PASSWORD || 'Kohlgrub.123', max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 1000 });
+        const p = new PgPool({ host: db.host, port: db.port, database: db.database, user: 'admin', password: process.env.FACTORY_DB_PASSWORD || '', max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 1000 });
         await p.query('SELECT 1');
         await p.end();
         return { name: db.name, ok: true, latencyMs: Date.now() - start };
