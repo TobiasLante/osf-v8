@@ -40,6 +40,7 @@ export async function runAgent(
 
     // Build user message — use custom message if provided, append params if relevant
     let userMsg = options?.userMessage || 'Please run your full analysis now.';
+    const language = options?.params?.language as string | undefined;
     if (options?.params) {
       const relevantParams = Object.entries(options.params)
         .filter(([k]) => !['sessionId', 'language'].includes(k))
@@ -48,8 +49,16 @@ export async function runAgent(
       if (relevantParams) userMsg += `\n\n${relevantParams}`;
     }
 
+    // Append language instruction to system prompt
+    let systemPrompt = agent.systemPrompt;
+    if (language === 'en') {
+      systemPrompt += '\n\nIMPORTANT: Always respond in English.';
+    } else if (language === 'de') {
+      systemPrompt += '\n\nWICHTIG: Antworte immer auf Deutsch.';
+    }
+
     const messages: ChatMessage[] = [
-      { role: 'system', content: agent.systemPrompt },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userMsg },
     ];
 

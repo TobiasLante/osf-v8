@@ -12,6 +12,7 @@ import { callMcpTool, getMcpTools } from '../chat/tool-executor';
 import { pool } from '../db/pool';
 import { Response } from 'express';
 import { logger } from '../logger';
+import { loadPrompt } from '../prompt-loader';
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -59,6 +60,20 @@ const IMPACT_SPECIALISTS: SpecialistDef[] = [
   { name: 'cost-impact', domain: 'IMPACT_KOSTEN', displayName: 'Kosten-Impact Analyst', focus: 'Kosten, Umsatzausfall, Nacharbeitskosten, Opportunitätskosten' },
   { name: 'quality-impact', domain: 'IMPACT_QUALITAET', displayName: 'Qualitäts-Impact Analyst', focus: 'Qualität, Cpk, SPC-Alarme, Ausschuss, Reklamationen' },
 ];
+
+// ─── Language helper ─────────────────────────────────────────────────────
+
+/** Returns DE or EN string based on language param */
+function dl(language: string | undefined, de: string, en: string): string {
+  return language === 'en' ? en : de;
+}
+
+/** Language instruction to append to LLM prompts for user-facing output */
+function langInstr(language: string | undefined): string {
+  if (language === 'en') return '\n\nIMPORTANT: Respond in English.';
+  if (language === 'de') return '\n\nWICHTIG: Antworte auf Deutsch.';
+  return '';
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -372,8 +387,29 @@ async function runSpecialistLlm(
   freeLlmConfig: LlmConfig,
   userId: string,
   signal?: AbortSignal,
+  language?: string,
 ): Promise<SpecialistReport> {
-  const systemPrompt = `Du bist der ${specialist.displayName}. Dein Fokus: ${specialist.focus}.
+  const isEn = language === 'en';
+  const systemPrompt = isEn
+    ? `You are the ${specialist.displayName}. Your focus: ${specialist.focus}.
+Analyze the provided data and answer the user question from your domain perspective.
+IMPORTANT: Only use data that is actually present in the provided data. Do NOT invent person names, job titles or organizational units.
+
+RESPONSE FORMAT: Pure JSON, NO Markdown, NO code blocks. Use these EXACT field names (they are German by design):
+{
+  "domain": "${specialist.domain}",
+  "zahlenDatenFakten": "Compact KPI summary (max 300 chars, in English)",
+  "kritischeFindings": [
+    { "finding": "...", "evidence": "...", "severity": "hoch|mittel|niedrig", "affectedMachines": [] }
+  ],
+  "empfehlungen": [
+    { "maßnahme": "...", "priorität": "sofort|heute|diese_woche", "erwarteteWirkung": "..." }
+  ],
+  "crossDomainHinweise": ["Cross-domain hints"]
+}
+
+Max 3-5 findings and 3-5 recommendations. Write all VALUES in English but keep the JSON KEYS exactly as shown.`
+    : `Du bist der ${specialist.displayName}. Dein Fokus: ${specialist.focus}.
 Analysiere die bereitgestellten Daten und beantworte die User-Frage aus deiner Fachperspektive.
 WICHTIG: Verwende NUR Daten die tatsächlich in den bereitgestellten Daten stehen. Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten.
 
@@ -394,7 +430,7 @@ Maximal 3-5 Findings und 3-5 Empfehlungen. Präzise und kompakt.`;
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Analysiere folgende Daten:\n\n${context}` },
+    { role: 'user', content: isEn ? `Analyze the following data:\n\n${context}` : `Analysiere folgende Daten:\n\n${context}` },
   ];
 
   return await callLlmJson<SpecialistReport>(messages, freeLlmConfig, userId, signal);
@@ -409,6 +445,7 @@ async function runSpecialistsParallel(
   res: Response,
   specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
   signal?: AbortSignal,
+  language?: string,
 ): Promise<Map<string, SpecialistReport>> {
   const reports = new Map<string, SpecialistReport>();
   const specialistNames = specialists.map(s => s.name);
@@ -432,8 +469,10 @@ async function runSpecialistsParallel(
       });
 
       try {
-        const context = `SZENARIO-KONTEXT:\n${kgData}\n\nFABRIK-DATEN:\n${factoryData}`;
-        const report = await runSpecialistLlm(spec, context, freeLlmConfig, userId, signal);
+        const context = language === 'en'
+          ? `SCENARIO CONTEXT:\n${kgData}\n\nFACTORY DATA:\n${factoryData}`
+          : `SZENARIO-KONTEXT:\n${kgData}\n\nFABRIK-DATEN:\n${factoryData}`;
+        const report = await runSpecialistLlm(spec, context, freeLlmConfig, userId, signal, language);
         reports.set(spec.name, report);
 
         emitSSE(res, {
@@ -506,6 +545,10 @@ async function runModeratorReview(
   userId: string,
   res: Response,
   signal?: AbortSignal,
+  language?: string,
+  existingSpecialists?: SpecialistDef[],
+  kgContext?: string,
+  factoryContext?: string,
 ): Promise<{ readyForSynthesis: boolean; followUpTranscript: string }> {
   emitSSE(res, { type: 'discussion_round_start', discussionRound: round });
 
@@ -514,28 +557,83 @@ async function runModeratorReview(
     .map(([name, report]) => compressReport(name, report))
     .join('\n\n');
 
-  const moderatorPrompt = `Du bist der Moderator einer Impact-Analyse-Diskussion mit 4 Spezialisten.
+  const isEn = language === 'en';
+  const skills = loadPrompt('skills');
+  const currentSpecNames = existingSpecialists?.map(s => s.displayName).join(', ') || Array.from(reports.keys()).join(', ');
+
+  const moderatorPrompt = isEn
+    ? `You are the moderator of a multi-agent analysis discussion.
+
+CURRENT SPECIALISTS: ${currentSpecNames}
+
+SPECIALIST REPORTS:
+${compressed}
+
+${previousAnswers ? `PREVIOUS DISCUSSION:\n${previousAnswers}\n` : ''}
+
+${skills ? `AVAILABLE TOOLS (you can request NEW specialists with these tools):\n${skills}\n` : ''}
+
+Analyze the reports and decide:
+1. Gaps — is critical information MISSING that the current specialists cannot provide?
+2. Contradictions between specialists
+3. Follow-up questions (max 3) to existing specialists
+4. NEW SPECIALISTS — if a gap can ONLY be filled by bringing in a new specialist with different tools, request one! This is powerful — use it when you see a blind spot.
+
+RESPONSE FORMAT: Pure JSON.
+{
+  "gaps": ["..."],
+  "contradictions": ["..."],
+  "followUpQuestions": [
+    { "targetSpecialist": "specialist-name", "question": "...", "context": "..." }
+  ],
+  "newSpecialists": [
+    { "name": "slug-name", "displayName": "Display Name", "domain": "DOMAIN_KEY", "focus": "What to investigate", "tools": ["tool_1", "tool_2"] }
+  ],
+  "preliminaryInsights": ["..."],
+  "readyForSynthesis": false
+}
+
+Rules for newSpecialists:
+- Only request if the current specialists genuinely CANNOT answer a critical question
+- Pick tools from the available tools reference above
+- Give a clear focus so the new specialist knows exactly what to investigate
+- Max 2 new specialists per round`
+    : `Du bist der Moderator einer Multi-Agent-Analyse-Diskussion.
+
+AKTUELLE SPEZIALISTEN: ${currentSpecNames}
 
 SPEZIALISTEN-BERICHTE:
 ${compressed}
 
 ${previousAnswers ? `BISHERIGE DISKUSSION:\n${previousAnswers}\n` : ''}
 
-Analysiere die Berichte und identifiziere:
-1. Lücken (fehlende Informationen)
+${skills ? `VERFÜGBARE TOOLS (du kannst NEUE Spezialisten mit diesen Tools anfordern):\n${skills}\n` : ''}
+
+Analysiere die Berichte und entscheide:
+1. Lücken — fehlen kritische Informationen die die aktuellen Spezialisten nicht liefern können?
 2. Widersprüche zwischen Spezialisten
-3. Follow-Up-Fragen (max 3) an spezifische Spezialisten
+3. Follow-Up-Fragen (max 3) an bestehende Spezialisten
+4. NEUE SPEZIALISTEN — wenn eine Lücke NUR durch einen neuen Spezialisten mit anderen Tools gefüllt werden kann, fordere einen an! Das ist mächtig — nutze es wenn du einen blinden Fleck siehst.
 
 ANTWORT-FORMAT: Reines JSON.
 {
   "gaps": ["..."],
   "contradictions": ["..."],
   "followUpQuestions": [
-    { "targetSpecialist": "oee-impact|otd-impact|cost-impact|quality-impact", "question": "...", "context": "..." }
+    { "targetSpecialist": "specialist-name", "question": "...", "context": "..." }
+  ],
+  "newSpecialists": [
+    { "name": "slug-name", "displayName": "Anzeigename", "domain": "DOMAIN_KEY", "focus": "Was untersucht werden soll", "tools": ["tool_1", "tool_2"] }
   ],
   "preliminaryInsights": ["..."],
   "readyForSynthesis": false
-}`;
+}
+
+Regeln für newSpecialists:
+- Nur anfordern wenn die aktuellen Spezialisten eine kritische Frage wirklich NICHT beantworten können
+- Tools aus der Tool-Referenz oben wählen
+- Klaren Fokus geben damit der neue Spezialist weiß was er untersuchen soll
+- Max 2 neue Spezialisten pro Runde`;
 
   const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
 
@@ -543,7 +641,9 @@ ANTWORT-FORMAT: Reines JSON.
   try {
     review = await callLlmJson<any>(
       [
-        { role: 'system', content: 'Du bist ein erfahrener Moderator für Impact-Analysen in der Fertigung.' },
+        { role: 'system', content: isEn
+          ? 'You are an experienced moderator for impact analyses in manufacturing.'
+          : 'Du bist ein erfahrener Moderator für Impact-Analysen in der Fertigung.' },
         { role: 'user', content: moderatorPrompt },
       ],
       premiumLlmConfig,
@@ -557,8 +657,74 @@ ANTWORT-FORMAT: Reines JSON.
     clearInterval(heartbeat);
   }
 
-  // Process follow-up questions
+  // ── Process NEW SPECIALISTS (dynamic recruitment) ──
+  const newSpecs = safeArray(review.newSpecialists).slice(0, 2);
   let transcript = previousAnswers;
+
+  if (newSpecs.length > 0 && kgContext && factoryContext) {
+    for (const ns of newSpecs) {
+      if (!ns.name || !ns.focus) continue;
+
+      const newSpecDef: SpecialistDef = {
+        name: ns.name,
+        displayName: ns.displayName || ns.name,
+        domain: ns.domain || 'ADDITIONAL',
+        focus: ns.focus,
+      };
+
+      // ── BIG ANNOUNCEMENT in stream ──
+      emitSSE(res, {
+        type: 'discussion_recruit',
+        discussionRound: round,
+        recruitedSpecialistName: newSpecDef.displayName,
+        recruitedSpecialistFocus: newSpecDef.focus,
+        recruitedSpecialistTools: ns.tools || [],
+        message: isEn
+          ? `Moderator recruiting new specialist: ${newSpecDef.displayName} — "${newSpecDef.focus}"`
+          : `Moderator zieht neuen Spezialisten hinzu: ${newSpecDef.displayName} — "${newSpecDef.focus}"`,
+      });
+
+      // Run the new specialist
+      try {
+        const newReport = await runSpecialistLlm(
+          newSpecDef,
+          `${kgContext}\n\n${factoryContext}`,
+          freeLlmConfig,
+          userId,
+          signal,
+          language,
+        );
+
+        if (newReport) {
+          reports.set(ns.name, newReport);
+          if (existingSpecialists) {
+            existingSpecialists.push(newSpecDef);
+          }
+
+          // Compress the new report for display
+          const reportSummary = newReport.zahlenDatenFakten
+            ? String(newReport.zahlenDatenFakten).substring(0, 300)
+            : (safeArray(newReport.kritischeFindings).slice(0, 3).map(f => typeof f === 'string' ? f : f?.finding || '').join('\n') || 'Analysis complete');
+
+          emitSSE(res, {
+            type: 'discussion_recruit_result',
+            discussionRound: round,
+            recruitedSpecialistName: newSpecDef.displayName,
+            recruitedSpecialistReport: reportSummary,
+            message: isEn
+              ? `${newSpecDef.displayName} completed analysis — findings integrated`
+              : `${newSpecDef.displayName} hat Analyse abgeschlossen — Ergebnisse integriert`,
+          });
+
+          transcript += `\n[New specialist ${newSpecDef.displayName} joined the discussion]\n`;
+        }
+      } catch (err: any) {
+        logger.warn({ err: err.message, specialist: ns.name }, 'New specialist failed');
+      }
+    }
+  }
+
+  // ── Process follow-up questions ──
   const questions = safeArray(review.followUpQuestions).slice(0, 3);
 
   for (const q of questions) {
@@ -575,24 +741,28 @@ ANTWORT-FORMAT: Reines JSON.
 
     // Get specialist's answer
     const specReport = reports.get(target);
-    const specContext = specReport ? compressReport(target, specReport) : 'Keine Daten verfügbar.';
+    const specContext = specReport ? compressReport(target, specReport) : dl(language, 'Keine Daten verfügbar.', 'No data available.');
 
     const heartbeat2 = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
     let answer: string;
     try {
       const answerResponse = await callLlm(
         [
-          { role: 'system', content: `Du bist der Spezialist für ${target}. Beantworte die Frage basierend auf deiner Analyse.` },
-          { role: 'user', content: `Deine bisherige Analyse:\n${specContext}\n\nFrage des Moderators: ${question}\n\nAntworte in 2-3 Sätzen, präzise und faktisch.` },
+          { role: 'system', content: isEn
+            ? `You are the specialist for ${target}. Answer the question based on your analysis.`
+            : `Du bist der Spezialist für ${target}. Beantworte die Frage basierend auf deiner Analyse.` },
+          { role: 'user', content: isEn
+            ? `Your previous analysis:\n${specContext}\n\nModerator's question: ${question}\n\nAnswer in 2-3 sentences, precise and factual.`
+            : `Deine bisherige Analyse:\n${specContext}\n\nFrage des Moderators: ${question}\n\nAntworte in 2-3 Sätzen, präzise und faktisch.` },
         ],
         undefined,
         freeLlmConfig,
         userId,
         signal,
       );
-      answer = answerResponse.content || 'Keine Antwort.';
+      answer = answerResponse.content || dl(language, 'Keine Antwort.', 'No answer.');
     } catch {
-      answer = 'Spezialist konnte nicht antworten.';
+      answer = dl(language, 'Spezialist konnte nicht antworten.', 'Specialist could not respond.');
     } finally {
       clearInterval(heartbeat2);
     }
@@ -627,6 +797,7 @@ async function runDebate(
   specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
   signal?: AbortSignal,
   userMessage?: string,
+  language?: string,
 ): Promise<string> {
   // 3a: Moderator drafts answer
   emitSSE(res, { type: 'debate_start' });
@@ -636,11 +807,30 @@ async function runDebate(
     .map(([name, report]) => compressReport(name, report))
     .join('\n\n');
 
+  const isEn = language === 'en';
   const questionContext = userMessage
-    ? `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDeine Antwort MUSS diese Frage DIREKT beantworten. Nenne konkrete Daten, Zahlen, Namen aus den Berichten.\n`
+    ? (isEn
+      ? `\nORIGINAL USER QUESTION: "${userMessage}"\nYour answer MUST directly answer this question. Cite specific data, numbers, names from the reports.\n`
+      : `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDeine Antwort MUSS diese Frage DIREKT beantworten. Nenne konkrete Daten, Zahlen, Namen aus den Berichten.\n`)
     : '';
 
-  const draftPrompt = `${questionContext}
+  const draftPrompt = isEn
+    ? `${questionContext}
+SPECIALIST REPORTS:
+${compressed}
+
+DISCUSSION:
+${discussionTranscript || 'No further discussion points.'}
+
+TASK: Answer the user question directly and precisely based on the specialist data.
+- Start with the DIRECT ANSWER to the question (specific numbers, names, values)
+- Then: Context and analysis (brief)
+- Then: Recommended actions (only if relevant to the question)
+- Do NOT invent person names, job titles or organizational units not in the data
+- Use ONLY data that is actually contained in the specialist reports
+
+Answer as structured text (Markdown). Respond in English.`
+    : `${questionContext}
 SPEZIALISTEN-BERICHTE:
 ${compressed}
 
@@ -654,14 +844,16 @@ AUFGABE: Beantworte die User-Frage direkt und präzise basierend auf den Daten d
 - Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten die nicht in den Daten stehen
 - Verwende NUR Daten die tatsächlich in den Spezialisten-Berichten enthalten sind
 
-Antworte als strukturierter Text (Markdown). Antworte in derselben Sprache wie die User-Frage.`;
+Antworte als strukturierter Text (Markdown).`;
 
   const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
   let draftText: string;
   try {
     const draftResponse = await callLlm(
       [
-        { role: 'system', content: 'Du bist ein erfahrener Fertigungsexperte. Beantworte Fragen direkt und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
+        { role: 'system', content: language === 'en'
+          ? 'You are an experienced manufacturing expert. Answer questions directly and data-driven. Do NOT invent names or facts.'
+          : 'Du bist ein erfahrener Fertigungsexperte. Beantworte Fragen direkt und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
         { role: 'user', content: draftPrompt },
       ],
       undefined,
@@ -669,10 +861,10 @@ Antworte als strukturierter Text (Markdown). Antworte in derselben Sprache wie d
       userId,
       signal,
     );
-    draftText = draftResponse.content || 'Entwurf konnte nicht erstellt werden.';
+    draftText = draftResponse.content || dl(language, 'Entwurf konnte nicht erstellt werden.', 'Draft could not be created.');
   } catch (err: any) {
     logger.error({ err: err.message }, 'Draft mitigation failed');
-    draftText = 'Entwurf-Erstellung fehlgeschlagen.';
+    draftText = dl(language, 'Entwurf-Erstellung fehlgeschlagen.', 'Draft creation failed.');
   } finally {
     clearInterval(heartbeat);
   }
@@ -691,7 +883,24 @@ Antworte als strukturierter Text (Markdown). Antworte in derselben Sprache wie d
         const specDef = specialists.find(s => s.name === name);
         const displayName = specDef?.displayName || name;
 
-        const critiquePrompt = `Du bist der ${displayName}. Kritisiere folgenden Mitigation-Plan aus deiner Fachperspektive.
+        const critiquePrompt = isEn
+          ? `You are the ${displayName}. Critique the following plan from your domain perspective.
+
+YOUR ANALYSIS:
+${compressReport(name, report)}
+
+PROPOSED PLAN:
+${draftText.substring(0, 3000)}
+
+Evaluate the plan:
+RESPONSE FORMAT: Pure JSON.
+{
+  "supported": ["What you support"],
+  "concerns": [{ "concern": "Problem", "alternative": "Better suggestion" }],
+  "additions": ["What's missing"],
+  "overallAssessment": "Overall assessment in 1 sentence"
+}`
+          : `Du bist der ${displayName}. Kritisiere folgenden Mitigation-Plan aus deiner Fachperspektive.
 
 DEINE ANALYSE:
 ${compressReport(name, report)}
@@ -712,7 +921,9 @@ ANTWORT-FORMAT: Reines JSON.
         try {
           const critique = await callLlmJson<any>(
             [
-              { role: 'system', content: `Du bist ein kritischer ${displayName}. Sei konstruktiv aber ehrlich.` },
+              { role: 'system', content: isEn
+                ? `You are a critical ${displayName}. Be constructive but honest.`
+                : `Du bist ein kritischer ${displayName}. Sei konstruktiv aber ehrlich.` },
               { role: 'user', content: critiquePrompt },
             ],
             freeLlmConfig,
@@ -734,8 +945,8 @@ ANTWORT-FORMAT: Reines JSON.
           emitSSE(res, {
             type: 'debate_critique',
             debateCritiqueFrom: displayName,
-            debateCritiqueItems: [{ type: 'critic', text: 'Konnte keine Kritik erstellen' }],
-            debateCritiqueAssessment: 'Fehler bei der Bewertung',
+            debateCritiqueItems: [{ type: 'critic', text: dl(language, 'Konnte keine Kritik erstellen', 'Could not create critique') }],
+            debateCritiqueAssessment: dl(language, 'Fehler bei der Bewertung', 'Error during evaluation'),
           });
         } finally {
           clearInterval(heartbeat2);
@@ -745,8 +956,27 @@ ANTWORT-FORMAT: Reines JSON.
   }
 
   // 3c: Final synthesis incorporating critiques
-  const finalQuestionContext = userMessage ? `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDie Antwort MUSS diese Frage DIREKT beantworten.\n` : '';
-  const finalPrompt = `Finalisiere die Antwort nach der Spezialisten-Debatte.
+  const finalQuestionContext = userMessage
+    ? (isEn
+      ? `\nORIGINAL USER QUESTION: "${userMessage}"\nThe answer MUST directly answer this question.\n`
+      : `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDie Antwort MUSS diese Frage DIREKT beantworten.\n`)
+    : '';
+
+  const finalPrompt = isEn
+    ? `Finalize the answer after the specialist debate.
+${finalQuestionContext}
+ORIGINAL DRAFT:
+${draftText.substring(0, 3000)}
+
+SPECIALIST CRITIQUES:
+${allCritiques.join('\n\n')}
+
+Create the FINAL answer. Incorporate valid critique points.
+- Start with the DIRECT ANSWER to the user question
+- Cite specific numbers, machine IDs, article numbers from the data
+- Do NOT invent person names or organizational units
+- Format: Structured Markdown text. Respond in English.`
+    : `Finalisiere die Antwort nach der Spezialisten-Debatte.
 ${finalQuestionContext}
 URSPRÜNGLICHER ENTWURF:
 ${draftText.substring(0, 3000)}
@@ -758,14 +988,16 @@ Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
 - Beginne mit der DIREKTEN ANTWORT auf die User-Frage
 - Nenne konkrete Zahlen, Maschinen-IDs, Artikel-Nummern aus den Daten
 - Erfinde KEINE Personennamen oder Organisationseinheiten
-- Format: Strukturierter Markdown-Text. Antworte in derselben Sprache wie die Frage.`;
+- Format: Strukturierter Markdown-Text.`;
 
   const heartbeat3 = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
   let finalText: string;
   try {
     const finalResponse = await callLlm(
       [
-        { role: 'system', content: 'Du bist ein erfahrener Fertigungsexperte. Beantworte die Frage direkt, präzise und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
+        { role: 'system', content: language === 'en'
+          ? 'You are an experienced manufacturing expert. Answer the question directly, precisely and data-driven. Do NOT invent names or facts.'
+          : 'Du bist ein erfahrener Fertigungsexperte. Beantworte die Frage direkt, präzise und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
         { role: 'user', content: finalPrompt },
       ],
       undefined,
@@ -796,11 +1028,15 @@ function generateHtmlReport(
   transcript: string,
   params: Record<string, unknown>,
   specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
+  language?: string,
+  userMessage?: string,
+  reportTitle?: string,
 ): string {
   const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const entityId = esc(String(params.entityId || params.machineId || 'unknown'));
-  const scenario = esc(String(params.scenario || 'Impact-Analyse'));
-  const now = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
+  const entityId = esc(String(params.entityId || params.machineId || ''));
+  const scenario = esc(reportTitle || String(params.scenario || (language === 'en' ? 'Analysis Report' : 'Analyse-Bericht')));
+  const task = esc(userMessage || '');
+  const now = new Date().toLocaleString(language === 'en' ? 'en-US' : 'de-DE', { timeZone: 'Europe/Berlin' });
 
   const severityMatch = finalText.match(/severity[:\s]*(critical|high|medium|low)/i)
     || finalText.match(/(CRITICAL|HIGH|MEDIUM|LOW)/);
@@ -840,7 +1076,7 @@ function generateHtmlReport(
       <h3>${displayName}</h3>
       ${report.zahlenDatenFakten ? `<div class="summary">${esc(String(report.zahlenDatenFakten).substring(0, 400))}</div>` : ''}
       ${findingsHtml ? `<h4>Findings</h4><ul>${findingsHtml}</ul>` : ''}
-      ${recsHtml ? `<h4>Empfehlungen</h4><ul>${recsHtml}</ul>` : ''}
+      ${recsHtml ? `<h4>${language === 'en' ? 'Recommendations' : 'Empfehlungen'}</h4><ul>${recsHtml}</ul>` : ''}
     </div>`;
   }
 
@@ -863,85 +1099,285 @@ function generateHtmlReport(
     .replace(/^- (.*)$/gm, '<li>$1</li>')
     .replace(/\n/g, '<br>');
 
+  const isEn = language === 'en';
+  const t = (de: string, en: string) => isEn ? en : de;
+
   return `<!DOCTYPE html>
-<html lang="de">
+<html lang="${isEn ? 'en' : 'de'}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Impact-Analyse: ${scenario} — ${now}</title>
+<title>${t('Impact-Analyse', 'Impact Analysis')}: ${scenario} — ${now}</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a0f; color: #e2e8f0; line-height: 1.6; }
-  .slide { min-height: 100vh; padding: 3rem; display: flex; flex-direction: column; border-bottom: 1px solid #1e293b; }
-  h1 { font-size: 2.5rem; background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  h2 { font-size: 1.8rem; color: #a78bfa; margin-bottom: 1.5rem; }
-  h3 { font-size: 1.2rem; color: #60a5fa; margin: 1rem 0 0.5rem; }
-  h4 { font-size: 0.95rem; color: #94a3b8; margin: 0.8rem 0 0.3rem; }
-  .card { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 1.5rem; margin: 0.5rem 0; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-  .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; margin-right: 4px; }
-  .badge-sofort { background: #f8717122; color: #f87171; border: 1px solid #f8717133; }
-  .badge-heute { background: #fbbf2422; color: #fbbf24; border: 1px solid #fbbf2433; }
-  .badge-woche { background: #60a5fa22; color: #60a5fa; border: 1px solid #60a5fa33; }
-  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #1e293b; font-size: 0.9rem; }
-  th { color: #94a3b8; font-weight: 600; }
-  ul { padding-left: 1.5rem; margin: 0.5rem 0; }
-  li { margin: 0.3rem 0; font-size: 0.9rem; }
-  .subtitle { color: #94a3b8; font-size: 1rem; margin-top: 0.5rem; }
-  .summary { background: #1e293b; border-left: 3px solid #a78bfa; padding: 1rem 1.5rem; border-radius: 0 8px 8px 0; margin: 0.5rem 0; font-size: 0.9rem; }
-  .sev-badge { display: inline-block; font-size: 0.8rem; font-weight: 700; padding: 4px 12px; border-radius: 4px; color: ${sevColor}; background: ${sevColor}22; border: 1px solid ${sevColor}44; }
-  .footer { text-align: center; color: #64748b; font-size: 0.8rem; padding: 2rem; }
-  @media print { .slide { min-height: auto; page-break-after: always; } body { background: white; color: #1e293b; } .card { border-color: #e2e8f0; } }
+
+  /* ── A4 page layout ─────────────────────────────── */
+  @page {
+    size: A4;
+    margin: 20mm 15mm 25mm 15mm;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #e2e8f0;
+    color: #1e293b;
+    line-height: 1.65;
+    font-size: 9.5pt;
+  }
+
+  /* On-screen A4 page simulation */
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 20px auto;
+    background: #fff;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+    padding: 20mm 18mm 28mm 18mm;
+    position: relative;
+  }
+
+  /* Page header (repeats via table trick for print) */
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #2563eb;
+    margin-bottom: 18px;
+    font-size: 7.5pt;
+    color: #64748b;
+  }
+  .page-header .logo { font-weight: 700; color: #2563eb; font-size: 8.5pt; }
+
+  /* Page footer */
+  .page-footer {
+    position: absolute;
+    bottom: 12mm;
+    left: 18mm;
+    right: 18mm;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 6px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 7pt;
+    color: #94a3b8;
+  }
+
+  /* ── Title page ─────────────────────────────────── */
+  .title-page {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    min-height: calc(297mm - 48mm);
+  }
+  .title-page h1 { font-size: 26pt; font-weight: 700; color: #0f172a; letter-spacing: -0.03em; margin-bottom: 8px; }
+  .title-page .subtitle { font-size: 12pt; color: #64748b; margin-bottom: 4px; }
+  .sev-badge { display: inline-block; font-size: 8pt; font-weight: 700; padding: 5px 18px; border-radius: 20px; color: #fff; background: ${sevColor}; margin-top: 20px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  /* PDF button — screen only */
+  .pdf-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #0f172a;
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    z-index: 999;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .pdf-bar .title { color: #94a3b8; font-size: 13px; }
+  .pdf-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .pdf-btn:hover { background: #1d4ed8; }
+  .pdf-btn svg { width: 15px; height: 15px; fill: currentColor; }
+  body { padding-top: 52px; }
+
+  /* ── Content styles ─────────────────────────────── */
+  .section-title {
+    font-size: 13pt; font-weight: 700; color: #0f172a;
+    margin: 0 0 12px 0; padding-bottom: 6px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+  .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; text-align: center; }
+  .kpi-card .value { font-size: 20pt; font-weight: 700; color: #2563eb; }
+  .kpi-card .label { font-size: 7pt; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+  .card h3 { font-size: 10pt; font-weight: 600; color: #2563eb; margin-bottom: 8px; }
+  .card h4 { font-size: 8pt; font-weight: 600; color: #475569; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .summary { background: #eff6ff; border-left: 3px solid #2563eb; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 6px 0 10px; font-size: 8.5pt; color: #334155; }
+
+  .badge { display: inline-block; font-size: 6pt; font-weight: 700; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; margin-right: 3px; vertical-align: middle; }
+  .badge-sofort { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+  .badge-heute { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+  .badge-woche { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+
+  ul { padding-left: 16px; margin: 4px 0; }
+  li { margin: 3px 0; font-size: 8.5pt; color: #334155; }
+
+  .final-plan { font-size: 9pt; color: #1e293b; }
+  .final-plan strong { color: #0f172a; }
+
+  /* Task box on title page */
+  .task-box {
+    max-width: 80%;
+    font-size: 11pt;
+    color: #334155;
+    line-height: 1.5;
+    margin: 12px auto 4px;
+    padding: 10px 16px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    border-left: 3px solid #2563eb;
+    text-align: left;
+  }
+
+  /* ── Print overrides ────────────────────────────── */
+  @media print {
+    body { background: white !important; padding-top: 0 !important; }
+    .pdf-bar { display: none !important; }
+
+    .page {
+      width: auto;
+      min-height: auto;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+      page-break-after: auto;
+    }
+
+    /* Title page gets its own page */
+    .page:first-of-type { page-break-after: always; }
+
+    /* Section titles start new pages (except the first one after title) */
+    .section-title { page-break-before: auto; }
+
+    /* Prevent cards/KPIs from splitting across pages */
+    .card { break-inside: avoid; page-break-inside: avoid; }
+    .kpi-grid { break-inside: avoid; page-break-inside: avoid; }
+    .kpi-card { break-inside: avoid; }
+
+    /* Headers and footers flow normally in print — browser @page handles margins */
+    .page-header {
+      position: static;
+      margin-bottom: 12px;
+    }
+    .page-footer {
+      position: static;
+      margin-top: 20px;
+    }
+
+    /* Keep colors in print */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+  }
 </style>
 </head>
 <body>
 
-<!-- Slide 1: Title -->
-<div class="slide" style="justify-content:center;align-items:center;text-align:center;">
-  <h1>Impact-Analyse</h1>
-  <p class="subtitle">${scenario} &mdash; Entity: ${entityId}</p>
-  <p class="subtitle">${now}</p>
-  <div style="margin-top:2rem;"><span class="sev-badge">Severity: ${severity}</span></div>
+<!-- Fixed PDF bar -->
+<div class="pdf-bar">
+  <span class="title">${t('Impact-Analyse', 'Impact Analysis')} &mdash; ${scenario}</span>
+  <button class="pdf-btn" id="pdfBtn">
+    <svg viewBox="0 0 24 24"><path d="M6 2a2 2 0 0 0-2 2v4h2V4h12v4h2V4a2 2 0 0 0-2-2H6zm-2 8a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h1v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4h1a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H4zm3 8v-2h10v4H7v-2zm10-5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+    ${t('PDF erzeugen', 'Generate PDF')}
+  </button>
 </div>
 
-<!-- Slide 2: Overview -->
-<div class="slide">
-  <h2>Ueberblick</h2>
-  <div class="grid">
-    <div class="card"><h3>${kgNodes.length}</h3><p class="subtitle">Knowledge-Graph Knoten</p></div>
-    <div class="card"><h3>${kgEdges.length}</h3><p class="subtitle">Knowledge-Graph Kanten</p></div>
-    <div class="card"><h3>${affectedOrders}</h3><p class="subtitle">Betroffene Auftraege</p></div>
-    <div class="card"><h3>${totalFindings}</h3><p class="subtitle">Findings</p></div>
-    <div class="card"><h3>${totalRecs}</h3><p class="subtitle">Empfehlungen</p></div>
-    <div class="card"><h3>${reports.size}</h3><p class="subtitle">Spezialisten</p></div>
+<!-- PAGE 1: Title -->
+<div class="page">
+  <div class="page-header">
+    <span class="logo">OpenShopFloor</span>
+    <span>${t('Impact-Analyse', 'Impact Analysis')} &mdash; ${scenario}</span>
+  </div>
+  <div class="title-page">
+    <h1>${t('Impact-Analyse', 'Impact Analysis')}</h1>
+    <div class="task-box">${task || scenario}</div>
+    ${entityId ? `<div class="subtitle">Entity: ${entityId}</div>` : ''}
+    <div class="subtitle" style="font-size:10pt;color:#94a3b8;">${now}</div>
+    <div><span class="sev-badge">Severity: ${severity}</span></div>
+  </div>
+  <div class="page-footer">
+    <span>OpenShopFloor &mdash; ZeroGuess AI</span>
+    <span>${t('Seite', 'Page')} 1</span>
   </div>
 </div>
 
-<!-- Slide 3: Specialist Analysis -->
-<div class="slide">
-  <h2>Spezialisten-Analyse</h2>
+<!-- PAGE 2: Overview + Specialists -->
+<div class="page">
+  <div class="page-header">
+    <span class="logo">OpenShopFloor</span>
+    <span>${t('Impact-Analyse', 'Impact Analysis')} &mdash; ${scenario}</span>
+  </div>
+
+  <h2 class="section-title">${t('Überblick', 'Overview')}</h2>
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="value">${kgNodes.length}</div><div class="label">${t('KG-Knoten', 'KG Nodes')}</div></div>
+    <div class="kpi-card"><div class="value">${kgEdges.length}</div><div class="label">${t('KG-Kanten', 'KG Edges')}</div></div>
+    <div class="kpi-card"><div class="value">${affectedOrders}</div><div class="label">${t('Betr. Aufträge', 'Affected Orders')}</div></div>
+    <div class="kpi-card"><div class="value">${totalFindings}</div><div class="label">Findings</div></div>
+    <div class="kpi-card"><div class="value">${totalRecs}</div><div class="label">${t('Empfehlungen', 'Recommendations')}</div></div>
+    <div class="kpi-card"><div class="value">${reports.size}</div><div class="label">${t('Spezialisten', 'Specialists')}</div></div>
+  </div>
+
+  <h2 class="section-title">${t('Spezialisten-Analyse', 'Specialist Analysis')}</h2>
   ${specialistHtml}
+
+  <div class="page-footer">
+    <span>OpenShopFloor &mdash; ZeroGuess AI</span>
+    <span>${t('Seite', 'Page')} 2</span>
+  </div>
 </div>
 
 ${discussionHtml ? `
-<!-- Slide 4: Discussion -->
-<div class="slide">
-  <h2>Moderator-Diskussion</h2>
+<!-- PAGE 3: Discussion -->
+<div class="page">
+  <div class="page-header">
+    <span class="logo">OpenShopFloor</span>
+    <span>${t('Impact-Analyse', 'Impact Analysis')} &mdash; ${scenario}</span>
+  </div>
+
+  <h2 class="section-title">${t('Moderator-Diskussion', 'Moderator Discussion')}</h2>
   <div class="card">${discussionHtml}</div>
+
+  <div class="page-footer">
+    <span>OpenShopFloor &mdash; ZeroGuess AI</span>
+    <span>${t('Seite', 'Page')} 3</span>
+  </div>
 </div>
 ` : ''}
 
-<!-- Slide 5: Mitigation Plan -->
-<div class="slide">
-  <h2>Finaler Mitigation-Plan</h2>
-  <div class="card">${finalHtml}</div>
+<!-- PAGE ${discussionHtml ? '4' : '3'}: Final Plan -->
+<div class="page">
+  <div class="page-header">
+    <span class="logo">OpenShopFloor</span>
+    <span>${t('Impact-Analyse', 'Impact Analysis')} &mdash; ${scenario}</span>
+  </div>
+
+  <h2 class="section-title">${t('Finaler Mitigation-Plan', 'Final Mitigation Plan')}</h2>
+  <div class="card final-plan">${finalHtml}</div>
+
+  <div style="margin-top:auto;"></div>
+  <div class="page-footer">
+    <span>${t('Impact-Analyse generiert am', 'Impact analysis generated on')} ${now} &middot; ${kgNodes.length} ${t('KG-Knoten', 'KG nodes')} &middot; ${reports.size} ${t('Spezialisten', 'specialists')} &middot; Severity: ${severity}</span>
+    <span>${t('Seite', 'Page')} ${discussionHtml ? '4' : '3'}</span>
+  </div>
 </div>
 
-<div class="footer">
-  Impact-Analyse generiert am ${now} | ${kgNodes.length} KG-Knoten | ${reports.size} Spezialisten | Severity: ${severity}<br>
-  OpenShopFloor &mdash; ZeroGuess AI
-</div>
+<script>
+document.getElementById('pdfBtn').addEventListener('click', function() {
+  window.print();
+});
+</script>
 
 </body>
 </html>`;
@@ -974,6 +1410,7 @@ export async function runDiscussionAgent(
 
     // Parse params
     const params = options?.params || {};
+    const language = params.language as string | undefined;
 
     // Build KG context string from user message + params
     const userMsg = options?.userMessage || '';
@@ -981,10 +1418,11 @@ export async function runDiscussionAgent(
     // ── Phase 0: KG ──
     const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(agent, res, params);
 
+    const isEn = language === 'en';
     const kgContext = kgToolResults.length > 0
-      ? `KG-DATEN (${kgNodes.length} Knoten, ${kgEdges.length} Kanten):\n` +
+      ? `${isEn ? 'KG DATA' : 'KG-DATEN'} (${kgNodes.length} ${isEn ? 'nodes' : 'Knoten'}, ${kgEdges.length} ${isEn ? 'edges' : 'Kanten'}):\n` +
         kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 1500)}`).join('\n\n')
-      : 'Keine KG-Daten verfügbar.';
+      : dl(language, 'Keine KG-Daten verfügbar.', 'No KG data available.');
 
     // ── Load factory data via agent's non-KG tools ──
     const factoryTools = agent.tools.filter(t => !t.startsWith('kg_'));
@@ -996,7 +1434,7 @@ export async function runDiscussionAgent(
           const result = await callMcpTool(toolName, params);
           return `[${toolName}]: ${result.substring(0, 800)}`;
         } catch {
-          return `[${toolName}]: Fehler`;
+          return `[${toolName}]: ${dl(language, 'Fehler', 'Error')}`;
         }
       });
       const settled = await Promise.allSettled(factoryPromises);
@@ -1007,7 +1445,7 @@ export async function runDiscussionAgent(
 
     const factoryContext = factoryResults.length > 0
       ? factoryResults.join('\n\n')
-      : 'Keine Fabrikdaten verfügbar.';
+      : dl(language, 'Keine Fabrikdaten verfügbar.', 'No factory data available.');
 
     // ── Phase 1: Specialists ──
     const reports = await runSpecialistsParallel(
@@ -1017,10 +1455,13 @@ export async function runDiscussionAgent(
       freeLlmConfig,
       userId,
       res,
+      IMPACT_SPECIALISTS,
+      undefined,
+      language,
     );
 
     if (reports.size === 0) {
-      emitSSE(res, { type: 'content', text: 'Keine Spezialisten-Berichte verfügbar. Die Analyse konnte nicht durchgeführt werden.' });
+      emitSSE(res, { type: 'content', text: dl(language, 'Keine Spezialisten-Berichte verfügbar. Die Analyse konnte nicht durchgeführt werden.', 'No specialist reports available. Analysis could not be performed.') });
       emitSSE(res, { type: 'done', runId });
       await pool.query(
         `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
@@ -1033,11 +1474,13 @@ export async function runDiscussionAgent(
     let readyForSynthesis = false;
     let transcript = '';
 
+    const activeSpecialists = [...IMPACT_SPECIALISTS];
     for (let round = 1; round <= 2 && !readyForSynthesis; round++) {
       const result = await runModeratorReview(
         reports, round, transcript,
         premiumLlmConfig, freeLlmConfig,
-        userId, res,
+        userId, res, undefined, language,
+        activeSpecialists, kgContext, factoryContext,
       );
       readyForSynthesis = result.readyForSynthesis;
       transcript = result.followUpTranscript;
@@ -1049,7 +1492,7 @@ export async function runDiscussionAgent(
       premiumLlmConfig, freeLlmConfig,
       userId, res,
       IMPACT_SPECIALISTS, undefined,
-      userMsg || undefined,
+      userMsg || undefined, language,
     );
 
     // ── Phase 4: Generate HTML Report ──
@@ -1057,6 +1500,9 @@ export async function runDiscussionAgent(
       finalMitigation, reports,
       kgNodes, kgEdges,
       transcript, params,
+      IMPACT_SPECIALISTS, language,
+      userMsg || undefined,
+      agent.name,
     );
 
     // Save report to DB — embed HTML in result JSON (no extra column needed)
@@ -1101,14 +1547,45 @@ async function planSpecialists(
   premiumLlmConfig: LlmConfig,
   userId: string,
   signal?: AbortSignal,
+  language?: string,
 ): Promise<{ specialists: SpecialistDef[]; relevantTools: string[] }> {
-  const prompt = `Du bist ein Manufacturing-Experte. Analysiere die User-Frage und plane 3-5 Spezialisten für eine Multi-Agent-Diskussion.
+  const isEn = language === 'en';
+  const skills = loadPrompt('skills');
+  const toolRef = skills || `AVAILABLE MCP-TOOLS: ${toolNames.join(', ')}`;
 
-VERFÜGBARE MCP-TOOLS: ${toolNames.join(', ')}
+  const prompt = isEn
+    ? `You are a manufacturing expert. Analyze the user question and plan 3-5 specialists for a multi-agent discussion.
+
+TOOL REFERENCE:
+${toolRef}
+
+USER QUESTION: "${userQuestion}"
+
+Based on the skills reference above, determine which specialists are needed and which tools each specialist should use.
+
+RESPONSE FORMAT: Pure JSON, NO Markdown.
+{
+  "specialists": [
+    { "name": "slug-name", "domain": "DOMAIN_KEY", "displayName": "Display Name", "focus": "What this specialist should focus on" }
+  ],
+  "relevantTools": ["tool_name_1", "tool_name_2"]
+}
+
+Rules:
+- 3-5 specialists, matching the question
+- name: short slug (e.g. "inventory-optimizer", "production-planner")
+- domain: uppercase key (e.g. "INVENTORY_OPTIMIZATION", "PRODUCTION_PLANNING")
+- displayName: English display name
+- relevantTools: only tools from the available list that match the question
+- Be creative with specialists — they don't have to be the default 4`
+    : `Du bist ein Manufacturing-Experte. Analysiere die User-Frage und plane 3-5 Spezialisten für eine Multi-Agent-Diskussion.
+
+TOOL-REFERENZ:
+${toolRef}
 
 USER-FRAGE: "${userQuestion}"
 
-Bestimme welche Spezialisten benötigt werden und welche Tools relevant sind.
+Basierend auf der Tool-Referenz oben, bestimme welche Spezialisten benötigt werden und welche Tools jeder Spezialist nutzen sollte.
 
 ANTWORT-FORMAT: Reines JSON, KEIN Markdown.
 {
@@ -1128,7 +1605,9 @@ Regeln:
   try {
     const result = await callLlmJson<{ specialists: SpecialistDef[]; relevantTools: string[] }>(
       [
-        { role: 'system', content: 'Du bist ein strategischer Fertigungsplaner.' },
+        { role: 'system', content: isEn
+          ? 'You are a strategic manufacturing planner.'
+          : 'Du bist ein strategischer Fertigungsplaner.' },
         { role: 'user', content: prompt },
       ],
       premiumLlmConfig,
@@ -1148,7 +1627,7 @@ Regeln:
       specialists: result.specialists.slice(0, 5).map(s => ({
         name: s.name || 'unknown',
         domain: s.domain || 'GENERAL',
-        displayName: s.displayName || s.name || 'Spezialist',
+        displayName: s.displayName || s.name || dl(language, 'Spezialist', 'Specialist'),
         focus: s.focus || '',
       })),
       relevantTools: validTools,
@@ -1170,6 +1649,7 @@ export async function runDynamicDiscussion(
   sessionId: string,
   res: Response,
   signal?: AbortSignal,
+  language?: string,
 ): Promise<string> {
   const [premiumLlmConfig, freeLlmConfig, tools] = await Promise.all([
     getLlmConfig(userId, 'premium'),
@@ -1180,10 +1660,10 @@ export async function runDynamicDiscussion(
   const toolNames = tools.map((t: any) => t.function?.name || t.name).filter(Boolean);
 
   // ── Phase 0: Plan specialists dynamically ──
-  emitSSE(res, { type: 'intent_classification', result: 'complex', message: 'Strategische Frage erkannt — starte Multi-Agent-Diskussion' });
+  emitSSE(res, { type: 'intent_classification', result: 'complex', message: dl(language, 'Strategische Frage erkannt — starte Multi-Agent-Diskussion', 'Strategic question detected — starting multi-agent discussion') });
 
   const { specialists, relevantTools } = await planSpecialists(
-    userMessage, toolNames, premiumLlmConfig, userId, signal,
+    userMessage, toolNames, premiumLlmConfig, userId, signal, language,
   );
 
   emitSSE(res, {
@@ -1198,7 +1678,7 @@ export async function runDynamicDiscussion(
     name: 'Dynamic Discussion',
     type: 'strategic',
     category: 'Strategic',
-    description: `Dynamische Analyse: ${userMessage.slice(0, 80)}`,
+    description: `${dl(language, 'Dynamische Analyse', 'Dynamic Analysis')}: ${userMessage.slice(0, 80)}`,
     systemPrompt: '',
     tools: relevantTools,
     difficulty: 'Expert',
@@ -1209,10 +1689,11 @@ export async function runDynamicDiscussion(
   const params: Record<string, unknown> = { scenario: userMessage.slice(0, 100) };
   const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(dynamicAgent, res, params);
 
+  const isEn = language === 'en';
   const kgContext = kgToolResults.length > 0
-    ? `KG-DATEN (${kgNodes.length} Knoten, ${kgEdges.length} Kanten):\n` +
+    ? `${isEn ? 'KG DATA' : 'KG-DATEN'} (${kgNodes.length} ${isEn ? 'nodes' : 'Knoten'}, ${kgEdges.length} ${isEn ? 'edges' : 'Kanten'}):\n` +
       kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 1500)}`).join('\n\n')
-    : 'Keine KG-Daten verfügbar.';
+    : dl(language, 'Keine KG-Daten verfügbar.', 'No KG data available.');
 
   // ── Load factory data via non-KG tools ──
   const factoryToolNames = relevantTools.filter(t => !t.startsWith('kg_'));
@@ -1225,7 +1706,7 @@ export async function runDynamicDiscussion(
           const result = await callMcpTool(toolName, {});
           return `[${toolName}]: ${result.substring(0, 800)}`;
         } catch {
-          return `[${toolName}]: Fehler`;
+          return `[${toolName}]: ${dl(language, 'Fehler', 'Error')}`;
         }
       })
     );
@@ -1236,11 +1717,11 @@ export async function runDynamicDiscussion(
 
   const factoryContext = factoryResults.length > 0
     ? factoryResults.join('\n\n')
-    : 'Keine Fabrikdaten verfügbar.';
+    : dl(language, 'Keine Fabrikdaten verfügbar.', 'No factory data available.');
 
   // ── Phase 1: Specialists (with dynamic list) ──
   const reports = await runSpecialistsParallel(
-    `USER-FRAGE: ${userMessage}\n\n${kgContext}`,
+    `${isEn ? 'USER QUESTION' : 'USER-FRAGE'}: ${userMessage}\n\n${kgContext}`,
     factoryContext,
     dynamicAgent,
     freeLlmConfig,
@@ -1248,10 +1729,14 @@ export async function runDynamicDiscussion(
     res,
     specialists,
     signal,
+    language,
   );
 
   if (reports.size === 0) {
-    const fallback = 'Die Multi-Agent-Analyse konnte keine Spezialisten-Berichte erzeugen. Bitte stelle die Frage anders oder versuche es erneut.';
+    const fallback = dl(language,
+      'Die Multi-Agent-Analyse konnte keine Spezialisten-Berichte erzeugen. Bitte stelle die Frage anders oder versuche es erneut.',
+      'The multi-agent analysis could not produce specialist reports. Please rephrase your question or try again.'
+    );
     emitSSE(res, { type: 'done' });
     return fallback;
   }
@@ -1259,12 +1744,14 @@ export async function runDynamicDiscussion(
   // ── Phase 2: Moderator Discussion ──
   let readyForSynthesis = false;
   let transcript = '';
+  const activeSpecialists = [...specialists];
 
   for (let round = 1; round <= 2 && !readyForSynthesis; round++) {
     const result = await runModeratorReview(
       reports, round, transcript,
       premiumLlmConfig, freeLlmConfig,
-      userId, res, signal,
+      userId, res, signal, language,
+      activeSpecialists, kgContext, factoryContext,
     );
     readyForSynthesis = result.readyForSynthesis;
     transcript = result.followUpTranscript;
@@ -1276,15 +1763,22 @@ export async function runDynamicDiscussion(
     premiumLlmConfig, freeLlmConfig,
     userId, res,
     specialists, signal,
-    userMessage,
+    userMessage, language,
   );
 
   // ── Phase 4: Generate HTML Report ──
+  // Derive a short report title from the user question (first 60 chars)
+  const dynamicTitle = userMessage.length > 60
+    ? userMessage.substring(0, 57) + '...'
+    : userMessage;
+
   const htmlReport = generateHtmlReport(
     finalText, reports,
     kgNodes, kgEdges,
     transcript, params,
-    specialists,
+    specialists, language,
+    userMessage,
+    dl(language, 'Strategische Analyse', 'Strategic Analysis'),
   );
 
   // Save to agent_runs for report download

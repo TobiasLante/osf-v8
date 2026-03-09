@@ -13,14 +13,73 @@ import {
 import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
 import { callLlmJson, runDynamicDiscussion, emitSSE } from '../agents/discussion-runner';
+import { loadPrompt } from '../prompt-loader';
 
 const router = Router();
 
-const SYSTEM_PROMPT = `You are an AI factory assistant for OpenShopFloor. You have access to a live manufacturing simulation with real-time data through MCP tools.
+// ─── Skills-based Tool Selector ─────────────────────────────────────────
+// Reads skills.md, asks LLM which tools are relevant for the user's question,
+// returns only those tool schemas (instead of all 148).
 
-You can query machine status, OEE metrics, stock levels, work orders, quality data, energy consumption, and much more. When the user asks about factory operations, use the available tools to get real data.
+let cachedSkills: string | null = null;
 
-Always respond in the same language as the user's message. Be concise and data-driven. When showing metrics, format numbers clearly. If a tool call fails, explain what happened and suggest alternatives.`;
+function getSkills(): string {
+  if (!cachedSkills) {
+    cachedSkills = loadPrompt('skills');
+  }
+  return cachedSkills;
+}
+
+async function selectTools(
+  message: string,
+  allTools: any[],
+  llmConfig: LlmConfig,
+  userId: string,
+): Promise<any[]> {
+  const skills = getSkills();
+  if (!skills) {
+    logger.warn('skills.md not found, using all tools');
+    return allTools;
+  }
+
+  const allToolNames = allTools.map((t: any) => t.function.name);
+
+  try {
+    const result = await callLlmJson<{ tools: string[] }>(
+      [
+        { role: 'system', content: 'You are a tool selector for a manufacturing AI assistant. Given the user\'s question and the skills reference, select 10-20 relevant tools. Return ONLY a JSON object.' },
+        { role: 'user', content: `SKILLS REFERENCE:\n${skills}\n\nUSER QUESTION: "${message}"\n\nSelect 10-20 tools that are needed to answer this question. Include tools for related domains if the question spans multiple areas.\n\nRESPONSE FORMAT: Pure JSON, NO Markdown.\n{"tools": ["tool_name_1", "tool_name_2", ...]}` },
+      ],
+      llmConfig,
+      userId,
+    );
+
+    // Filter to only tools that actually exist
+    const selectedNames = (result.tools || []).filter((name: string) => allToolNames.includes(name));
+
+    if (selectedNames.length < 2) {
+      logger.warn({ selectedNames, message: message.slice(0, 80) }, 'Tool selector returned too few tools, using all');
+      return allTools;
+    }
+
+    logger.info({ count: selectedNames.length, tools: selectedNames, message: message.slice(0, 80) }, 'Skills-based tool selection');
+    return allTools.filter((t: any) => selectedNames.includes(t.function.name));
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Tool selector failed, using all tools');
+    return allTools;
+  }
+}
+
+function getSystemPrompt(language?: string): string {
+  const langInstruction = language === 'en'
+    ? '\n\nIMPORTANT: Always respond in English.'
+    : language === 'de'
+    ? '\n\nWICHTIG: Antworte immer auf Deutsch.'
+    : '\n\nAlways respond in the same language as the user\'s message.';
+
+  const skills = loadPrompt('chat-skills');
+  return skills + langInstruction;
+}
 
 // ─── Intent Classifier ──────────────────────────────────────────────────
 
@@ -122,7 +181,7 @@ router.delete('/sessions/:id', requireAuth, async (req: Request, res: Response) 
 
 // POST /chat/completions — SSE streaming chat with tool loop
 router.post('/completions', requireAuth, async (req: Request, res: Response) => {
-  const { message, sessionId: reqSessionId } = req.body;
+  const { message, sessionId: reqSessionId, language } = req.body;
   if (!message || typeof message !== 'string' || message.length > 10000) {
     res.status(400).json({ error: 'Message required (max 10000 chars)' });
     return;
@@ -200,16 +259,20 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     // Save user message
     await saveMessage(sessionId, 'user', message);
 
-    // Load tools, history, and LLM config
-    const [tools, history, llmConfig] = await Promise.all([
+    // Load all tools, history, and LLM configs in parallel
+    const freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
+    const [allTools, history, llmConfig] = await Promise.all([
       getMcpTools(),
       getSessionMessages(sessionId, req.user!.userId, 20),
       getLlmConfig(req.user!.userId, tier),
     ]);
 
+    // Skills-based tool selection: LLM picks 10-20 relevant tools from skills.md
+    const tools = await selectTools(message, allTools, freeLlmConfig, req.user!.userId);
+
     // Build messages
     const messages: ChatMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: getSystemPrompt(language) },
       ...history.map((m) => ({
         role: m.role as ChatMessage['role'],
         content: m.content,
@@ -218,7 +281,6 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
 
     // ── Intent Classification: simple vs complex ──
     // Always use free tier (14B) for classification — fast, consistent, independent of user tier
-    const freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
     const isComplex = await classifyIntent(message, freeLlmConfig, req.user!.userId);
 
     if (isComplex) {
@@ -232,6 +294,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
           sessionId,
           res,
           pipelineAbort.signal,
+          language,
         );
 
         // Stream final text as content chunks
@@ -253,7 +316,9 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
       } catch (err: any) {
         logger.error({ err: err.message }, 'Dynamic discussion error');
         if (!res.writableEnded) {
-          const msg = pipelineAbort.signal.aborted ? 'Pipeline abgebrochen (Timeout oder Verbindung getrennt).' : 'Multi-Agent-Diskussion fehlgeschlagen. Versuche es erneut.';
+          const msg = pipelineAbort.signal.aborted
+            ? (language === 'en' ? 'Pipeline aborted (timeout or connection lost).' : 'Pipeline abgebrochen (Timeout oder Verbindung getrennt).')
+            : (language === 'en' ? 'Multi-agent discussion failed. Please try again.' : 'Multi-Agent-Diskussion fehlgeschlagen. Versuche es erneut.');
           res.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
         }
         clearTimeout(pipelineTimer);

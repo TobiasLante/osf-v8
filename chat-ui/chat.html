@@ -1785,9 +1785,9 @@
 
         .discussion-recruit-badge {
             align-self: center;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 700;
-            padding: 4px 12px;
+            padding: 6px 14px;
             background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
             border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
             border-radius: 20px;
@@ -2590,6 +2590,375 @@
         let eventSource = null;
         let streamingEnabled = _getLS('v7_streaming_enabled', 'true') !== 'false';
         let currentLanguage = _getLS('v7_language', 'de');
+
+        // === I18N ===
+        const I18N = {
+          // Header & Status
+          'status.connected': { de: 'Verbunden', en: 'Connected' },
+          'status.offline': { de: 'Offline', en: 'Offline' },
+          'header.back': { de: 'Zurück zum Dashboard', en: 'Back to Dashboard' },
+          'header.help': { de: 'Hilfe', en: 'Help' },
+          'header.clearChat': { de: 'Chat leeren', en: 'Clear chat' },
+          'header.langTitle': { de: 'Sprache / Language', en: 'Language / Sprache' },
+
+          // Welcome
+          'welcome.subtitle': { de: 'Echtzeit-Analyse und KI-gestützte Optimierung Ihrer Produktionsdaten.\nWählen Sie eine Aktion oder stellen Sie eine Frage.', en: 'Real-time analysis and AI-powered optimization of your production data.\nChoose an action or ask a question.' },
+
+          // Input
+          'input.placeholder': { de: 'Frage stellen oder Maschinen-ID eingeben (z.B. 7533)...', en: 'Ask a question or enter a machine ID (e.g. 7533)...' },
+          'input.send': { de: 'Senden', en: 'Send' },
+          'input.stop': { de: 'Stop', en: 'Stop' },
+
+          // Messages
+          'msg.you': { de: 'Sie', en: 'You' },
+          'msg.noAnswer': { de: 'Keine Antwort.', en: 'No response.' },
+          'msg.connError': { de: 'Verbindungsfehler', en: 'Connection error' },
+          'msg.chatStopped': { de: 'Chat gestoppt.', en: 'Chat stopped.' },
+          'msg.agentStopped': { de: 'Agent gestoppt.', en: 'Agent stopped.' },
+          'msg.agentDone': { de: 'Agent ausgeführt.', en: 'Agent completed.' },
+          'msg.newChat': { de: 'Neuer Chat', en: 'New Chat' },
+          'msg.noData': { de: 'Keine Daten verfügbar', en: 'No data available' },
+
+          // Machine Modal
+          'modal.selectMachine': { de: 'Maschine auswählen', en: 'Select Machine' },
+          'modal.descAgent': { de: 'Wählen Sie eine Maschine für die Analyse oder lassen Sie das Feld leer für alle Maschinen.', en: 'Select a machine for analysis or leave empty for all machines.' },
+          'modal.descSkill': { de: 'Wählen Sie eine Maschine oder lassen Sie das Feld leer für die Gesamtübersicht.', en: 'Select a machine or leave empty for the full overview.' },
+          'modal.inputPlaceholder': { de: 'Oder Maschinen-ID eingeben...', en: 'Or enter machine ID...' },
+          'modal.cancel': { de: 'Abbrechen', en: 'Cancel' },
+          'modal.confirm': { de: 'Ausführen', en: 'Run' },
+          'modal.loading': { de: 'Lade Maschinen...', en: 'Loading machines...' },
+          'modal.manualEntry': { de: 'Maschinen-ID manuell eingeben', en: 'Enter machine ID manually' },
+
+          // Impact Modal
+          'impact.title': { de: 'Impact-Analyse', en: 'Impact Analysis' },
+          'impact.desc': { de: 'Wählen Sie ein Szenario und die betroffene Entity.', en: 'Select a scenario and the affected entity.' },
+          'impact.scenario': { de: 'Szenario', en: 'Scenario' },
+          'impact.entity': { de: 'Entity', en: 'Entity' },
+          'impact.days': { de: 'Tage', en: 'Days' },
+          'impact.qty': { de: 'Menge', en: 'Quantity' },
+          'impact.cancel': { de: 'Abbrechen', en: 'Cancel' },
+          'impact.start': { de: 'Analyse starten', en: 'Start Analysis' },
+          'impact.loading': { de: 'Laden...', en: 'Loading...' },
+          'impact.noEntities': { de: 'Keine Entities gefunden', en: 'No entities found' },
+          'impact.selectEntity': { de: 'Bitte eine Entity auswaehlen', en: 'Please select an entity' },
+          'impact.machine_down': { de: 'Maschine fällt aus', en: 'Machine breakdown' },
+          'impact.material_shortage': { de: 'Material-Engpass', en: 'Material shortage' },
+          'impact.supplier_down': { de: 'Lieferant fällt aus', en: 'Supplier failure' },
+          'impact.customer_rush': { de: 'Kunde zieht vor', en: 'Customer rush' },
+          'impact.tool_wear': { de: 'Werkzeug-Verschleiß', en: 'Tool wear' },
+          'impact.quality_issue': { de: 'Qualitätsproblem', en: 'Quality issue' },
+          'impact.rush_order': { de: 'Sonderauftrag (Rush)', en: 'Rush order' },
+
+          // Pills
+          'pill.quality': { de: 'Qualität', en: 'Quality' },
+          'pill.otd': { de: 'OTD', en: 'OTD' },
+          'pill.revenue': { de: 'Umsatz', en: 'Revenue' },
+          'pill.overview': { de: 'Übersicht', en: 'Overview' },
+          'pill.deep': { de: 'Deep Analyze', en: 'Deep Analyze' },
+          'pill.fast': { de: 'Fast', en: 'Fast' },
+          'pill.discussion': { de: 'Diskussion', en: 'Discussion' },
+          'pill.lowStock': { de: 'Low Stock', en: 'Low Stock' },
+          'pill.machineDown': { de: 'Maschine fällt aus', en: 'Machine breakdown' },
+          'pill.materialShortage': { de: 'Material-Engpass', en: 'Material shortage' },
+          'pill.allScenarios': { de: 'Alle Szenarien...', en: 'All scenarios...' },
+          'pill.notAvailable': { de: 'Nicht verfügbar', en: 'Not available' },
+          'pill.internalOnly': { de: 'Nur intern umschaltbar', en: 'Internal only' },
+
+          // LLM config labels
+          'llm.localSmall': { de: 'D: Lokal (14B/72B)', en: 'D: Local (14B/72B)' },
+          'llm.localSmallMeta': { de: '~20 min, keine API-Kosten', en: '~20 min, no API costs' },
+          'llm.localFull': { de: 'E: Lokal Full (72B/72B)', en: 'E: Local Full (72B/72B)' },
+          'llm.localFullMeta': { de: '~64 min, keine API-Kosten', en: '~64 min, no API costs' },
+          'llm.cloudFast': { de: 'A: Cloud Fast (Haiku/Haiku)', en: 'A: Cloud Fast (Haiku/Haiku)' },
+          'llm.cloudFastMeta': { de: '~2.5 min, mittlere Kosten', en: '~2.5 min, medium cost' },
+          'llm.cloudPremium': { de: 'B: Cloud Premium (Haiku/Sonnet)', en: 'B: Cloud Premium (Haiku/Sonnet)' },
+          'llm.cloudPremiumMeta': { de: '~3 min, hohe Kosten', en: '~3 min, high cost' },
+
+          // Agent names
+          'agent.oee-diagnose': { de: 'OEE Diagnose', en: 'OEE Diagnosis' },
+          'agent.oee-optimize': { de: 'OEE Optimierung', en: 'OEE Optimization' },
+          'agent.oee-planner': { de: 'OEE Planung', en: 'OEE Planning' },
+          'agent.quality-optimize': { de: 'Qualitätsoptimierung', en: 'Quality Optimization' },
+          'agent.quality-planner': { de: 'Qualitätsplanung', en: 'Quality Planning' },
+          'agent.otd-optimize': { de: 'Liefertreue-Optimierung', en: 'OTD Optimization' },
+          'agent.otd-planner': { de: 'Liefertreue-Planung', en: 'OTD Planning' },
+          'agent.strategic-planner': { de: 'Strategische Planung', en: 'Strategic Planning' },
+          'agent.goodmorning': { de: 'Morgen-Briefing', en: 'Morning Briefing' },
+          'agent.deep-morning': { de: 'Deep Morning Analysis', en: 'Deep Morning Analysis' },
+          'agent.nightly': { de: 'Nachtanalyse', en: 'Nightly Analysis' },
+          'agent.monthly-revenue': { de: 'Umsatz-Report', en: 'Revenue Report' },
+          'agent.impact-analysis': { de: 'Impact-Analyse', en: 'Impact Analysis' },
+          'agent.start': { de: 'starten', en: 'starting' },
+          'agent.nextMonth': { de: '(Folgemonat)', en: '(Next month)' },
+          'agent.thisMonth': { de: '(Diesen Monat)', en: '(This month)' },
+
+          // Skill names
+          'skill.oee_summary': { de: 'OEE Übersicht', en: 'OEE Overview' },
+          'skill.quality_summary': { de: 'Qualität', en: 'Quality' },
+          'skill.otd_summary': { de: 'Liefertreue', en: 'On-Time Delivery' },
+          'skill.show': { de: 'anzeigen', en: 'show' },
+
+          // Tool names (progress panel)
+          'tool.get_oee_summary': { de: 'OEE-Daten', en: 'OEE Data' },
+          'tool.get_oee_deep_analysis': { de: 'OEE-Tiefenanalyse', en: 'OEE Deep Analysis' },
+          'tool.get_oee_hourly': { de: 'OEE Stundenwerte', en: 'OEE Hourly' },
+          'tool.get_otd_summary': { de: 'Liefertreue', en: 'OTD' },
+          'tool.get_otd_deep_analysis': { de: 'OTD-Analyse', en: 'OTD Analysis' },
+          'tool.get_quality_summary': { de: 'Qualitätsdaten', en: 'Quality Data' },
+          'tool.get_quality_deep_analysis': { de: 'Qualitätsanalyse', en: 'Quality Analysis' },
+          'tool.get_orders_overview': { de: 'Auftragsliste', en: 'Orders List' },
+          'tool.get_machine_status': { de: 'Maschinenstatus', en: 'Machine Status' },
+          'tool.get_daily_kpis': { de: 'Tages-KPIs', en: 'Daily KPIs' },
+          'tool.get_downtime_log': { de: 'Stillstandsprotokoll', en: 'Downtime Log' },
+          'tool.get_scrap_details': { de: 'Ausschussdetails', en: 'Scrap Details' },
+          'tool.get_open_notifications': { de: 'Meldungen', en: 'Notifications' },
+          'tool.get_baugruppen_shortages': { de: 'Materialengpässe', en: 'Material Shortages' },
+          'tool.sgm_get_process_data': { de: 'Prozessdaten', en: 'Process Data' },
+          'tool.wzm_get_history': { de: 'Werkzeughistorie', en: 'Tool History' },
+
+          // Progress status bar
+          'progress.starting': { de: 'Starte...', en: 'Starting...' },
+          'progress.calling': { de: 'Rufe {tool} ab...', en: 'Fetching {tool}...' },
+          'progress.processing': { de: 'Verarbeite...', en: 'Processing...' },
+          'progress.aiAnalyzing': { de: 'KI analysiert... (Runde {n})', en: 'AI analyzing... (Round {n})' },
+          'progress.creatingResponse': { de: 'Antwort wird erstellt...', en: 'Creating response...' },
+          'progress.complexDetected': { de: 'Strategische Frage erkannt...', en: 'Strategic question detected...' },
+          'progress.simpleQuery': { de: 'Einfache Anfrage...', en: 'Simple query...' },
+          'progress.specialistsPlanned': { de: '{n} Spezialisten geplant...', en: '{n} specialists planned...' },
+          'progress.specialistsAnalyzing': { de: 'Spezialisten analysieren ({done}/{total})', en: 'Specialists analyzing ({done}/{total})' },
+          'progress.discussionRound': { de: 'Diskussionsrunde {n}', en: 'Discussion round {n}' },
+          'progress.questionTo': { de: 'Frage an {name}...', en: 'Question to {name}...' },
+          'progress.answerFrom': { de: 'Antwort von {name}', en: 'Answer from {name}' },
+          'progress.synthesisPending': { de: 'Synthese wird erstellt...', en: 'Creating synthesis...' },
+          'progress.debateStarted': { de: 'Debatte & Synthese...', en: 'Debate & Synthesis...' },
+          'progress.draftCreated': { de: 'Entwurf erstellt, Kritik läuft...', en: 'Draft created, critiques running...' },
+          'progress.critiqueFrom': { de: 'Kritik von {name}...', en: 'Critique from {name}...' },
+          'progress.reportGenerating': { de: 'Report wird generiert...', en: 'Generating report...' },
+          'progress.done': { de: 'Fertig', en: 'Done' },
+          'progress.waitingForEvents': { de: 'Warte auf Events...', en: 'Waiting for events...' },
+          'progress.popupBlocked': { de: 'Pop-up wurde blockiert. Bitte erlaube Pop-ups für diese Seite.', en: 'Pop-up was blocked. Please allow pop-ups for this site.' },
+
+          // Specialist card statuses
+          'specialist.pending': { de: 'Wartend', en: 'Pending' },
+          'specialist.running': { de: 'Läuft...', en: 'Running...' },
+          'specialist.done': { de: 'Fertig', en: 'Done' },
+          'specialist.error': { de: 'Fehler', en: 'Error' },
+          'specialist.label': { de: 'Spezialisten', en: 'Specialists' },
+          'specialist.data': { de: 'Daten', en: 'Data' },
+          'specialist.duration': { de: 'Dauer', en: 'Duration' },
+          'specialist.findings': { de: 'Findings', en: 'Findings' },
+          'specialist.recommendations': { de: 'Empfehlungen', en: 'Recommendations' },
+          'specialist.errorLabel': { de: 'Fehler', en: 'Error' },
+          'specialist.result': { de: 'Ergebnis', en: 'Result' },
+
+          // Discussion
+          'disc.header': { de: 'Diskussion', en: 'Discussion' },
+          'disc.round': { de: 'Runde {n}', en: 'Round {n}' },
+          'disc.round1Specialists': { de: 'Runde 1: Spezialisten-Analyse', en: 'Round 1: Specialist Analysis' },
+          'disc.moderator': { de: 'Moderator', en: 'Moderator' },
+          'disc.errorStatus': { de: '❌ Fehler', en: '❌ Error' },
+          'disc.noData': { de: '⚠ Keine Daten', en: '⚠ No data' },
+          'disc.noAnalysis': { de: 'Keine Analyse', en: 'No analysis' },
+          'disc.beingRecruited': { de: 'wird hinzugezogen...', en: 'being recruited...' },
+          'disc.analysis': { de: 'Analyse', en: 'Analysis' },
+          'disc.analysisComplete': { de: 'Analyse abgeschlossen', en: 'Analysis complete' },
+          'disc.moderatorDraft': { de: 'Moderator erstellt Entwurf...', en: 'Moderator creating draft...' },
+          'disc.debateRound': { de: '⚔ Runde 3: Spezialisten-Debatte', en: '⚔ Round 3: Specialist Debate' },
+          'disc.draft': { de: 'Moderator — Entwurf', en: 'Moderator — Draft' },
+          'disc.draftCreated': { de: 'Entwurf erstellt', en: 'Draft created' },
+          'disc.feedback': { de: 'Feedback', en: 'Feedback' },
+          'disc.assessment': { de: 'Bewertung', en: 'Assessment' },
+          'disc.finalPlan': { de: 'Finaler Plan (nach Debatte)', en: 'Final Plan (after debate)' },
+          'disc.finalPlanCreated': { de: 'Finaler Plan erstellt', en: 'Final plan created' },
+
+          // Report section headers (specialist results)
+          'report.zahlenDatenFakten': { de: 'Zahlen, Daten, Fakten', en: 'Key Figures & Facts' },
+          'report.kritischeFindings': { de: 'Kritische Findings', en: 'Critical Findings' },
+          'report.empfehlungen': { de: 'Empfehlungen', en: 'Recommendations' },
+          'report.crossDomain': { de: 'Cross-Domain Hinweise', en: 'Cross-Domain Notes' },
+          'report.evidence': { de: 'Evidenz', en: 'Evidence' },
+          'report.machines': { de: 'Maschinen', en: 'Machines' },
+
+          // Progress event labels
+          'event.sessionInit': { de: 'Session initialisiert', en: 'Session initialized' },
+          'event.agentStarted': { de: 'Agent {name} gestartet', en: 'Agent {name} started' },
+          'event.done': { de: 'Fertig', en: 'Done' },
+          'event.reportReady': { de: 'Report bereit', en: 'Report ready' },
+          'event.complexDetected': { de: 'Strategische Frage erkannt', en: 'Strategic question detected' },
+          'event.simpleQuery': { de: 'Einfache Anfrage', en: 'Simple query' },
+          'event.specialistsPlanned': { de: 'Spezialisten geplant', en: 'Specialists planned' },
+          'event.planCreated': { de: 'Plan erstellt', en: 'Plan created' },
+
+          // Formatting
+          'format.oee': { de: 'OEE Übersicht', en: 'OEE Overview' },
+          'format.availability': { de: 'Verfügbarkeit', en: 'Availability' },
+          'format.performance': { de: 'Leistung', en: 'Performance' },
+          'format.quality': { de: 'Qualität', en: 'Quality' },
+          'format.metric': { de: 'Kennzahl', en: 'Metric' },
+          'format.value': { de: 'Wert', en: 'Value' },
+          'format.machine': { de: 'Maschine', en: 'Machine' },
+          'format.status': { de: 'Status', en: 'Status' },
+          'format.noData': { de: 'Keine Daten verfügbar.', en: 'No data available.' },
+          'format.defects': { de: 'Ausschuss', en: 'Defects' },
+          'format.goodParts': { de: 'Gut-Teile', en: 'Good parts' },
+          'format.otd': { de: 'Liefertreue', en: 'On-Time Delivery' },
+          'format.onTime': { de: 'Pünktlich', en: 'On time' },
+          'format.late': { de: 'Verspätet', en: 'Late' },
+
+          // KG
+          'kg.center': { de: 'Zentrum', en: 'Center' },
+          'kg.directlyAffected': { de: 'Direkt betroffen', en: 'Directly affected' },
+          'kg.indirect': { de: 'Indirekt', en: 'Indirect' },
+          'kg.alternatives': { de: 'Alternativen', en: 'Alternatives' },
+          'kg.nodes': { de: 'Knoten', en: 'Nodes' },
+          'kg.edges': { de: 'Kanten', en: 'Edges' },
+          'kg.affectedOrders': { de: 'betroffene Aufträge', en: 'affected orders' },
+        };
+
+        function t(key, params) {
+          const entry = I18N[key];
+          if (!entry) return key;
+          let text = entry[currentLanguage] || entry['de'] || key;
+          if (params) {
+            for (const [k, v] of Object.entries(params)) {
+              text = text.replace('{' + k + '}', String(v));
+            }
+          }
+          return text;
+        }
+
+        function applyLanguage() {
+          // HTML lang attribute
+          document.documentElement.lang = currentLanguage === 'en' ? 'en' : 'de';
+
+          // Static DOM elements
+          const statusTextEl = document.getElementById('statusText');
+          if (statusTextEl && !statusTextEl.classList.contains('error')) {
+            statusTextEl.textContent = t('status.connected');
+          }
+
+          // Input placeholder
+          const inputEl = document.getElementById('input');
+          if (inputEl) inputEl.placeholder = t('input.placeholder');
+
+          // Send button title
+          if (!isLoading) {
+            const sb = document.getElementById('sendBtn');
+            if (sb) sb.title = t('input.send');
+          }
+
+          // Header buttons
+          const backLink = document.querySelector('.header-actions a[title]');
+          if (backLink) backLink.title = t('header.back');
+          const helpLink = document.querySelector('a[href="/help.html"]');
+          if (helpLink) helpLink.textContent = t('header.help');
+          const clearBtnEl = document.getElementById('clearBtn');
+          if (clearBtnEl) clearBtnEl.title = t('header.clearChat');
+          const langToggleEl = document.getElementById('langToggle');
+          if (langToggleEl) langToggleEl.title = t('header.langTitle');
+
+          // Welcome subtitle
+          const welcomeSub = document.querySelector('.welcome-subtitle');
+          if (welcomeSub) welcomeSub.textContent = t('welcome.subtitle');
+
+          // Machine modal static text
+          const machineInputEl = document.getElementById('machineInput');
+          if (machineInputEl) machineInputEl.placeholder = t('modal.inputPlaceholder');
+          const modalCancelEl = document.getElementById('modalCancel');
+          if (modalCancelEl) modalCancelEl.textContent = t('modal.cancel');
+          const modalConfirmEl = document.getElementById('modalConfirm');
+          if (modalConfirmEl) modalConfirmEl.textContent = t('modal.confirm');
+
+          // Impact modal static text
+          const impactModalDescEl = document.getElementById('impactModalDesc');
+          if (impactModalDescEl) impactModalDescEl.textContent = t('impact.desc');
+          const impactCancelEl = document.getElementById('impactCancel');
+          if (impactCancelEl) impactCancelEl.textContent = t('impact.cancel');
+          const impactStartEl = document.getElementById('impactStart');
+          if (impactStartEl) impactStartEl.textContent = t('impact.start');
+
+          // Impact scenario select options
+          const scenarioSelect = document.getElementById('impactScenarioSelect');
+          if (scenarioSelect) {
+            const opts = scenarioSelect.querySelectorAll('option');
+            const scenarioKeys = ['machine_down', 'material_shortage', 'supplier_down', 'customer_rush', 'tool_wear', 'quality_issue', 'rush_order'];
+            opts.forEach((opt, i) => {
+              if (scenarioKeys[i]) opt.textContent = t('impact.' + scenarioKeys[i]);
+            });
+          }
+
+          // Impact form labels
+          const labels = document.querySelectorAll('#impactModal .impact-form-label');
+          if (labels[0]) labels[0].textContent = t('impact.scenario');
+          if (labels[1]) labels[1].textContent = t('impact.entity');
+
+          // Pill labels (accord-header text spans)
+          const pillMap = {
+            'quality': 'pill.quality',
+            'revenue': 'pill.revenue',
+          };
+          document.querySelectorAll('.accord-section[data-domain]').forEach(sec => {
+            const domain = sec.getAttribute('data-domain');
+            const key = pillMap[domain];
+            if (key) {
+              const span = sec.querySelector('.accord-header-left span:not(.accord-icon)');
+              if (span) span.textContent = t(key);
+            }
+          });
+
+          // Machine modal title/desc (static defaults)
+          const modalTitleEl = document.getElementById('modalTitle');
+          if (modalTitleEl) modalTitleEl.textContent = t('modal.selectMachine');
+          const modalDescEl = document.getElementById('modalDesc');
+          if (modalDescEl) modalDescEl.textContent = t('modal.descAgent');
+
+          // Impact modal title
+          const impactTitleEl = document.querySelector('.impact-modal-title');
+          if (impactTitleEl) impactTitleEl.textContent = t('impact.title');
+
+          // Days label
+          const daysLabels = document.querySelectorAll('#impactDaysGroup .impact-form-label');
+          if (daysLabels.length > 0) {
+            const daysSpan = daysLabels[0].querySelector('.impact-range-value');
+            const daysVal = daysSpan ? daysSpan.textContent : '5';
+            daysLabels[0].innerHTML = `${t('impact.days')} <span class="impact-range-value" id="impactDaysValue">${daysVal}</span>`;
+          }
+
+          // Qty label
+          const qtyLabel = document.querySelector('#impactQtyGroup .impact-form-label');
+          if (qtyLabel) qtyLabel.textContent = t('impact.qty');
+
+          // Progress panel
+          const specLabel = document.querySelector('.specialist-progress-bar-label');
+          if (specLabel) specLabel.textContent = t('specialist.label');
+          const discHeader = document.querySelector('.discussion-header');
+          if (discHeader) discHeader.textContent = t('disc.header');
+          const emptySpan = document.querySelector('.progress-empty span');
+          if (emptySpan) emptySpan.textContent = t('progress.waitingForEvents');
+
+          // Status bar static labels
+          const progressPhase = document.getElementById('progressStatusPhase');
+          if (progressPhase && progressPhase.textContent === 'Starte...') {
+            progressPhase.textContent = t('progress.starting');
+          }
+
+          // Verbunden text in header
+          const statusBarEl = document.getElementById('statusText');
+          if (statusBarEl && (statusBarEl.textContent === 'Verbunden' || statusBarEl.textContent === 'Connected')) {
+            statusBarEl.textContent = t('status.connected');
+          }
+
+          // Re-render any open expand panels (LLM config + pill sub-buttons)
+          document.querySelectorAll('.accord-expand.open').forEach(panel => {
+            const section = panel.closest('.accord-section');
+            if (section) {
+              const sectionName = section.getAttribute('data-domain');
+              panel.innerHTML = '';
+              fillExpandPanel(sectionName, panel);
+            }
+          });
+        }
+
         let progressEvents = [];
 
         // Specialist orchestration state
@@ -2722,11 +3091,11 @@
                 const res = await fetch('/health');
                 const data = await res.json();
                 statusIndicator.className = 'status-indicator';
-                statusText.textContent = 'Verbunden';
+                statusText.textContent = t('status.connected');
                 fetchLlmModel();
             } catch {
                 statusIndicator.className = 'status-indicator error';
-                statusText.textContent = 'Offline';
+                statusText.textContent = t('status.offline');
             }
         }
 
@@ -2853,26 +3222,12 @@
             selectedMachine = '';
             machineInput.value = '';
 
-            const titles = {
-                'oee-diagnose': 'OEE Diagnose',
-                'oee-optimize': 'OEE Optimierung',
-                'oee-planner': 'OEE Planung',
-                'quality-optimize': 'Qualitätsoptimierung',
-                'quality-planner': 'Qualitätsplanung',
-                'otd-optimize': 'Liefertreue-Optimierung',
-                'otd-planner': 'Liefertreue-Planung',
-                'oee_summary': 'OEE Übersicht',
-                'quality_summary': 'Qualität',
-                'otd_summary': 'Liefertreue'
-            };
+            const titleKey = 'agent.' + name;
+            const titleResolved = t(titleKey) !== titleKey ? t(titleKey) : (t('skill.' + name) !== ('skill.' + name) ? t('skill.' + name) : name);
 
-            modalTitle.textContent = titles[name] || name;
+            modalTitle.textContent = titleResolved;
 
-            if (type === 'agent') {
-                modalDesc.textContent = 'Wählen Sie eine Maschine für die Analyse oder lassen Sie das Feld leer für alle Maschinen.';
-            } else {
-                modalDesc.textContent = 'Wählen Sie eine Maschine oder lassen Sie das Feld leer für die Gesamtübersicht.';
-            }
+            modalDesc.textContent = type === 'agent' ? t('modal.descAgent') : t('modal.descSkill');
 
             loadMachineButtons();
             machineModal.classList.add('open');
@@ -2887,7 +3242,7 @@
                 renderMachineButtons(container, machineCache);
                 return;
             }
-            container.innerHTML = '<span style="color:var(--text-1);font-size:13px;">Lade Maschinen...</span>';
+            container.innerHTML = `<span style="color:var(--text-1);font-size:13px;">${t('modal.loading')}</span>`;
             try {
                 const res = await fetch('/api/mcp', {
                     method: 'POST',
@@ -2922,7 +3277,7 @@
                 renderMachineButtons(container, machineCache);
             } catch (e) {
                 console.warn('[MCP] list-machines failed:', e);
-                container.innerHTML = '<span style="color:var(--text-2);font-size:13px;">Maschinen-ID manuell eingeben</span>';
+                container.innerHTML = `<span style="color:var(--text-2);font-size:13px;">${t('modal.manualEntry')}</span>`;
             }
         }
 
@@ -3082,50 +3437,50 @@
             'llm-config': { type: 'llm' },
             'oee': {
                 buttons: [
-                    { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'oee_summary' },
-                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'oee-optimize' },
-                    { label: 'Fast', dot: 'blue', action: 'agent', agent: 'oee-diagnose' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'oee_summary' },
+                    { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'oee-optimize' },
+                    { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', action: 'agent', agent: 'oee-diagnose' },
                 ]
             },
             'quality': {
                 buttons: [
-                    { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'quality_summary' },
-                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'quality-optimize' },
-                    { label: 'Fast', dot: 'blue', disabled: true },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'quality_summary' },
+                    { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'quality-optimize' },
+                    { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', disabled: true },
                 ]
             },
             'otd': {
                 buttons: [
-                    { label: 'Uebersicht', dot: 'green', action: 'skill', skill: 'otd_summary' },
-                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'otd-optimize' },
-                    { label: 'Fast', dot: 'blue', action: 'agent', agent: 'otd-planner' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'otd_summary' },
+                    { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'otd-optimize' },
+                    { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', action: 'agent', agent: 'otd-planner' },
                 ]
             },
             'revenue': {
                 buttons: [
-                    { label: 'Uebersicht', dot: 'green', disabled: true },
-                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'monthly-revenue' },
-                    { label: 'Fast', dot: 'blue', disabled: true },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', disabled: true },
+                    { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'monthly-revenue' },
+                    { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', disabled: true },
                 ]
             },
             'shopfloor': {
                 buttons: [
-                    { label: 'Uebersicht', dot: 'green', disabled: true },
-                    { label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'deep-morning' },
-                    { label: 'Fast', dot: 'blue', action: 'agent', agent: 'goodmorning' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', disabled: true },
+                    { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'deep-morning' },
+                    { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', action: 'agent', agent: 'goodmorning' },
                 ]
             },
             'material': {
                 buttons: [
-                    { label: 'Diskussion', dot: 'orange', action: 'agent', agent: 'material-optimize' },
-                    { label: 'Low Stock', dot: 'red', action: 'skill', skill: 'material_low_stock' },
+                    { labelKey: 'pill.discussion', label: 'Discussion', dot: 'orange', action: 'agent', agent: 'material-optimize' },
+                    { labelKey: 'pill.lowStock', label: 'Low Stock', dot: 'red', action: 'skill', skill: 'material_low_stock' },
                 ]
             },
             'impact': {
                 buttons: [
-                    { label: 'Maschine faellt aus', dot: 'red', action: 'impact', scenario: 'machine_down' },
-                    { label: 'Material-Engpass', dot: 'orange', action: 'impact', scenario: 'material_shortage' },
-                    { label: 'Alle Szenarien...', dot: 'blue', action: 'impact', scenario: 'all' },
+                    { labelKey: 'pill.machineDown', label: 'Machine breakdown', dot: 'red', action: 'impact', scenario: 'machine_down' },
+                    { labelKey: 'pill.materialShortage', label: 'Material shortage', dot: 'orange', action: 'impact', scenario: 'material_shortage' },
+                    { labelKey: 'pill.allScenarios', label: 'All scenarios...', dot: 'blue', action: 'impact', scenario: 'all' },
                 ]
             },
         };
@@ -3137,28 +3492,28 @@
             if (config.type === 'llm') {
                 const disabledClass = isExternalUser ? ' disabled' : '';
                 panel.innerHTML = `
-                    <div class="llm-external-hint${isExternalUser ? ' show' : ''}" id="llmExternalHint">Nur intern umschaltbar</div>
+                    <div class="llm-external-hint${isExternalUser ? ' show' : ''}" id="llmExternalHint">${t('pill.internalOnly')}</div>
                     <div class="llm-config-body open${disabledClass}" id="llmConfigBody">
                     <div class="llm-radio-group" id="llmRadioGroup">
                         <label class="llm-radio" data-simple="qwen-14b" data-complex="qwen">
                             <input type="radio" name="llmPreset" value="D"${isExternalUser ? ' disabled' : ''}>
-                            <span class="llm-radio-label">D: Lokal (14B/72B)</span>
-                            <span class="llm-radio-meta">~20 min, keine API-Kosten</span>
+                            <span class="llm-radio-label">${t('llm.localSmall')}</span>
+                            <span class="llm-radio-meta">${t('llm.localSmallMeta')}</span>
                         </label>
                         <label class="llm-radio" data-simple="qwen" data-complex="qwen">
                             <input type="radio" name="llmPreset" value="E"${isExternalUser ? ' disabled' : ''}>
-                            <span class="llm-radio-label">E: Lokal Full (72B/72B)</span>
-                            <span class="llm-radio-meta">~64 min, keine API-Kosten</span>
+                            <span class="llm-radio-label">${t('llm.localFull')}</span>
+                            <span class="llm-radio-meta">${t('llm.localFullMeta')}</span>
                         </label>
                         <label class="llm-radio" data-simple="haiku" data-complex="haiku">
                             <input type="radio" name="llmPreset" value="A"${isExternalUser ? ' disabled' : ''}>
-                            <span class="llm-radio-label">A: Cloud Fast (Haiku/Haiku)</span>
-                            <span class="llm-radio-meta">~2.5 min, mittlere Kosten</span>
+                            <span class="llm-radio-label">${t('llm.cloudFast')}</span>
+                            <span class="llm-radio-meta">${t('llm.cloudFastMeta')}</span>
                         </label>
                         <label class="llm-radio" data-simple="haiku" data-complex="sonnet">
                             <input type="radio" name="llmPreset" value="B"${isExternalUser ? ' disabled' : ''}>
-                            <span class="llm-radio-label">B: Cloud Premium (Haiku/Sonnet)</span>
-                            <span class="llm-radio-meta">~3 min, hohe Kosten</span>
+                            <span class="llm-radio-label">${t('llm.cloudPremium')}</span>
+                            <span class="llm-radio-meta">${t('llm.cloudPremiumMeta')}</span>
                         </label>
                     </div>
                 </div>`;
@@ -3174,9 +3529,10 @@
                 el.className = 'accord-btn';
                 if (btn.disabled) {
                     el.disabled = true;
-                    el.title = 'Nicht verfuegbar';
+                    el.title = t('pill.notAvailable');
                 }
-                el.innerHTML = `<span class="btn-dot ${btn.dot}"></span> ${btn.label}`;
+                const label = btn.labelKey ? t(btn.labelKey) : btn.label;
+                el.innerHTML = `<span class="btn-dot ${btn.dot}"></span> ${label}`;
 
                 if (!btn.disabled) {
                     el.addEventListener('click', () => {
@@ -3268,13 +3624,10 @@
             isLoading = true;
             updateSendBtn();
 
-            const skillNames = {
-                'oee_summary': 'OEE Übersicht',
-                'quality_summary': 'Qualität',
-                'otd_summary': 'Liefertreue'
-            };
+            const skillKey = 'skill.' + skill;
+            const skillName = t(skillKey) !== skillKey ? t(skillKey) : skill;
 
-            addMessage('user', `${skillNames[skill] || skill} anzeigen`);
+            addMessage('user', `${skillName} ${t('skill.show')}`);
             const typingId = addTyping();
 
             try {
@@ -3307,7 +3660,7 @@
                 }
             } catch (err) {
                 removeTyping(typingId);
-                addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+                addMessage('assistant', `❌ ${t('msg.connError')}: ${err.message}`);
             }
 
             isLoading = false;
@@ -3325,28 +3678,15 @@
             isLoading = true;
             updateSendBtn();
 
-            const agentNames = {
-                'oee-diagnose': 'OEE Diagnose',
-                'oee-optimize': 'OEE Optimierung',
-                'oee-planner': 'OEE Planung',
-                'quality-optimize': 'Qualitätsoptimierung',
-                'quality-planner': 'Qualitätsplanung',
-                'otd-optimize': 'Liefertreue-Optimierung',
-                'otd-planner': 'Liefertreue-Planung',
-                'strategic-planner': 'Strategische Planung',
-                'goodmorning': 'Morgen-Briefing',
-                'deep-morning': 'Deep Morning Analysis',
-                'nightly': 'Nachtanalyse',
-                'monthly-revenue': 'Umsatz-Report',
-                'impact-analysis': 'Impact-Analyse'
-            };
+            const agentKey = 'agent.' + agent;
+            const agentNameResolved = t(agentKey) !== agentKey ? t(agentKey) : agent;
 
-            let displayName = agentNames[agent] || agent;
+            let displayName = agentNameResolved;
             if (agent === 'monthly-revenue' && params.periodMode) {
-                displayName += params.periodMode === 'next' ? ' (Folgemonat)' : ' (Diesen Monat)';
+                displayName += ' ' + (params.periodMode === 'next' ? t('agent.nextMonth') : t('agent.thisMonth'));
             }
 
-            addMessage('user', `${displayName} starten`);
+            addMessage('user', `${displayName} ${t('agent.start')}`);
 
             // Clear stream panel for new agent run and auto-open
             const _progressLog = document.getElementById('progressLog');
@@ -3356,7 +3696,7 @@
             if (_progressLog) _progressLog.innerHTML = '';
             if (_specOverview) _specOverview.classList.remove('active');
             if (_specCards) _specCards.innerHTML = '';
-            if (_discThread) { _discThread.classList.remove('active'); _discThread.innerHTML = '<div class="discussion-header">Diskussion</div><div id="discussionMessages" class="discussion-messages" style="display:flex;flex-direction:column;gap:6px;"></div>'; }
+            if (_discThread) { _discThread.classList.remove('active'); _discThread.innerHTML = `<div class="discussion-header">${t('disc.header')}</div><div id="discussionMessages" class="discussion-messages" style="display:flex;flex-direction:column;gap:6px;"></div>`; }
             progressEvents = [];
             specialistState = { active: false, total: 0, completed: 0, specialists: {} };
             openProgressPanel();
@@ -3390,7 +3730,7 @@
                 await readSSEStream(res, (event) => {
                     switch (event.type) {
                         case 'run_start':
-                            handleProgressEvent({ type: 'init', message: `Agent ${agent} gestartet`, timestamp: new Date().toISOString() });
+                            handleProgressEvent({ type: 'init', message: t('event.agentStarted', {name: agent}), timestamp: new Date().toISOString() });
                             break;
                         case 'tool_start':
                             handleProgressEvent({ type: 'tool_call_start', toolName: event.name, params: event.arguments, timestamp: new Date().toISOString() });
@@ -3405,11 +3745,11 @@
                             handleProgressEvent({ type: 'error', message: event.message, timestamp: new Date().toISOString() });
                             break;
                         case 'done':
-                            handleProgressEvent({ type: 'done', message: 'Fertig', timestamp: new Date().toISOString() });
+                            handleProgressEvent({ type: 'done', message: t('event.done'), timestamp: new Date().toISOString() });
                             break;
                         case 'report_ready':
                             agentReportUrl = event.reportUrl;
-                            handleProgressEvent({ type: 'report_ready', message: 'Report bereit', timestamp: new Date().toISOString() });
+                            handleProgressEvent({ type: 'report_ready', message: t('event.reportReady'), timestamp: new Date().toISOString() });
                             break;
                         case 'heartbeat':
                             break; // Silently ignore
@@ -3426,7 +3766,7 @@
                 removeTyping(typingId);
 
                 // Build output with optional report link
-                let finalOutput = agentOutput || 'Agent ausgeführt.';
+                let finalOutput = agentOutput || t('msg.agentDone');
                 if (agentReportUrl) {
                     const reportLink = agentReportUrl + (agentReportUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(getToken());
                     finalOutput += `\n\n---\n📊 **[Report öffnen](${reportLink})**`;
@@ -3438,9 +3778,9 @@
                 currentFetchController = null;
                 removeTyping(typingId);
                 if (err.name === 'AbortError') {
-                    addMessage('assistant', '⏹ Agent gestoppt.');
+                    addMessage('assistant', '⏹ ' + t('msg.agentStopped'));
                 } else {
-                    addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+                    addMessage('assistant', `❌ ${t('msg.connError')}: ${err.message}`);
                 }
             }
 
@@ -3481,7 +3821,8 @@
                     headers: authHeaders(),
                     body: JSON.stringify({
                         message: text,
-                        sessionId
+                        sessionId,
+                        language: currentLanguage
                     }),
                     signal: currentFetchController.signal
                 });
@@ -3527,6 +3868,8 @@
                         case 'discussion_round_start':
                         case 'discussion_question':
                         case 'discussion_answer':
+                        case 'discussion_recruit':
+                        case 'discussion_recruit_result':
                         case 'discussion_round_complete':
                         case 'discussion_synthesis_start':
                         case 'debate_start':
@@ -3546,15 +3889,15 @@
 
                 currentFetchController = null;
                 removeTyping(typingId);
-                addMessage('assistant', assistantText || 'Keine Antwort.');
+                addMessage('assistant', assistantText || t('msg.noAnswer'));
 
             } catch (err) {
                 currentFetchController = null;
                 removeTyping(typingId);
                 if (err.name === 'AbortError') {
-                    addMessage('assistant', '⏹ Chat gestoppt.');
+                    addMessage('assistant', '⏹ ' + t('msg.chatStopped'));
                 } else {
-                    addMessage('assistant', `❌ Verbindungsfehler: ${err.message}`);
+                    addMessage('assistant', `❌ ${t('msg.connError')}: ${err.message}`);
                 }
             }
 
@@ -3581,12 +3924,12 @@
             if (isLoading) {
                 sendBtn.disabled = false;
                 sendBtn.classList.add('stop-mode');
-                sendBtn.title = 'Stop';
+                sendBtn.title = t('input.stop');
                 sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
             } else {
                 sendBtn.disabled = false;
                 sendBtn.classList.remove('stop-mode');
-                sendBtn.title = 'Senden';
+                sendBtn.title = t('input.send');
                 sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
             }
         }
@@ -3604,8 +3947,8 @@
             msg.className = `message ${type}`;
 
             const avatar = type === 'assistant' ? '⚡' : '👤';
-            const sender = type === 'assistant' ? 'ZeroGuess AI' : 'Sie';
-            const time = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const sender = type === 'assistant' ? 'ZeroGuess AI' : t('msg.you');
+            const time = new Date().toLocaleTimeString(currentLanguage === 'en' ? 'en-US' : 'de-DE', { hour: '2-digit', minute: '2-digit' });
 
             msg.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
@@ -3625,7 +3968,7 @@
         function addNewChatButton() {
             const btn = document.createElement('div');
             btn.style.cssText = 'text-align:center;margin:12px 0 4px;';
-            btn.innerHTML = '<button onclick="clearChat()" style="background:var(--surface-2);border:1px solid var(--border);color:var(--accent-primary);padding:6px 16px;border-radius:8px;cursor:pointer;font-size:13px;">Neuer Chat</button>';
+            btn.innerHTML = `<button onclick="clearChat()" style="background:var(--surface-2);border:1px solid var(--border);color:var(--accent-primary);padding:6px 16px;border-radius:8px;cursor:pointer;font-size:13px;">${t('msg.newChat')}</button>`;
             messages.appendChild(btn);
             main.scrollTop = main.scrollHeight;
         }
@@ -3665,7 +4008,7 @@
 
             bar.style.display = 'flex';
             bar.classList.add('active');
-            if (phase) phase.textContent = 'Starte...';
+            if (phase) phase.textContent = t('progress.starting');
             if (timer) timer.textContent = '0s';
 
             typingStartTime = Date.now();
@@ -3694,25 +4037,9 @@
         }
 
         function formatToolName(toolName) {
-            const names = {
-                'get_oee_summary': 'OEE-Daten',
-                'get_oee_deep_analysis': 'OEE-Tiefenanalyse',
-                'get_oee_hourly': 'OEE Stundenwerte',
-                'get_otd_summary': 'Liefertreue',
-                'get_otd_deep_analysis': 'OTD-Analyse',
-                'get_quality_summary': 'Qualitätsdaten',
-                'get_quality_deep_analysis': 'Qualitätsanalyse',
-                'get_orders_overview': 'Auftragsliste',
-                'get_machine_status': 'Maschinenstatus',
-                'get_daily_kpis': 'Tages-KPIs',
-                'get_downtime_log': 'Stillstandsprotokoll',
-                'get_scrap_details': 'Ausschussdetails',
-                'get_open_notifications': 'Meldungen',
-                'get_baugruppen_shortages': 'Materialengpässe',
-                'sgm_get_process_data': 'Prozessdaten',
-                'wzm_get_history': 'Werkzeughistorie',
-            };
-            if (names[toolName]) return names[toolName];
+            const toolKey = 'tool.' + toolName;
+            const translated = t(toolKey);
+            if (translated !== toolKey) return translated;
             return (toolName || '').replace(/^get_/, '').replace(/_/g, ' ');
         }
 
@@ -3722,74 +4049,74 @@
 
             switch (event.type) {
                 case 'init':
-                    phase.textContent = event.message || 'Starte...';
+                    phase.textContent = event.message || t('progress.starting');
                     break;
                 case 'tool_start':
                 case 'tool_call_start':
-                    phase.textContent = `Rufe ${formatToolName(event.toolName)} ab...`;
+                    phase.textContent = t('progress.calling', {tool: formatToolName(event.toolName)});
                     break;
                 case 'tool_end':
                 case 'tool_call_end':
-                    phase.textContent = 'Verarbeite...';
+                    phase.textContent = t('progress.processing');
                     break;
                 case 'api_request':
-                    phase.textContent = `KI analysiert... (Runde ${event.iteration || 1})`;
+                    phase.textContent = t('progress.aiAnalyzing', {n: event.iteration || 1});
                     break;
                 case 'api_response':
-                    phase.textContent = 'Antwort wird erstellt...';
+                    phase.textContent = t('progress.creatingResponse');
                     break;
                 case 'step_start':
                     if (event.message) phase.textContent = event.message;
                     break;
                 case 'intent_classification':
-                    phase.textContent = event.message || (event.result === 'complex' ? 'Strategische Frage erkannt...' : 'Einfache Anfrage...');
+                    phase.textContent = event.message || (event.result === 'complex' ? t('progress.complexDetected') : t('progress.simpleQuery'));
                     break;
                 case 'specialists_planned':
-                    phase.textContent = `${(event.specialists || []).length} Spezialisten geplant...`;
+                    phase.textContent = t('progress.specialistsPlanned', {n: (event.specialists || []).length});
                     break;
                 case 'specialists_batch_start':
                     inlineSpecialistsTotal = event.specialistCount || 0;
                     inlineSpecialistsDone = 0;
-                    phase.textContent = `Spezialisten analysieren (0/${inlineSpecialistsTotal})`;
+                    phase.textContent = t('progress.specialistsAnalyzing', {done: 0, total: inlineSpecialistsTotal});
                     break;
                 case 'specialist_complete':
                     inlineSpecialistsDone++;
-                    phase.textContent = `Spezialisten analysieren (${inlineSpecialistsDone}/${inlineSpecialistsTotal})`;
+                    phase.textContent = t('progress.specialistsAnalyzing', {done: inlineSpecialistsDone, total: inlineSpecialistsTotal});
                     break;
                 case 'specialist_error':
                     inlineSpecialistsDone++;
-                    phase.textContent = `Spezialisten analysieren (${inlineSpecialistsDone}/${inlineSpecialistsTotal})`;
+                    phase.textContent = t('progress.specialistsAnalyzing', {done: inlineSpecialistsDone, total: inlineSpecialistsTotal});
                     break;
                 case 'discussion_round_start':
-                    phase.textContent = `Diskussionsrunde ${event.discussionRound || ''}`;
+                    phase.textContent = t('progress.discussionRound', {n: event.discussionRound || ''});
                     break;
                 case 'discussion_question':
-                    phase.textContent = `Frage an ${event.targetSpecialist || 'Spezialist'}...`;
+                    phase.textContent = t('progress.questionTo', {name: event.targetSpecialist || 'Spezialist'});
                     break;
                 case 'discussion_answer':
-                    phase.textContent = `Antwort von ${event.targetSpecialist || 'Spezialist'}`;
+                    phase.textContent = t('progress.answerFrom', {name: event.targetSpecialist || 'Spezialist'});
                     break;
                 case 'discussion_synthesis_start':
-                    phase.textContent = 'Synthese wird erstellt...';
+                    phase.textContent = t('progress.synthesisPending');
                     break;
                 case 'debate_start':
-                    phase.textContent = 'Debatte & Synthese...';
+                    phase.textContent = t('progress.debateStarted');
                     break;
                 case 'debate_draft':
-                    phase.textContent = 'Entwurf erstellt, Kritik läuft...';
+                    phase.textContent = t('progress.draftCreated');
                     break;
                 case 'debate_critique':
-                    phase.textContent = `Kritik von ${event.debateCritiqueFrom || 'Spezialist'}...`;
+                    phase.textContent = t('progress.critiqueFrom', {name: event.debateCritiqueFrom || 'Spezialist'});
                     break;
                 case 'debate_final':
-                    phase.textContent = 'Report wird generiert...';
+                    phase.textContent = t('progress.reportGenerating');
                     break;
                 case 'thinking':
                     if (event.message) phase.textContent = event.message;
                     break;
                 case 'done': {
                     const dur = event.duration ? ` in ${Math.round(event.duration / 1000)}s` : '';
-                    phase.textContent = `Fertig${dur}`;
+                    phase.textContent = `${t('progress.done')}${dur}`;
                     break;
                 }
             }
@@ -3797,7 +4124,7 @@
 
         // === FORMATTING ===
         function formatSkillResult(skill, result) {
-            if (!result) return '❌ Keine Daten verfügbar';
+            if (!result) return '❌ ' + t('msg.noData');
 
             let data = result;
             if (typeof result === 'string') {
@@ -3826,17 +4153,17 @@
 
 ${status} **${oee}%**
 
-| Kennzahl | Wert |
+| ${t('format.metric')} | ${t('format.value')} |
 |----------|------|
-| Verfügbarkeit | ${((data.availability || 0) * 100).toFixed(1)}% |
-| Leistung | ${((data.performance || 0) * 100).toFixed(1)}% |
-| Qualität | ${((data.quality || 0) * 100).toFixed(1)}% |`;
+| ${t('format.availability')} | ${((data.availability || 0) * 100).toFixed(1)}% |
+| ${t('format.performance')} | ${((data.performance || 0) * 100).toFixed(1)}% |
+| ${t('format.quality')} | ${((data.quality || 0) * 100).toFixed(1)}% |`;
             }
 
             const machines = Array.isArray(data) ? data : (data.machines || []);
-            if (!machines.length) return '## OEE\n\nKeine Daten verfügbar.';
+            if (!machines.length) return '## OEE\n\n' + t('format.noData');
 
-            let msg = '## OEE Übersicht\n\n| Maschine | OEE | Status |\n|----------|-----|--------|\n';
+            let msg = `## ${t('format.oee')}\n\n| ${t('format.machine')} | OEE | ${t('format.status')} |\n|----------|-----|--------|\n`;
             for (const m of machines) {
                 const oee = ((m.oee || 0) * 100).toFixed(1);
                 const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
@@ -3848,27 +4175,27 @@ ${status} **${oee}%**
         function formatQuality(data) {
             const rate = ((data.quality_rate || data.rate || 0) * 100).toFixed(1);
             const status = rate >= 98 ? '🟢' : rate >= 95 ? '🟡' : '🔴';
-            return `## Qualität
+            return `## ${t('format.quality')}
 
 ${status} **${rate}%**
 
-| Kennzahl | Wert |
+| ${t('format.metric')} | ${t('format.value')} |
 |----------|------|
-| Ausschuss | ${data.defects || 0} |
-| Gut-Teile | ${data.good_parts || '-'} |`;
+| ${t('format.defects')} | ${data.defects || 0} |
+| ${t('format.goodParts')} | ${data.good_parts || '-'} |`;
         }
 
         function formatOTD(data) {
             const otd = ((data.otd || data.on_time_delivery || 0) * 100).toFixed(1);
             const status = otd >= 95 ? '🟢' : otd >= 85 ? '🟡' : '🔴';
-            return `## Liefertreue
+            return `## ${t('format.otd')}
 
 ${status} **${otd}%**
 
-| Kennzahl | Wert |
+| ${t('format.metric')} | ${t('format.value')} |
 |----------|------|
-| Pünktlich | ${data.on_time_orders || 0} |
-| Verspätet | ${data.late_orders || 0} |`;
+| ${t('format.onTime')} | ${data.on_time_orders || 0} |
+| ${t('format.late')} | ${data.late_orders || 0} |`;
         }
 
         function renderMarkdown(text) {
@@ -3919,9 +4246,11 @@ ${status} **${otd}%**
                 _setLS('v7_language', currentLanguage);
                 label.textContent = currentLanguage.toUpperCase();
                 btn.classList.toggle('active', currentLanguage === 'en');
+                applyLanguage();
             });
         }
         initLanguageToggle();
+        applyLanguage();
 
         function toggleStreaming() {
             streamingEnabled = !streamingEnabled;
@@ -4072,16 +4401,16 @@ ${status} **${otd}%**
                         thread.classList.add('active');
                         const roundHeader = document.createElement('div');
                         roundHeader.className = 'discussion-round-header';
-                        roundHeader.textContent = 'Runde 1: Spezialisten-Analyse';
+                        roundHeader.textContent = t('disc.round1Specialists');
                         messages.appendChild(roundHeader);
 
                         const specResults = event.specialistResults || [];
                         for (const sr of specResults) {
                             const displayName = sr.domain || sr.name || '?';
-                            const status = sr.status === 'error' ? '❌ Fehler' : (sr.report ? '✓' : '⚠ Keine Daten');
+                            const status = sr.status === 'error' ? t('disc.errorStatus') : (sr.report ? '✓' : t('disc.noData'));
                             const summary = sr.report?.zahlenDatenFakten
                                 ? String(sr.report.zahlenDatenFakten).substring(0, 200)
-                                : (sr.error ? String(sr.error).substring(0, 100) : 'Keine Analyse');
+                                : (sr.error ? String(sr.error).substring(0, 100) : t('disc.noAnalysis'));
                             const msg = document.createElement('div');
                             msg.className = 'discussion-message specialist';
                             msg.innerHTML = `
@@ -4104,7 +4433,7 @@ ${status} **${otd}%**
                     thread.classList.add('active');
                     const roundHeader = document.createElement('div');
                     roundHeader.className = 'discussion-round-header';
-                    roundHeader.textContent = `Runde ${event.discussionRound || '?'}`;
+                    roundHeader.textContent = t('disc.round', {n: event.discussionRound || '?'});
                     messages.appendChild(roundHeader);
                     break;
                 }
@@ -4112,7 +4441,7 @@ ${status} **${otd}%**
                     const msg = document.createElement('div');
                     msg.className = 'discussion-message moderator';
                     msg.innerHTML = `
-                        <div class="dm-label">Moderator → ${escapeHtml(event.targetSpecialist || '?')}</div>
+                        <div class="dm-label">${t('disc.moderator')} → ${escapeHtml(event.targetSpecialist || '?')}</div>
                         <div class="dm-text">${escapeHtml(event.moderatorQuestion || '')}</div>
                     `;
                     messages.appendChild(msg);
@@ -4131,7 +4460,7 @@ ${status} **${otd}%**
                 case 'discussion_recruit': {
                     const badge = document.createElement('div');
                     badge.className = 'discussion-recruit-badge';
-                    badge.textContent = `+ ${event.recruitedSpecialistName || 'Spezialist'} wird hinzugezogen...`;
+                    badge.textContent = `+ ${event.recruitedSpecialistName || 'Spezialist'} ${t('disc.beingRecruited')}`;
                     messages.appendChild(badge);
                     break;
                 }
@@ -4139,8 +4468,8 @@ ${status} **${otd}%**
                     const msg = document.createElement('div');
                     msg.className = 'discussion-message recruit-result';
                     msg.innerHTML = `
-                        <div class="dm-label">📋 ${escapeHtml(event.recruitedSpecialistName || 'Spezialist')} — Analyse</div>
-                        <div class="dm-text" style="font-size:12px;white-space:pre-line;">${escapeHtml(event.recruitedSpecialistReport || 'Analyse abgeschlossen')}</div>
+                        <div class="dm-label">📋 ${escapeHtml(event.recruitedSpecialistName || 'Spezialist')} — ${t('disc.analysis')}</div>
+                        <div class="dm-text" style="font-size:12px;white-space:pre-line;">${escapeHtml(event.recruitedSpecialistReport || t('disc.analysisComplete'))}</div>
                     `;
                     messages.appendChild(msg);
                     break;
@@ -4150,14 +4479,14 @@ ${status} **${otd}%**
                 case 'discussion_synthesis_start': {
                     const badge = document.createElement('div');
                     badge.className = 'discussion-synthesis-badge';
-                    badge.textContent = 'Moderator erstellt Entwurf...';
+                    badge.textContent = t('disc.moderatorDraft');
                     messages.appendChild(badge);
                     break;
                 }
                 case 'debate_start': {
                     const badge = document.createElement('div');
                     badge.className = 'debate-start-badge';
-                    badge.textContent = '⚔ Runde 3: Spezialisten-Debatte';
+                    badge.textContent = t('disc.debateRound');
                     messages.appendChild(badge);
                     break;
                 }
@@ -4165,8 +4494,8 @@ ${status} **${otd}%**
                     const msg = document.createElement('div');
                     msg.className = 'discussion-message debate-draft';
                     msg.innerHTML = `
-                        <div class="dm-label">Moderator — Entwurf</div>
-                        <div class="dm-text">${escapeHtml(event.debateDraftSummary || 'Entwurf erstellt')}</div>
+                        <div class="dm-label">${t('disc.draft')}</div>
+                        <div class="dm-text">${escapeHtml(event.debateDraftSummary || t('disc.draftCreated'))}</div>
                     `;
                     messages.appendChild(msg);
                     break;
@@ -4183,9 +4512,9 @@ ${status} **${otd}%**
                     const assessment = event.debateCritiqueAssessment || '';
                     const assessmentCls = assessment.includes('gut') ? 'critique-confirm' : assessment.includes('problematisch') ? 'critique-critic' : 'critique-add';
                     msg.innerHTML = `
-                        <div class="dm-label">${escapeHtml(event.debateCritiqueFrom || 'Spezialist')} — Feedback</div>
+                        <div class="dm-label">${escapeHtml(event.debateCritiqueFrom || 'Spezialist')} — ${t('disc.feedback')}</div>
                         <div class="critique-items">${itemsHtml}</div>
-                        ${assessment ? `<div class="critique-assessment ${assessmentCls}">Bewertung: ${escapeHtml(assessment)}</div>` : ''}
+                        ${assessment ? `<div class="critique-assessment ${assessmentCls}">${t('disc.assessment')}: ${escapeHtml(assessment)}</div>` : ''}
                     `;
                     messages.appendChild(msg);
                     break;
@@ -4194,8 +4523,8 @@ ${status} **${otd}%**
                     const msg = document.createElement('div');
                     msg.className = 'discussion-message debate-final';
                     msg.innerHTML = `
-                        <div class="dm-label">Finaler Plan (nach Debatte)</div>
-                        <div class="dm-text">${escapeHtml(event.debateFinalSummary || 'Finaler Plan erstellt')}</div>
+                        <div class="dm-label">${t('disc.finalPlan')}</div>
+                        <div class="dm-text">${escapeHtml(event.debateFinalSummary || t('disc.finalPlanCreated'))}</div>
                     `;
                     messages.appendChild(msg);
                     break;
@@ -4222,7 +4551,7 @@ ${status} **${otd}%**
 
             streamPopoutWindow = window.open('', 'v8-stream', 'width=900,height=800,left=100,top=50');
             if (!streamPopoutWindow) {
-                alert('Pop-up wurde blockiert. Bitte erlaube Pop-ups für diese Seite.');
+                alert(t('progress.popupBlocked'));
                 return;
             }
 
@@ -4308,7 +4637,7 @@ body { padding: 0; }
             if (progressLog) html += '<div class="progress-panel-content">' + progressLog.innerHTML + '</div>';
 
             target.innerHTML = html;
-            if (statusEl) statusEl.textContent = new Date().toLocaleTimeString('de-DE') + ' — ' + progressEvents.length + ' Events';
+            if (statusEl) statusEl.textContent = new Date().toLocaleTimeString(currentLanguage === 'en' ? 'en-US' : 'de-DE') + ' — ' + progressEvents.length + ' Events';
             if (wasAtBottom) streamPopoutWindow.scrollTo(0, streamPopoutWindow.document.documentElement.scrollHeight);
         }
 
@@ -4324,7 +4653,7 @@ body { padding: 0; }
                         <span class="specialist-card-name">${escapeHtml(spec.displayName || name)}</span>
                         <span class="specialist-card-domain">${escapeHtml(spec.domain || '')}</span>
                     </div>
-                    <span class="specialist-card-status pending">Wartend</span>
+                    <span class="specialist-card-status pending">${t('specialist.pending')}</span>
                 </div>
                 <div class="specialist-card-meta"></div>
             `;
@@ -4339,22 +4668,22 @@ body { padding: 0; }
 
             const statusEl = card.querySelector('.specialist-card-status');
             statusEl.className = `specialist-card-status ${spec.status}`;
-            const statusLabels = { pending: 'Wartend', running: 'Läuft...', done: 'Fertig', error: 'Fehler' };
+            const statusLabels = { pending: t('specialist.pending'), running: t('specialist.running'), done: t('specialist.done'), error: t('specialist.error') };
             statusEl.textContent = statusLabels[spec.status] || spec.status;
 
             if (spec.displayName) card.querySelector('.specialist-card-name').textContent = spec.displayName;
             if (spec.domain) card.querySelector('.specialist-card-domain').textContent = spec.domain;
 
             const metaItems = [];
-            if (spec.dataContextLength) metaItems.push(`Daten: ${formatBytes(spec.dataContextLength)}`);
-            if (spec.durationMs) metaItems.push(`Dauer: ${formatDuration(spec.durationMs)}`);
+            if (spec.dataContextLength) metaItems.push(`${t('specialist.data')}: ${formatBytes(spec.dataContextLength)}`);
+            if (spec.durationMs) metaItems.push(`${t('specialist.duration')}: ${formatDuration(spec.durationMs)}`);
             if (spec.result?.report) {
                 const r = spec.result.report;
                 const findingCount = r.kritischeFindings?.length || 0;
                 const empfCount = r.empfehlungen?.length || 0;
-                if (findingCount || empfCount) metaItems.push(`${findingCount} Findings, ${empfCount} Empfehlungen`);
+                if (findingCount || empfCount) metaItems.push(`${findingCount} ${t('specialist.findings')}, ${empfCount} ${t('specialist.recommendations')}`);
             }
-            if (spec.error) metaItems.push(`Fehler: ${String(spec.error).substring(0, 50)}`);
+            if (spec.error) metaItems.push(`${t('specialist.errorLabel')}: ${String(spec.error).substring(0, 50)}`);
 
             const metaEl = card.querySelector('.specialist-card-meta');
             if (metaItems.length > 0) {
@@ -4381,24 +4710,24 @@ body { padding: 0; }
                 let html = `<div class="specialist-result-readable">`;
 
                 if (r.zahlenDatenFakten) {
-                    html += `<div class="result-section"><strong>Zahlen, Daten, Fakten</strong><p>${escapeHtml(r.zahlenDatenFakten)}</p></div>`;
+                    html += `<div class="result-section"><strong>${t('report.zahlenDatenFakten')}</strong><p>${escapeHtml(r.zahlenDatenFakten)}</p></div>`;
                 }
 
                 if (r.kritischeFindings?.length) {
-                    html += `<div class="result-section"><strong>Kritische Findings (${r.kritischeFindings.length})</strong>`;
+                    html += `<div class="result-section"><strong>${t('report.kritischeFindings')} (${r.kritischeFindings.length})</strong>`;
                     for (const f of r.kritischeFindings) {
                         const sevColor = f.severity === 'hoch' ? '#ef4444' : f.severity === 'mittel' ? '#f59e0b' : '#22c55e';
                         html += `<div class="result-finding">
                             <span style="color:${sevColor};font-weight:600;">● ${escapeHtml(f.severity?.toUpperCase() || 'N/A')}</span> ${escapeHtml(f.finding)}
-                            <div style="margin-left:1em;opacity:0.8;font-size:0.85em;">Evidenz: ${escapeHtml(f.evidence)}</div>
-                            ${f.affectedMachines?.length ? `<div style="margin-left:1em;opacity:0.7;font-size:0.85em;">Maschinen: ${f.affectedMachines.join(', ')}</div>` : ''}
+                            <div style="margin-left:1em;opacity:0.8;font-size:0.85em;">${t('report.evidence')}: ${escapeHtml(f.evidence)}</div>
+                            ${f.affectedMachines?.length ? `<div style="margin-left:1em;opacity:0.7;font-size:0.85em;">${t('report.machines')}: ${f.affectedMachines.join(', ')}</div>` : ''}
                         </div>`;
                     }
                     html += `</div>`;
                 }
 
                 if (r.empfehlungen?.length) {
-                    html += `<div class="result-section"><strong>Empfehlungen (${r.empfehlungen.length})</strong>`;
+                    html += `<div class="result-section"><strong>${t('report.empfehlungen')} (${r.empfehlungen.length})</strong>`;
                     for (const e of r.empfehlungen) {
                         const prioIcon = e.priorität === 'sofort' ? '🔴' : e.priorität === 'heute' ? '🟡' : '🟢';
                         html += `<div class="result-finding">
@@ -4411,7 +4740,7 @@ body { padding: 0; }
                 }
 
                 if (r.crossDomainHinweise?.length) {
-                    html += `<div class="result-section"><strong>Cross-Domain Hinweise</strong><ul>`;
+                    html += `<div class="result-section"><strong>${t('report.crossDomain')}</strong><ul>`;
                     for (const h of r.crossDomainHinweise) {
                         html += `<li>${escapeHtml(h)}</li>`;
                     }
@@ -4419,7 +4748,7 @@ body { padding: 0; }
                 }
 
                 html += `</div>`;
-                resultDetails.innerHTML = `<summary>Ergebnis</summary>${html}`;
+                resultDetails.innerHTML = `<summary>${t('specialist.result')}</summary>${html}`;
                 card.appendChild(resultDetails);
             }
 
@@ -4443,7 +4772,7 @@ body { padding: 0; }
 
             const icon = getEventIcon(event.type);
             const typeLabel = getEventTypeLabel(event.type);
-            const time = new Date(event.timestamp).toLocaleTimeString('de-DE', {
+            const time = new Date(event.timestamp).toLocaleTimeString(currentLanguage === 'en' ? 'en-US' : 'de-DE', {
                 hour: '2-digit',
                 minute: '2-digit',
                 second: '2-digit',
@@ -4456,7 +4785,7 @@ body { padding: 0; }
 
             switch (event.type) {
                 case 'init':
-                    message = event.message || 'Session initialisiert';
+                    message = event.message || t('event.sessionInit');
                     if (event.model) metaItems.push(`Model: ${event.model}`);
                     if (event.sessionId) metaItems.push(`Session: ${event.sessionId.substring(0, 8)}`);
                     break;
@@ -4502,7 +4831,7 @@ body { padding: 0; }
                     break;
 
                 case 'plan':
-                    message = event.plan ? `Plan: ${event.plan.title}` : 'Plan erstellt';
+                    message = event.plan ? `Plan: ${event.plan.title}` : t('event.planCreated');
                     break;
 
                 case 'step_start':
@@ -4528,20 +4857,20 @@ body { padding: 0; }
                     break;
 
                 case 'intent_classification':
-                    message = event.message || (event.result === 'complex' ? 'Strategische Frage erkannt' : 'Einfache Anfrage');
+                    message = event.message || (event.result === 'complex' ? t('event.complexDetected') : t('event.simpleQuery'));
                     metaItems.push(`Ergebnis: ${event.result || 'unknown'}`);
                     break;
 
                 case 'specialists_planned': {
                     const specNames = (event.specialists || []).map(s => s.displayName || s.name).join(', ');
-                    message = `${(event.specialists || []).length} Spezialisten geplant`;
+                    message = `${(event.specialists || []).length} ${t('event.specialistsPlanned')}`;
                     if (specNames) metaItems.push(specNames);
                     if (event.relevantTools) metaItems.push(`${event.relevantTools.length} Tools`);
                     break;
                 }
 
                 case 'report_ready':
-                    message = 'Report bereit';
+                    message = t('event.reportReady');
                     if (event.reportUrl) metaItems.push(`Download: ${event.reportUrl}`);
                     break;
 
@@ -4654,7 +4983,7 @@ body { padding: 0; }
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
                         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
                     </svg>
-                    <span>Warte auf Events...</span>
+                    <span>${t('progress.waitingForEvents')}</span>
                 </div>
             `;
             specialistState = { active: false, total: 0, completed: 0, specialists: {} };
@@ -4757,7 +5086,7 @@ body { padding: 0; }
             // Dimensions
             const W = 460, H = 340, CX = W / 2, CY = H / 2;
             const ringColors = ['#ef4444', '#f97316', '#eab308', '#22c55e'];
-            const ringLabels = ['Zentrum', 'Direkt betroffen', 'Indirekt', 'Alternativen'];
+            const ringLabels = [t('kg.center'), t('kg.directlyAffected'), t('kg.indirect'), t('kg.alternatives')];
             const ringRadii = [0, 80, 140, 195];
 
             // Group nodes by ring
@@ -4827,8 +5156,8 @@ body { padding: 0; }
             svg += '</svg>';
 
             // Stats line
-            const statsLine = `${nodes.length} Knoten · ${edges.length} Kanten` +
-                (stats.affectedOrders ? ` · ${stats.affectedOrders} betroffene Aufträge` : '') +
+            const statsLine = `${nodes.length} ${t('kg.nodes')} · ${edges.length} ${t('kg.edges')}` +
+                (stats.affectedOrders ? ` · ${stats.affectedOrders} ${t('kg.affectedOrders')}` : '') +
                 (stats.alternatives ? ` · ${stats.alternatives} Alternativen` : '');
 
             // Legend
@@ -4945,7 +5274,7 @@ body { padding: 0; }
                 return;
             }
 
-            entitySelect.innerHTML = '<option value="">Laden...</option>';
+            entitySelect.innerHTML = `<option value="">${t('impact.loading')}</option>`;
 
             try {
                 let entities = [];
@@ -5038,7 +5367,7 @@ body { padding: 0; }
                     select.appendChild(opt);
                 }
             } else {
-                select.innerHTML = '<option value="">Keine Entities gefunden</option>';
+                select.innerHTML = `<option value="">${t('impact.noEntities')}</option>`;
             }
         }
 
@@ -5048,7 +5377,7 @@ body { padding: 0; }
             const config = impactScenarios[scenarioId];
 
             if (!entityId) {
-                alert('Bitte eine Entity auswaehlen');
+                alert(t('impact.selectEntity'));
                 return;
             }
 

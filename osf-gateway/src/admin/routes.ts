@@ -638,7 +638,7 @@ router.get('/health', async (req: Request, res: Response) => {
   const factoryResults = await Promise.all(
     FACTORY_SERVICES.map(async (svc) => {
       const start = Date.now();
-      const result: any = { name: svc.name, ok: false, latencyMs: 0, leader: null, ready: false };
+      const result: Record<string, any> = { name: svc.name, ok: false, latencyMs: 0, leader: null, ready: false };
       try {
         const liveRes = await fetch(`${svc.url}/api/health/live`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
         result.latencyMs = Date.now() - start;
@@ -651,7 +651,7 @@ router.get('/health', async (req: Request, res: Response) => {
             fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
             fetch(`${svc.url}/api/health/ready`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
           ]);
-          const leaderHit = readyChecks.find((d: any) => d?.ready === true || d?.status === 'ready' || d?.leader === true);
+          const leaderHit: any = readyChecks.find((d: any) => d?.ready === true || d?.status === 'ready' || d?.leader === true);
           if (leaderHit) {
             result.ready = true;
             result.leader = true;
