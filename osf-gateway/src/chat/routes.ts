@@ -33,16 +33,29 @@ async function classifyIntent(
 
 "${message}"
 
-EINFACH (complex=false): NUR wenn die Frage einen EINZELNEN konkreten Datenpunkt abfragt, den ein einziger Tool-Aufruf beantworten kann.
-Beispiele EINFACH: "Wie ist der Status von BZ-1?", "Wie viel Bestand haben wir von Artikel X?", "Hallo"
+EINFACH (complex=false): Fragen die mit 1-3 Tool-Aufrufen beantwortet werden können. Konkrete Datenpunkte, Status-Abfragen, einfache Vergleiche zweier Werte, Auflistungen.
+Beispiele EINFACH:
+- "Wie ist der Status/OEE von Maschine X?" → 1 Tool-Aufruf
+- "Wie viel Bestand haben wir von Artikel X?" → 1 Tool-Aufruf
+- "Gibt es SPC-Alarme?" → 1 Tool-Aufruf
+- "Welche 5 Materialien haben die geringste Reichweite?" → 1 Tool-Aufruf
+- "Welche Kunden haben die schlechteste OTD?" → 1 Tool-Aufruf
+- "Vergleiche OEE von Maschine 1001 und 1002" → 2 Tool-Aufrufe
+- "Gibt es Aufträge die hinter dem Zeitplan liegen?" → 1-2 Tool-Aufrufe
+- "Hallo", "Was kannst du?" → kein Tool nötig
 
-KOMPLEX (complex=true): ALLES ANDERE — insbesondere Vergleiche, Ranglisten, Optimierung, Ursachen, Trends, Zusammenhänge, Empfehlungen, was-wäre-wenn, warum/wieso.
-Beispiele KOMPLEX: "Welche Maschine hat die schlechteste OEE?", "Warum ist die OEE so niedrig?", "Wie können wir die Liefertreue verbessern?", "Vergleiche BZ-1 und BZ-2", "Was sind die größten Probleme?"
+KOMPLEX (complex=true): NUR wenn die Frage eine TIEFGEHENDE ANALYSE über MEHRERE BEREICHE erfordert — Ursachenforschung, strategische Optimierung, Cross-Domain-Zusammenhänge, What-If-Szenarien, Schichtberichte.
+Beispiele KOMPLEX:
+- "Erstelle einen kompletten Schichtbericht" → braucht 10+ Tools, Synthese
+- "Was passiert wenn Maschine X ausfällt?" → Impact-Analyse über alle Bereiche
+- "Wo sind die 3 größten Risiken und wie bewerten wir sie?" → strategische Analyse
+- "Wie können wir die Liefertreue von 70% auf 95% steigern?" → Optimierungsstrategie
+- "Erstelle ein Executive Summary der Fabrik" → Cross-Domain-Synthese
 
 ANTWORT-FORMAT: Reines JSON, KEIN Markdown.
 {"complex": true}  oder  {"complex": false}
 
-WICHTIG: Im Zweifel IMMER complex = true. Lieber eine gute Analyse zu viel als eine falsche einfache Antwort.`;
+WICHTIG: Im Zweifel eher EINFACH. Nur echte Cross-Domain-Analysen und strategische Fragen sind komplex.`;
 
   try {
     const result = await callLlmJson<{ complex: boolean }>(
@@ -155,8 +168,24 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
   }
   res.flushHeaders();
 
+  // ── Abort controller: cancelled when client disconnects or pipeline times out ──
+  const pipelineAbort = new AbortController();
+  const PIPELINE_TIMEOUT = 15 * 60_000; // 15min max for entire pipeline (discussions need ~10min)
+  const pipelineTimer = setTimeout(() => {
+    logger.warn({ userId: req.user!.userId }, 'Chat pipeline timeout (15min)');
+    pipelineAbort.abort();
+  }, PIPELINE_TIMEOUT);
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      logger.info({ userId: req.user!.userId }, 'Client disconnected, aborting pipeline');
+      pipelineAbort.abort();
+    }
+  });
+
   // Heartbeat to keep Cloudflare alive during long-running discussions (CF drops idle SSE after ~100s)
   const cfHeartbeat = setInterval(() => {
+    if (pipelineAbort.signal.aborted) return;
     try { res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); } catch { /* closed */ }
   }, 15_000);
 
@@ -202,26 +231,34 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
           tier,
           sessionId,
           res,
+          pipelineAbort.signal,
         );
 
         // Stream final text as content chunks
-        const chunkSize = 20;
-        for (let i = 0; i < finalText.length; i += chunkSize) {
-          const chunk = finalText.slice(i, i + chunkSize);
-          res.write(`data: ${JSON.stringify({ type: 'content', text: chunk })}\n\n`);
+        if (!pipelineAbort.signal.aborted) {
+          const chunkSize = 20;
+          for (let i = 0; i < finalText.length; i += chunkSize) {
+            const chunk = finalText.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: 'content', text: chunk })}\n\n`);
+          }
+
+          // Save assistant message
+          await saveMessage(sessionId, 'assistant', finalText);
+
+          res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         }
-
-        // Save assistant message
-        await saveMessage(sessionId, 'assistant', finalText);
-
-        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        clearTimeout(pipelineTimer);
         clearInterval(cfHeartbeat);
         res.end();
       } catch (err: any) {
         logger.error({ err: err.message }, 'Dynamic discussion error');
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Multi-Agent-Diskussion fehlgeschlagen. Versuche es erneut.' })}\n\n`);
+        if (!res.writableEnded) {
+          const msg = pipelineAbort.signal.aborted ? 'Pipeline abgebrochen (Timeout oder Verbindung getrennt).' : 'Multi-Agent-Diskussion fehlgeschlagen. Versuche es erneut.';
+          res.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
+        }
+        clearTimeout(pipelineTimer);
         clearInterval(cfHeartbeat);
-        res.end();
+        if (!res.writableEnded) res.end();
       }
       return;
     }
@@ -328,13 +365,17 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     await saveMessage(sessionId, 'assistant', fullContent, allToolCalls.length > 0 ? allToolCalls : undefined);
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    clearTimeout(pipelineTimer);
     clearInterval(cfHeartbeat);
     res.end();
   } catch (err: any) {
     logger.error({ err: err.message }, 'Chat completion error');
-    res.write(`data: ${JSON.stringify({ type: 'error', message: 'An error occurred processing your request' })}\n\n`);
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'An error occurred processing your request' })}\n\n`);
+    }
+    clearTimeout(pipelineTimer);
     clearInterval(cfHeartbeat);
-    res.end();
+    if (!res.writableEnded) res.end();
   }
 });
 

@@ -5,24 +5,49 @@ import { logger } from '../logger';
 
 // ─── LLM Concurrency Control ────────────────────────────────────────────────
 class Semaphore {
-  private queue: Array<() => void> = [];
+  private queue: Array<{ resolve: () => void; reject: (err: Error) => void; timer?: ReturnType<typeof setTimeout> }> = [];
   private _active = 0;
   constructor(private max: number) {}
 
-  async acquire(): Promise<void> {
+  /** Acquire a slot. Throws if timeoutMs exceeded or signal aborted. */
+  async acquire(timeoutMs = 180_000, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new Error('LLM request aborted before acquiring semaphore');
     if (this._active < this.max) {
       this._active++;
       return;
     }
-    return new Promise<void>(resolve => this.queue.push(resolve));
+    return new Promise<void>((resolve, reject) => {
+      const entry = { resolve, reject } as typeof this.queue[number];
+
+      // Timeout: don't wait in queue forever
+      entry.timer = setTimeout(() => {
+        const idx = this.queue.indexOf(entry);
+        if (idx !== -1) this.queue.splice(idx, 1);
+        reject(new Error(`LLM semaphore timeout after ${Math.round(timeoutMs / 1000)}s (${this._active} active, ${this.queue.length} queued)`));
+      }, timeoutMs);
+
+      // Abort signal: cancel waiting if client disconnects
+      if (signal) {
+        const onAbort = () => {
+          clearTimeout(entry.timer);
+          const idx = this.queue.indexOf(entry);
+          if (idx !== -1) this.queue.splice(idx, 1);
+          reject(new Error('LLM request aborted while queued'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      this.queue.push(entry);
+    });
   }
 
   release(): void {
     this._active--;
     const next = this.queue.shift();
     if (next) {
+      clearTimeout(next.timer);
       this._active++;
-      next();
+      next.resolve();
     }
   }
 
@@ -254,13 +279,17 @@ export async function callLlm(
   messages: ChatMessage[],
   tools: any[] | undefined,
   tierOrConfig: string | LlmConfig,
-  userId?: string
+  userId?: string,
+  signal?: AbortSignal,
 ): Promise<LlmResponse> {
   const config: LlmConfig = typeof tierOrConfig === 'string'
     ? getPlatformConfig(tierOrConfig)
     : tierOrConfig;
 
   const hasTools = tools && tools.length > 0;
+
+  // ─── Abort early if caller already cancelled ────────────────────────────
+  if (signal?.aborted) throw new Error('LLM request aborted');
 
   // ─── Cache check (only for non-tool calls) ──────────────────────────────
   let cacheKey: string | undefined;
@@ -285,7 +314,7 @@ export async function callLlm(
   if (sem.pending > 0) {
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing request');
   }
-  await sem.acquire();
+  await sem.acquire(180_000, signal); // 3min queue timeout
 
   try {
     const body: any = {
@@ -304,8 +333,12 @@ export async function callLlm(
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
+    // Combine caller signal with per-request timeout (5min)
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300_000); // 5min timeout for large models
+    const timeout = setTimeout(() => controller.abort(), 300_000);
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
 
     let resp: globalThis.Response;
     try {

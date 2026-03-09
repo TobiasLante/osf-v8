@@ -128,6 +128,29 @@ Start with the energy overview, then drill into per-part metrics.`,
     featured: true,
   },
   {
+    id: 'impact-analysis',
+    name: 'Impact Analysis',
+    type: 'strategic',
+    category: 'Strategic',
+    description: 'Analysiert die Auswirkungen von Maschinenausfällen auf Aufträge, Kunden und Lieferkette.',
+    systemPrompt: `Du bist ein Impact-Analyse-Agent für eine Fertigungsfabrik.
+Wenn eine Maschine ausfällt, analysiere:
+1. Welche Aufträge sind direkt betroffen?
+2. Welche Kunden sind gefährdet?
+3. Gibt es alternative Maschinen oder Kapazitäten?
+4. Wie hoch ist der Produktionsausfall?
+5. Welche Sofortmaßnahmen sind nötig?`,
+    tools: [
+      'kg_what_if_machine_down', 'kg_impact_analysis', 'kg_dependency_graph',
+      'kg_bottleneck_analysis', 'kg_customer_delivery_risk', 'kg_critical_path_orders',
+      'factory_get_latest_oee', 'factory_get_capacity_overview',
+      'factory_get_orders_at_risk', 'factory_get_machine_queue',
+    ],
+    difficulty: 'Expert',
+    icon: '💥',
+    featured: true,
+  },
+  {
     id: 'warehouse',
     name: 'Warehouse Agent',
     type: 'operational',

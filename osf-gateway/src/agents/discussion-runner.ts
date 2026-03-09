@@ -133,8 +133,9 @@ export async function callLlmJson<T>(
   messages: ChatMessage[],
   config: LlmConfig,
   userId?: string,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const response = await callLlm(messages, undefined, config, userId);
+  const response = await callLlm(messages, undefined, config, userId, signal);
   const text = (response.content || '').trim();
   // Extract JSON from markdown code blocks if needed
   const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -370,9 +371,11 @@ async function runSpecialistLlm(
   context: string,
   freeLlmConfig: LlmConfig,
   userId: string,
+  signal?: AbortSignal,
 ): Promise<SpecialistReport> {
   const systemPrompt = `Du bist der ${specialist.displayName}. Dein Fokus: ${specialist.focus}.
-Analysiere die bereitgestellten Daten und erstelle eine Impact-Analyse für deinen Bereich.
+Analysiere die bereitgestellten Daten und beantworte die User-Frage aus deiner Fachperspektive.
+WICHTIG: Verwende NUR Daten die tatsächlich in den bereitgestellten Daten stehen. Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten.
 
 ANTWORT-FORMAT: Reines JSON, KEIN Markdown, KEINE Code-Blöcke.
 {
@@ -394,7 +397,7 @@ Maximal 3-5 Findings und 3-5 Empfehlungen. Präzise und kompakt.`;
     { role: 'user', content: `Analysiere folgende Daten:\n\n${context}` },
   ];
 
-  return await callLlmJson<SpecialistReport>(messages, freeLlmConfig, userId);
+  return await callLlmJson<SpecialistReport>(messages, freeLlmConfig, userId, signal);
 }
 
 async function runSpecialistsParallel(
@@ -405,6 +408,7 @@ async function runSpecialistsParallel(
   userId: string,
   res: Response,
   specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
+  signal?: AbortSignal,
 ): Promise<Map<string, SpecialistReport>> {
   const reports = new Map<string, SpecialistReport>();
   const specialistNames = specialists.map(s => s.name);
@@ -429,7 +433,7 @@ async function runSpecialistsParallel(
 
       try {
         const context = `SZENARIO-KONTEXT:\n${kgData}\n\nFABRIK-DATEN:\n${factoryData}`;
-        const report = await runSpecialistLlm(spec, context, freeLlmConfig, userId);
+        const report = await runSpecialistLlm(spec, context, freeLlmConfig, userId, signal);
         reports.set(spec.name, report);
 
         emitSSE(res, {
@@ -501,6 +505,7 @@ async function runModeratorReview(
   freeLlmConfig: LlmConfig,
   userId: string,
   res: Response,
+  signal?: AbortSignal,
 ): Promise<{ readyForSynthesis: boolean; followUpTranscript: string }> {
   emitSSE(res, { type: 'discussion_round_start', discussionRound: round });
 
@@ -543,6 +548,7 @@ ANTWORT-FORMAT: Reines JSON.
       ],
       premiumLlmConfig,
       userId,
+      signal,
     );
   } catch (err: any) {
     logger.error({ err: err.message }, 'Moderator review LLM failed');
@@ -582,6 +588,7 @@ ANTWORT-FORMAT: Reines JSON.
         undefined,
         freeLlmConfig,
         userId,
+        signal,
       );
       answer = answerResponse.content || 'Keine Antwort.';
     } catch {
@@ -618,8 +625,10 @@ async function runDebate(
   userId: string,
   res: Response,
   specialists: SpecialistDef[] = IMPACT_SPECIALISTS,
+  signal?: AbortSignal,
+  userMessage?: string,
 ): Promise<string> {
-  // 3a: Moderator drafts mitigation plan
+  // 3a: Moderator drafts answer
   emitSSE(res, { type: 'debate_start' });
   emitSSE(res, { type: 'discussion_synthesis_start' });
 
@@ -627,33 +636,38 @@ async function runDebate(
     .map(([name, report]) => compressReport(name, report))
     .join('\n\n');
 
-  const draftPrompt = `Basierend auf den Spezialisten-Berichten und der Diskussion, erstelle einen Mitigation-Plan.
+  const questionContext = userMessage
+    ? `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDeine Antwort MUSS diese Frage DIREKT beantworten. Nenne konkrete Daten, Zahlen, Namen aus den Berichten.\n`
+    : '';
 
+  const draftPrompt = `${questionContext}
 SPEZIALISTEN-BERICHTE:
 ${compressed}
 
 DISKUSSION:
 ${discussionTranscript || 'Keine weiteren Diskussionspunkte.'}
 
-Erstelle eine Zusammenfassung mit:
-1. Executive Summary (2-3 Sätze)
-2. Impact-Schweregrad (critical/high/medium/low)
-3. Top 5 Maßnahmen mit Priorität und Verantwortlichkeit
-4. Risiko-Bewertung
+AUFGABE: Beantworte die User-Frage direkt und präzise basierend auf den Daten der Spezialisten.
+- Beginne mit der DIREKTEN ANTWORT auf die Frage (konkrete Zahlen, Namen, Werte)
+- Dann: Kontext und Analyse (kurz)
+- Dann: Empfohlene Maßnahmen (nur wenn relevant für die Frage)
+- Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten die nicht in den Daten stehen
+- Verwende NUR Daten die tatsächlich in den Spezialisten-Berichten enthalten sind
 
-Antworte als strukturierter Text (Markdown).`;
+Antworte als strukturierter Text (Markdown). Antworte in derselben Sprache wie die User-Frage.`;
 
   const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
   let draftText: string;
   try {
     const draftResponse = await callLlm(
       [
-        { role: 'system', content: 'Du bist ein erfahrener Fertigungsleiter, der einen Impact-Mitigation-Plan erstellt.' },
+        { role: 'system', content: 'Du bist ein erfahrener Fertigungsexperte. Beantworte Fragen direkt und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
         { role: 'user', content: draftPrompt },
       ],
       undefined,
       premiumLlmConfig,
       userId,
+      signal,
     );
     draftText = draftResponse.content || 'Entwurf konnte nicht erstellt werden.';
   } catch (err: any) {
@@ -703,6 +717,7 @@ ANTWORT-FORMAT: Reines JSON.
             ],
             freeLlmConfig,
             userId,
+            signal,
           );
 
           const items = parseCritiqueItems(critique);
@@ -730,28 +745,33 @@ ANTWORT-FORMAT: Reines JSON.
   }
 
   // 3c: Final synthesis incorporating critiques
-  const finalPrompt = `Finalisiere den Mitigation-Plan nach der Spezialisten-Debatte.
-
+  const finalQuestionContext = userMessage ? `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDie Antwort MUSS diese Frage DIREKT beantworten.\n` : '';
+  const finalPrompt = `Finalisiere die Antwort nach der Spezialisten-Debatte.
+${finalQuestionContext}
 URSPRÜNGLICHER ENTWURF:
 ${draftText.substring(0, 3000)}
 
 SPEZIALISTEN-KRITIK:
 ${allCritiques.join('\n\n')}
 
-Erstelle den FINALEN Plan. Arbeite berechtigte Kritikpunkte ein.
-Format: Strukturierter Markdown-Text mit Executive Summary, Maßnahmen, Risiken.`;
+Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
+- Beginne mit der DIREKTEN ANTWORT auf die User-Frage
+- Nenne konkrete Zahlen, Maschinen-IDs, Artikel-Nummern aus den Daten
+- Erfinde KEINE Personennamen oder Organisationseinheiten
+- Format: Strukturierter Markdown-Text. Antworte in derselben Sprache wie die Frage.`;
 
   const heartbeat3 = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
   let finalText: string;
   try {
     const finalResponse = await callLlm(
       [
-        { role: 'system', content: 'Du bist ein erfahrener Fertigungsleiter. Erstelle den finalen, optimierten Mitigation-Plan.' },
+        { role: 'system', content: 'Du bist ein erfahrener Fertigungsexperte. Beantworte die Frage direkt, präzise und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
         { role: 'user', content: finalPrompt },
       ],
       undefined,
       premiumLlmConfig,
       userId,
+      signal,
     );
     finalText = finalResponse.content || draftText;
   } catch {
@@ -1028,6 +1048,8 @@ export async function runDiscussionAgent(
       reports, transcript,
       premiumLlmConfig, freeLlmConfig,
       userId, res,
+      IMPACT_SPECIALISTS, undefined,
+      userMsg || undefined,
     );
 
     // ── Phase 4: Generate HTML Report ──
@@ -1078,6 +1100,7 @@ async function planSpecialists(
   toolNames: string[],
   premiumLlmConfig: LlmConfig,
   userId: string,
+  signal?: AbortSignal,
 ): Promise<{ specialists: SpecialistDef[]; relevantTools: string[] }> {
   const prompt = `Du bist ein Manufacturing-Experte. Analysiere die User-Frage und plane 3-5 Spezialisten für eine Multi-Agent-Diskussion.
 
@@ -1110,6 +1133,7 @@ Regeln:
       ],
       premiumLlmConfig,
       userId,
+      signal,
     );
 
     // Validate: need at least 2 specialists
@@ -1145,6 +1169,7 @@ export async function runDynamicDiscussion(
   tier: string,
   sessionId: string,
   res: Response,
+  signal?: AbortSignal,
 ): Promise<string> {
   const [premiumLlmConfig, freeLlmConfig, tools] = await Promise.all([
     getLlmConfig(userId, 'premium'),
@@ -1158,7 +1183,7 @@ export async function runDynamicDiscussion(
   emitSSE(res, { type: 'intent_classification', result: 'complex', message: 'Strategische Frage erkannt — starte Multi-Agent-Diskussion' });
 
   const { specialists, relevantTools } = await planSpecialists(
-    userMessage, toolNames, premiumLlmConfig, userId,
+    userMessage, toolNames, premiumLlmConfig, userId, signal,
   );
 
   emitSSE(res, {
@@ -1222,6 +1247,7 @@ export async function runDynamicDiscussion(
     userId,
     res,
     specialists,
+    signal,
   );
 
   if (reports.size === 0) {
@@ -1238,7 +1264,7 @@ export async function runDynamicDiscussion(
     const result = await runModeratorReview(
       reports, round, transcript,
       premiumLlmConfig, freeLlmConfig,
-      userId, res,
+      userId, res, signal,
     );
     readyForSynthesis = result.readyForSynthesis;
     transcript = result.followUpTranscript;
@@ -1249,7 +1275,8 @@ export async function runDynamicDiscussion(
     reports, transcript,
     premiumLlmConfig, freeLlmConfig,
     userId, res,
-    specialists,
+    specialists, signal,
+    userMessage,
   );
 
   // ── Phase 4: Generate HTML Report ──
