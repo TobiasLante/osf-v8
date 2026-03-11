@@ -4,6 +4,7 @@ import { getMcpTools, callMcpTool } from '../chat/tool-executor';
 import { pool } from '../db/pool';
 import { Response } from 'express';
 import { logger } from '../logger';
+import { config } from '../config';
 
 export interface RunAgentOptions {
   userMessage?: string;
@@ -17,12 +18,17 @@ export async function runAgent(
   res: Response,
   options?: RunAgentOptions
 ): Promise<void> {
-  // Create agent run record
-  const runResult = await pool.query(
-    `INSERT INTO agent_runs (user_id, agent_id, status) VALUES ($1, $2, 'running') RETURNING id`,
-    [userId, agent.id]
-  );
-  const runId = runResult.rows[0].id;
+  // Create agent run record (skip for anonymous/public runs)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isAnonymous = !userId || !UUID_RE.test(userId) || userId === '00000000-0000-0000-0000-000000000000';
+  let runId: string | null = null;
+  if (!isAnonymous) {
+    const runResult = await pool.query(
+      `INSERT INTO agent_runs (user_id, agent_id, status) VALUES ($1, $2, 'running') RETURNING id`,
+      [userId, agent.id]
+    );
+    runId = runResult.rows[0].id;
+  }
 
   res.write(`data: ${JSON.stringify({ type: 'run_start', runId, agent: agent.id })}\n\n`);
 
@@ -92,13 +98,13 @@ export async function runAgent(
           let toolArgs: Record<string, unknown> = {};
           try {
             toolArgs = JSON.parse(tc.function.arguments);
-          } catch { /* empty */ }
+          } catch { logger.debug({ toolName: tc.function.name }, 'Failed to parse tool arguments'); }
 
           res.write(`data: ${JSON.stringify({ type: 'tool_start', name: toolName, arguments: toolArgs })}\n\n`);
 
           const rawResult = await callMcpTool(toolName, toolArgs);
           // Truncate extremely large tool results to avoid context overflow
-          const result = rawResult.length > 24000 ? rawResult.slice(0, 24000) + '\n... (truncated)' : rawResult;
+          const result = rawResult.length > config.truncation.agentToolResult ? rawResult.slice(0, config.truncation.agentToolResult) + '\n... (truncated)' : rawResult;
 
           res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 
@@ -122,19 +128,23 @@ export async function runAgent(
     }
 
     // Update run record
-    await pool.query(
-      `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
-      [JSON.stringify({ content: finalContent, tool_calls: allToolCalls }), runId]
-    );
+    if (runId) {
+      await pool.query(
+        `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ content: finalContent, tool_calls: allToolCalls }), runId]
+      );
+    }
 
     res.write(`data: ${JSON.stringify({ type: 'done', runId })}\n\n`);
   } catch (err: any) {
     logger.error({ err: err.message, agentId: agent.id, userId }, 'Agent run error');
 
-    await pool.query(
-      `UPDATE agent_runs SET status = 'failed', result = $1, finished_at = NOW() WHERE id = $2`,
-      [JSON.stringify({ error: err.message }), runId]
-    );
+    if (runId) {
+      await pool.query(
+        `UPDATE agent_runs SET status = 'failed', result = $1, finished_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ error: err.message }), runId]
+      );
+    }
 
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Agent execution failed' })}\n\n`);
   }

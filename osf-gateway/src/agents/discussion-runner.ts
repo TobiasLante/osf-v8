@@ -1396,12 +1396,17 @@ export async function runDiscussionAgent(
   res: Response,
   options?: RunAgentOptions,
 ): Promise<void> {
-  // Create run record
-  const runResult = await pool.query(
-    `INSERT INTO agent_runs (user_id, agent_id, status) VALUES ($1, $2, 'running') RETURNING id`,
-    [userId, agent.id],
-  );
-  const runId = runResult.rows[0].id;
+  // Create run record (skip for anonymous/public runs)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isAnonymous = !userId || !UUID_RE.test(userId) || userId === '00000000-0000-0000-0000-000000000000';
+  let runId: string | null = null;
+  if (!isAnonymous) {
+    const runResult = await pool.query(
+      `INSERT INTO agent_runs (user_id, agent_id, status) VALUES ($1, $2, 'running') RETURNING id`,
+      [userId, agent.id],
+    );
+    runId = runResult.rows[0].id;
+  }
 
   emitSSE(res, { type: 'run_start', runId, agent: agent.id });
 
@@ -1467,10 +1472,12 @@ export async function runDiscussionAgent(
     if (reports.size === 0) {
       emitSSE(res, { type: 'content', text: dl(language, 'Keine Spezialisten-Berichte verfügbar. Die Analyse konnte nicht durchgeführt werden.', 'No specialist reports available. Analysis could not be performed.') });
       emitSSE(res, { type: 'done', runId });
-      await pool.query(
-        `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
-        [JSON.stringify({ error: 'No specialist reports' }), runId],
-      );
+      if (runId) {
+        await pool.query(
+          `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ error: 'No specialist reports' }), runId],
+        );
+      }
       return;
     }
 
@@ -1510,16 +1517,18 @@ export async function runDiscussionAgent(
     );
 
     // Save report to DB — embed HTML in result JSON (no extra column needed)
-    await pool.query(
-      `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
-      [JSON.stringify({
-        content: finalMitigation,
-        reportHtml: htmlReport,
-        specialists: Array.from(reports.keys()),
-        kgNodes: kgNodes.length,
-        kgEdges: kgEdges.length,
-      }), runId],
-    );
+    if (runId) {
+      await pool.query(
+        `UPDATE agent_runs SET status = 'completed', result = $1, finished_at = NOW() WHERE id = $2`,
+        [JSON.stringify({
+          content: finalMitigation,
+          reportHtml: htmlReport,
+          specialists: Array.from(reports.keys()),
+          kgNodes: kgNodes.length,
+          kgEdges: kgEdges.length,
+        }), runId],
+      );
+    }
 
     // Stream final mitigation text as content
     const chunkSize = 30;
@@ -1534,10 +1543,12 @@ export async function runDiscussionAgent(
     emitSSE(res, { type: 'done', runId });
   } catch (err: any) {
     logger.error({ err: err.message, agentId: agent.id, userId }, 'Discussion agent error');
-    await pool.query(
-      `UPDATE agent_runs SET status = 'failed', result = $1, finished_at = NOW() WHERE id = $2`,
-      [JSON.stringify({ error: err.message }), runId],
-    );
+    if (runId) {
+      await pool.query(
+        `UPDATE agent_runs SET status = 'failed', result = $1, finished_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ error: err.message }), runId],
+      );
+    }
     emitSSE(res, { type: 'error', message: 'Discussion agent execution failed' });
   }
 }
@@ -1797,22 +1808,24 @@ export async function runDynamicDiscussion(
     dl(language, 'Strategische Analyse', 'Strategic Analysis'),
   );
 
-  // Save to agent_runs for report download
-  const runResult = await pool.query(
-    `INSERT INTO agent_runs (user_id, agent_id, status, result, finished_at)
-     VALUES ($1, 'dynamic-discussion', 'completed', $2, NOW()) RETURNING id`,
-    [userId, JSON.stringify({
-      content: finalText,
-      reportHtml: htmlReport,
-      specialists: specialists.map(s => s.name),
-      kgNodes: kgNodes.length,
-      kgEdges: kgEdges.length,
-    })],
-  );
-  const runId = runResult.rows[0].id;
-
-  const reportUrl = `/agents/impact-analysis/runs/${runId}/report`;
-  emitSSE(res, { type: 'report_ready', reportUrl });
+  // Save to agent_runs for report download (skip for anonymous users)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isAnon = !userId || !UUID_RE.test(userId) || userId === '00000000-0000-0000-0000-000000000000';
+  if (!isAnon) {
+    const runResult = await pool.query(
+      `INSERT INTO agent_runs (user_id, agent_id, status, result, finished_at)
+       VALUES ($1, 'dynamic-discussion', 'completed', $2, NOW()) RETURNING id`,
+      [userId, JSON.stringify({
+        content: finalText,
+        reportHtml: htmlReport,
+        specialists: specialists.map(s => s.name),
+        kgNodes: kgNodes.length,
+        kgEdges: kgEdges.length,
+      })],
+    );
+    const reportUrl = `/agents/impact-analysis/runs/${runResult.rows[0].id}/report`;
+    emitSSE(res, { type: 'report_ready', reportUrl });
+  }
 
   return finalText;
 }

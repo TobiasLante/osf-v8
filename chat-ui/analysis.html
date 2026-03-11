@@ -84,6 +84,7 @@
             justify-content: center;
             padding: 40px 20px;
             gap: 32px;
+            overflow-y: auto;
         }
         .main.has-output { justify-content: flex-start; padding-top: 24px; }
 
@@ -190,28 +191,67 @@
         .event-content { background: transparent; }
         .event-error { background: rgba(251,113,133,0.08); border: 1px solid rgba(251,113,133,0.15); }
 
-        /* Final result */
-        .final-result {
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: var(--surface-1);
+        /* Chat message bubble (recycled from demo-chat) */
+        .message {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .message-avatar {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #ff9500, #ff5722);
+            display: grid;
+            place-items: center;
+            font-size: 15px;
+        }
+        .message-body { flex: 1; min-width: 0; }
+        .message-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .message-sender {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-0);
+        }
+        .message-time {
+            font-size: 10px;
+            color: var(--text-2);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .message-content {
             font-size: 13px;
             line-height: 1.8;
             color: var(--text-0);
-            overflow-x: auto;
         }
-        .final-result h1, .final-result h2, .final-result h3 { margin-top: 16px; margin-bottom: 8px; }
-        .final-result h1 { font-size: 1.3rem; }
-        .final-result h2 { font-size: 1.1rem; color: var(--accent); }
-        .final-result table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
-        .final-result th, .final-result td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
-        .final-result th { font-weight: 600; color: var(--text-1); background: var(--surface-2); }
-        .final-result ul { padding-left: 20px; }
-        .final-result li { margin: 4px 0; }
-        .final-result code { background: rgba(255,149,0,0.1); padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
-        .final-result pre { background: var(--surface-0); border: 1px solid var(--border); padding: 12px; border-radius: 6px; overflow-x: auto; }
-        .final-result pre code { background: none; padding: 0; }
+        .message-content h1, .message-content h2, .message-content h3 { margin-top: 16px; margin-bottom: 8px; }
+        .message-content h1 { font-size: 1.3rem; }
+        .message-content h2 { font-size: 1.1rem; color: var(--accent); }
+        .message-content h3 { font-size: 1rem; color: var(--text-1); }
+        .message-content table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+        .message-content th, .message-content td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+        .message-content th { font-weight: 600; color: var(--text-1); background: var(--surface-2); }
+        .message-content ul { padding-left: 20px; }
+        .message-content li { margin: 4px 0; }
+        .message-content code { background: rgba(255,149,0,0.1); padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+        .message-content pre { background: var(--surface-0); border: 1px solid var(--border); padding: 12px; border-radius: 6px; overflow-x: auto; }
+        .message-content pre code { background: none; padding: 0; }
+        .message-content strong { color: var(--text-0); }
+        .message-content a { color: var(--accent); text-decoration: none; }
+        .message-content a:hover { text-decoration: underline; }
+
+        /* KG Visualization */
+        .kg-container {
+            margin: 12px 0;
+            padding: 8px;
+            display: none;
+        }
+        .kg-container.active { display: block; }
 
         /* Pulse dot */
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -295,7 +335,9 @@
             <span class="agent-running-name" id="runningName">Agent</span>
             <span class="agent-running-status" id="runningStatus">starting...</span>
         </div>
-        <div class="output-scroll" id="outputScroll"></div>
+        <div class="output-scroll" id="outputScroll">
+            <div class="kg-container" id="kgContainer"></div>
+        </div>
     </div>
 </div>
 
@@ -303,6 +345,8 @@
     let running = false;
     let startTime = 0;
     let timerInterval = null;
+    let currentAgentId = null;
+
     function elapsed() {
         return ((Date.now() - startTime) / 1000).toFixed(0) + 's';
     }
@@ -314,9 +358,13 @@
         'impact-analysis': 'Impact Analysis',
     };
 
+    // Agents that have KG visualization
+    const KG_AGENTS = new Set(['otd-deep-analyzer', 'impact-analysis']);
+
     async function run(agentId) {
         if (running) return;
         running = true;
+        currentAgentId = agentId;
         startTime = Date.now();
 
         // Disable all buttons
@@ -329,10 +377,11 @@
         const runningName = document.getElementById('runningName');
         const runningStatus = document.getElementById('runningStatus');
         const header = document.getElementById('outputHeader');
+        const kgContainer = document.getElementById('kgContainer');
 
         mainArea.classList.add('has-output');
         outputArea.classList.add('active');
-        outputScroll.innerHTML = '';
+        outputScroll.innerHTML = '<div class="kg-container" id="kgContainer"></div>';
         runningName.textContent = AGENT_LABELS[agentId] || agentId;
         runningStatus.textContent = 'starting...';
         header.className = 'output-header';
@@ -391,12 +440,22 @@
             runningStatus.textContent = 'done · ' + elapsed();
             header.classList.add('status-done');
 
-            // Show final result
+            // Show final result as chat bubble
             if (finalContent) {
-                const resultDiv = document.createElement('div');
-                resultDiv.className = 'final-result';
-                resultDiv.innerHTML = finalContent;
-                outputScroll.appendChild(resultDiv);
+                const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                const msg = document.createElement('div');
+                msg.className = 'message';
+                msg.innerHTML = `
+                    <div class="message-avatar">⚡</div>
+                    <div class="message-body">
+                        <div class="message-meta">
+                            <span class="message-sender">ZeroGuess AI</span>
+                            <span class="message-time">${time}</span>
+                        </div>
+                        <div class="message-content">${renderMarkdown(finalContent)}</div>
+                    </div>
+                `;
+                outputScroll.appendChild(msg);
                 outputScroll.scrollTop = outputScroll.scrollHeight;
             }
 
@@ -420,7 +479,6 @@
                 addEvent(container, 'tool', '🔧', `${event.name}(${formatArgs(event.arguments)})`);
                 break;
             case 'tool_result':
-                // Skip verbose tool results — just show tool name completed
                 break;
             case 'specialists_batch_start':
                 addEvent(container, 'tool', '👥', `${event.specialistCount || ''} specialists analyzing...`);
@@ -429,6 +487,7 @@
                 addEvent(container, 'tool', '🔬', `${event.specialistName || event.name || 'Specialist'} started`);
                 break;
             case 'specialist_done':
+            case 'specialist_complete':
                 addEvent(container, 'tool', '✅', `${event.specialistName || event.name || 'Specialist'} done`);
                 break;
             case 'specialists_batch_complete':
@@ -447,20 +506,31 @@
                 addEvent(container, 'tool', '🏆', 'Final plan ready');
                 break;
             case 'kg_traversal_start':
-                addEvent(container, 'tool', '🕸️', 'Knowledge Graph traversal...');
+                if (KG_AGENTS.has(currentAgentId)) {
+                    addEvent(container, 'tool', '🕸️', 'Knowledge Graph traversal...');
+                    const kgC = document.getElementById('kgContainer');
+                    if (kgC) kgC.classList.add('active');
+                }
                 break;
             case 'kg_traversal_end':
-                addEvent(container, 'tool', '🕸️', `KG: ${event.totalNodes || 0} nodes, ${event.totalEdges || 0} edges`);
+                if (KG_AGENTS.has(currentAgentId)) {
+                    addEvent(container, 'tool', '🕸️', `KG: ${event.totalNodes || 0} nodes, ${event.totalEdges || 0} edges`);
+                }
+                break;
+            case 'kg_summary':
+                if (KG_AGENTS.has(currentAgentId)) {
+                    renderKgSummaryDiagram(event);
+                }
                 break;
             case 'heartbeat':
-                break; // silent
+                break;
             case 'error':
                 addEvent(container, 'error', '❌', event.message || 'Error');
                 break;
             case 'done':
-                break; // handled outside
+                break;
             case 'content':
-                break; // accumulated outside
+                break;
             default:
                 if (event.message) {
                     addEvent(container, 'tool', 'ℹ️', event.message);
@@ -473,7 +543,13 @@
         const div = document.createElement('div');
         div.className = `event-item event-${type}`;
         div.innerHTML = `<span class="ev-icon">${icon}</span><span class="ev-text">${escapeHtml(text)}</span>`;
-        container.appendChild(div);
+        // Insert before KG container if it exists, so events stay above KG diagram
+        const kgC = document.getElementById('kgContainer');
+        if (kgC) {
+            container.insertBefore(div, kgC);
+        } else {
+            container.appendChild(div);
+        }
     }
 
     function formatArgs(args) {
@@ -487,6 +563,121 @@
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    // Markdown renderer (recycled from demo-chat)
+    function renderMarkdown(text) {
+        if (!text) return '';
+        return text
+            .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+            .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+            .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+            .replace(/^\|(.+)\|$/gm, (match) => {
+                const cells = match.split('|').filter(c => c.trim());
+                if (cells.every(c => c.trim().match(/^[-:]+$/))) return '';
+                const tag = match.includes('---') ? 'th' : 'td';
+                return '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+            })
+            .replace(/(<tr>.*<\/tr>\n?)+/g, '<table>$&</table>')
+            .replace(/^- (.+)$/gm, '<li>$1</li>')
+            .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+            .replace(/\n/g, '<br>');
+    }
+
+    // KG Summary Diagram (recycled from demo-chat)
+    function renderKgSummaryDiagram(event) {
+        const nodes = event.nodes || [];
+        const edges = event.edges || [];
+        const center = event.centerEntity || 'Entity';
+        const stats = event.stats || {};
+
+        if (nodes.length === 0) return;
+
+        const W = 460, H = 340, CX = W / 2, CY = H / 2;
+        const ringColors = ['#ef4444', '#f97316', '#eab308', '#22c55e'];
+        const ringLabels = ['Center', 'Directly Affected', 'Indirect', 'Alternatives'];
+        const ringRadii = [0, 80, 140, 195];
+
+        const rings = [[], [], [], []];
+        for (const n of nodes) {
+            const r = Math.min(n.ring || 0, 3);
+            rings[r].push(n);
+        }
+
+        const positions = {};
+        if (rings[0].length > 0) {
+            positions[rings[0][0].id] = { x: CX, y: CY };
+        }
+        for (let r = 1; r <= 3; r++) {
+            const count = rings[r].length;
+            if (count === 0) continue;
+            const radius = ringRadii[r];
+            for (let i = 0; i < count; i++) {
+                const angle = (2 * Math.PI * i / count) - Math.PI / 2;
+                positions[rings[r][i].id] = {
+                    x: CX + radius * Math.cos(angle),
+                    y: CY + radius * Math.sin(angle)
+                };
+            }
+        }
+
+        let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="background:rgba(0,0,0,0.3);border-radius:8px;max-height:340px;">`;
+
+        for (let r = 1; r <= 3; r++) {
+            if (rings[r].length > 0) {
+                svg += `<circle cx="${CX}" cy="${CY}" r="${ringRadii[r]}" fill="none" stroke="${ringColors[r]}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="4,4"/>`;
+            }
+        }
+
+        for (const e of edges) {
+            const from = positions[e.from];
+            const to = positions[e.to];
+            if (!from || !to) continue;
+            svg += `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+        }
+
+        for (const n of nodes) {
+            const pos = positions[n.id];
+            if (!pos) continue;
+            const r = Math.min(n.ring || 0, 3);
+            const color = ringColors[r];
+            const radius = r === 0 ? 18 : (r === 3 ? 8 : 10);
+            const label = (n.label || n.id).substring(0, 10);
+
+            svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${radius}" fill="${color}" fill-opacity="0.8" stroke="${color}" stroke-width="1.5"/>`;
+            svg += `<text x="${pos.x}" y="${pos.y + radius + 11}" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="8" font-family="monospace">${escapeHtml(label)}</text>`;
+        }
+
+        if (rings[0].length > 0) {
+            const cl = (center || rings[0][0].id).substring(0, 8);
+            svg += `<text x="${CX}" y="${CY + 4}" text-anchor="middle" fill="white" font-size="9" font-weight="bold" font-family="monospace">${escapeHtml(cl)}</text>`;
+        }
+
+        svg += '</svg>';
+
+        const statsLine = `${nodes.length} nodes · ${edges.length} edges` +
+            (stats.affectedOrders ? ` · ${stats.affectedOrders} affected orders` : '') +
+            (stats.alternatives ? ` · ${stats.alternatives} alternatives` : '');
+
+        const legendHtml = ringLabels.map((label, i) => {
+            if (i === 0 || rings[i].length === 0) return '';
+            return `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;"><span style="width:8px;height:8px;border-radius:50%;background:${ringColors[i]};display:inline-block;"></span><span style="font-size:10px;opacity:0.7;">${label} (${rings[i].length})</span></span>`;
+        }).join('');
+
+        const kgC = document.getElementById('kgContainer');
+        if (kgC) {
+            kgC.classList.add('active');
+            kgC.innerHTML = `
+                <div style="text-align:center;">${svg}</div>
+                <div style="text-align:center;margin-top:6px;">${legendHtml}</div>
+                <div style="text-align:center;font-size:11px;opacity:0.6;margin-top:4px;">${escapeHtml(statsLine)}</div>
+            `;
+        }
     }
 </script>
 

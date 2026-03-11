@@ -286,7 +286,7 @@ router.post('/public-run/:id', async (req: Request, res: Response) => {
 
   const body = req.body || {};
   const options = { params: { language: body.params?.language || 'en', ...(body.params || {}) } };
-  const anonymousUserId = 'anonymous';
+  const anonymousUserId = '00000000-0000-0000-0000-000000000000';
   const tier = 'free';
 
   logger.info({ agentId, ip }, 'Public agent run');
