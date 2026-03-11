@@ -13,6 +13,13 @@ import { pool } from '../db/pool';
 import { Response } from 'express';
 import { logger } from '../logger';
 import { loadPrompt } from '../prompt-loader';
+import {
+  safeParse,
+  SpecialistReportSchema, FALLBACK_SPECIALIST_REPORT,
+  ModeratorReviewSchema, FALLBACK_MODERATOR_REVIEW,
+  CritiqueSchema, FALLBACK_CRITIQUE,
+  PlanSpecialistsSchema, FALLBACK_PLAN_SPECIALISTS,
+} from '../contracts';
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -77,10 +84,15 @@ function langInstr(language: string | undefined): string {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-export function emitSSE(res: Response, event: Record<string, unknown>): void {
+export function emitSSE(res: Response, event: Record<string, unknown>): boolean {
+  if (res.writableEnded) return false;
   try {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
-  } catch { /* connection closed */ }
+    return true;
+  } catch (err: any) {
+    logger.debug({ err: err.message, event: event.type }, '[SSE] Write failed — client likely disconnected');
+    return false;
+  }
 }
 
 function cleanLlmOutput<T>(obj: T): T {
@@ -437,7 +449,8 @@ Maximal 3-5 Findings und 3-5 Empfehlungen. Präzise und kompakt.`;
     { role: 'user', content: isEn ? `Analyze the following data:\n\n${context}` : `Analysiere folgende Daten:\n\n${context}` },
   ];
 
-  return await callLlmJson<SpecialistReport>(messages, freeLlmConfig, userId, signal);
+  const raw = await callLlmJson<SpecialistReport>(messages, freeLlmConfig, userId, signal);
+  return safeParse(SpecialistReportSchema, raw, FALLBACK_SPECIALIST_REPORT as any, 'SpecialistReport');
 }
 
 async function runSpecialistsParallel(
@@ -554,7 +567,9 @@ async function runModeratorReview(
   kgContext?: string,
   factoryContext?: string,
 ): Promise<{ readyForSynthesis: boolean; followUpTranscript: string }> {
-  emitSSE(res, { type: 'discussion_round_start', discussionRound: round });
+  if (!emitSSE(res, { type: 'discussion_round_start', discussionRound: round })) {
+    return { readyForSynthesis: true, followUpTranscript: previousAnswers };
+  }
 
   // Compress all reports for moderator context
   const compressed = Array.from(reports.entries())
@@ -639,11 +654,14 @@ Regeln für newSpecialists:
 - Klaren Fokus geben damit der neue Spezialist weiß was er untersuchen soll
 - Max 2 neue Spezialisten pro Runde`;
 
-  const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
+  const heartbeat = setInterval(() => {
+    if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat); return; }
+    emitSSE(res, { type: 'heartbeat' });
+  }, 15_000);
 
   let review: any;
   try {
-    review = await callLlmJson<any>(
+    const raw = await callLlmJson<any>(
       [
         { role: 'system', content: isEn
           ? 'You are an experienced moderator for impact analyses in manufacturing.'
@@ -654,6 +672,7 @@ Regeln für newSpecialists:
       userId,
       signal,
     );
+    review = safeParse(ModeratorReviewSchema, raw, FALLBACK_MODERATOR_REVIEW as any, 'ModeratorReview');
   } catch (err: any) {
     logger.error({ err: err.message }, 'Moderator review LLM failed');
     review = { gaps: [], contradictions: [], followUpQuestions: [], preliminaryInsights: [], readyForSynthesis: true };
@@ -687,6 +706,9 @@ Regeln für newSpecialists:
           ? `Moderator recruiting new specialist: ${newSpecDef.displayName} — "${newSpecDef.focus}"`
           : `Moderator zieht neuen Spezialisten hinzu: ${newSpecDef.displayName} — "${newSpecDef.focus}"`,
       });
+
+      // Abort early if client disconnected
+      if (res.writableEnded) break;
 
       // Run the new specialist
       try {
@@ -732,6 +754,8 @@ Regeln für newSpecialists:
   const questions = safeArray(review.followUpQuestions).slice(0, 3);
 
   for (const q of questions) {
+    if (res.writableEnded) break;
+
     const target = q.targetSpecialist || 'oee-impact';
     const question = q.question || q.context || '';
     if (!question) continue;
@@ -747,7 +771,10 @@ Regeln für newSpecialists:
     const specReport = reports.get(target);
     const specContext = specReport ? compressReport(target, specReport) : dl(language, 'Keine Daten verfügbar.', 'No data available.');
 
-    const heartbeat2 = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
+    const heartbeat2 = setInterval(() => {
+      if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat2); return; }
+      emitSSE(res, { type: 'heartbeat' });
+    }, 15_000);
     let answer: string;
     try {
       const answerResponse = await callLlm(
@@ -804,7 +831,7 @@ async function runDebate(
   language?: string,
 ): Promise<string> {
   // 3a: Moderator drafts answer
-  emitSSE(res, { type: 'debate_start' });
+  if (!emitSSE(res, { type: 'debate_start' })) return '';
   emitSSE(res, { type: 'discussion_synthesis_start' });
 
   const compressed = Array.from(reports.entries())
@@ -850,7 +877,10 @@ AUFGABE: Beantworte die User-Frage direkt und präzise basierend auf den Daten d
 
 Antworte als strukturierter Text (Markdown).`;
 
-  const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
+  const heartbeat = setInterval(() => {
+    if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat); return; }
+    emitSSE(res, { type: 'heartbeat' });
+  }, 15_000);
   let draftText: string;
   try {
     const draftResponse = await callLlm(
@@ -881,6 +911,7 @@ Antworte als strukturierter Text (Markdown).`;
   const specEntries = Array.from(reports.entries());
 
   for (let batch = 0; batch < specEntries.length; batch += 2) {
+    if (res.writableEnded) break;
     const batchEntries = specEntries.slice(batch, batch + 2);
     const batchResults = await Promise.allSettled(
       batchEntries.map(async ([name, report]) => {
@@ -921,9 +952,12 @@ ANTWORT-FORMAT: Reines JSON.
   "overallAssessment": "Gesamtbewertung in 1 Satz"
 }`;
 
-        const heartbeat2 = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
+        const heartbeat2 = setInterval(() => {
+          if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat2); return; }
+          emitSSE(res, { type: 'heartbeat' });
+        }, 15_000);
         try {
-          const critique = await callLlmJson<any>(
+          const rawCritique = await callLlmJson<any>(
             [
               { role: 'system', content: isEn
                 ? `You are a critical ${displayName}. Be constructive but honest.`
@@ -934,6 +968,7 @@ ANTWORT-FORMAT: Reines JSON.
             userId,
             signal,
           );
+          const critique = safeParse(CritiqueSchema, rawCritique, FALLBACK_CRITIQUE as any, 'Critique');
 
           const items = parseCritiqueItems(critique);
           emitSSE(res, {
@@ -994,7 +1029,10 @@ Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
 - Erfinde KEINE Personennamen oder Organisationseinheiten
 - Format: Strukturierter Markdown-Text.`;
 
-  const heartbeat3 = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
+  const heartbeat3 = setInterval(() => {
+    if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat3); return; }
+    emitSSE(res, { type: 'heartbeat' });
+  }, 15_000);
   let finalText: string;
   try {
     const finalResponse = await callLlm(
@@ -1482,6 +1520,12 @@ export async function runDiscussionAgent(
     }
 
     // ── Phase 2: Moderator Discussion (max 2 rounds) ──
+    // Heartbeat to keep connection alive while waiting for LLM semaphore
+    const phaseHeartbeat = setInterval(() => {
+      if (res.writableEnded) { clearInterval(phaseHeartbeat); return; }
+      emitSSE(res, { type: 'heartbeat' });
+    }, 15000);
+
     let readyForSynthesis = false;
     let transcript = '';
 
@@ -1496,6 +1540,8 @@ export async function runDiscussionAgent(
       readyForSynthesis = result.readyForSynthesis;
       transcript = result.followUpTranscript;
     }
+
+    clearInterval(phaseHeartbeat);
 
     // ── Phase 3: Debate + Synthesis ──
     const finalMitigation = await runDebate(
@@ -1618,7 +1664,7 @@ Regeln:
 - Sei kreativ mit den Spezialisten — sie müssen nicht die Standard-4 sein`;
 
   try {
-    const result = await callLlmJson<{ specialists: SpecialistDef[]; relevantTools: string[] }>(
+    const raw = await callLlmJson<{ specialists: SpecialistDef[]; relevantTools: string[] }>(
       [
         { role: 'system', content: isEn
           ? 'You are a strategic manufacturing planner.'
@@ -1629,6 +1675,9 @@ Regeln:
       userId,
       signal,
     );
+    const parsed = safeParse(PlanSpecialistsSchema, raw, FALLBACK_PLAN_SPECIALISTS as any, 'PlanSpecialists');
+    if (!parsed) throw new Error('safeParse returned null fallback');
+    const result = parsed as { specialists: SpecialistDef[]; relevantTools: string[] };
 
     // Validate: need at least 2 specialists
     if (!result.specialists || result.specialists.length < 2) {
@@ -1769,6 +1818,11 @@ export async function runDynamicDiscussion(
   }
 
   // ── Phase 2: Moderator Discussion ──
+  const phaseHeartbeat2 = setInterval(() => {
+    if (signal?.aborted || res.writableEnded) { clearInterval(phaseHeartbeat2); return; }
+    emitSSE(res, { type: 'heartbeat' });
+  }, 15000);
+
   let readyForSynthesis = false;
   let transcript = '';
   const activeSpecialists = [...specialists];
@@ -1783,6 +1837,8 @@ export async function runDynamicDiscussion(
     readyForSynthesis = result.readyForSynthesis;
     transcript = result.followUpTranscript;
   }
+
+  clearInterval(phaseHeartbeat2);
 
   // ── Phase 3: Debate + Synthesis ──
   const finalText = await runDebate(

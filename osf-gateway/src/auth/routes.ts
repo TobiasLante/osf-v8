@@ -670,12 +670,15 @@ router.put('/llm-settings', requireAuth, async (req: Request, res: Response) => 
       return;
     }
 
-    // Test the connection
+    // Test the connection with a short timeout (don't block the global semaphore for 5min)
     try {
+      const testSignal = AbortSignal.timeout(15_000);
       await callLlm(
         [{ role: 'user', content: 'Hi' }],
         undefined,
-        { baseUrl: resolvedUrl, model, apiKey }
+        { baseUrl: resolvedUrl, model, apiKey },
+        undefined,
+        testSignal
       );
     } catch (err: any) {
       res.status(422).json({ error: `Connection test failed: ${err.message.slice(0, 200)}` });
@@ -699,6 +702,12 @@ router.put('/llm-settings', requireAuth, async (req: Request, res: Response) => 
 // ─── Profile: Change Password ─────────────────────────────────────────────
 router.put('/profile/password', requireAuth, async (req: Request, res: Response) => {
   try {
+    const rl = checkRateLimit(`profile:${req.user!.userId}`, 10);
+    if (!rl) {
+      res.status(429).json({ error: 'Too many requests. Try again later.' });
+      return;
+    }
+
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) {
       res.status(400).json({ error: 'Current and new password required' }); return;
@@ -725,6 +734,12 @@ router.put('/profile/password', requireAuth, async (req: Request, res: Response)
 // ─── Profile: Change Email ────────────────────────────────────────────────
 router.put('/profile/email', requireAuth, async (req: Request, res: Response) => {
   try {
+    const rl = checkRateLimit(`profile:${req.user!.userId}`, 10);
+    if (!rl) {
+      res.status(429).json({ error: 'Too many requests. Try again later.' });
+      return;
+    }
+
     const { newEmail, password } = req.body;
     if (!newEmail || !password) {
       res.status(400).json({ error: 'New email and password required' }); return;
@@ -789,6 +804,12 @@ router.get('/usage', requireAuth, async (req: Request, res: Response) => {
 // ─── Profile: Update Name & Avatar ────────────────────────────────────────
 router.put('/profile', requireAuth, async (req: Request, res: Response) => {
   try {
+    const rl = checkRateLimit(`profile:${req.user!.userId}`, 10);
+    if (!rl) {
+      res.status(429).json({ error: 'Too many requests. Try again later.' });
+      return;
+    }
+
     const { name, avatar } = req.body;
     const updates: string[] = [];
     const values: any[] = [];

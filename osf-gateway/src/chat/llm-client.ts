@@ -2,6 +2,8 @@ import { createHash } from 'crypto';
 import { pool } from '../db/pool';
 import { decryptApiKey } from '../auth/crypto';
 import { logger } from '../logger';
+import { config as appConfig } from '../config';
+import { ff } from '../feature-flags';
 
 // ─── LLM Concurrency Control ────────────────────────────────────────────────
 class Semaphore {
@@ -55,7 +57,7 @@ class Semaphore {
   get pending(): number { return this.queue.length; }
 }
 
-const LLM_MAX_CONCURRENCY = parseInt(process.env.LLM_MAX_CONCURRENCY || '4', 10);
+const LLM_MAX_CONCURRENCY = appConfig.llm.maxConcurrency;
 const semaphores = new Map<string, Semaphore>();
 
 // ─── LLM Circuit Breaker ─────────────────────────────────────────────────────
@@ -64,8 +66,8 @@ class CircuitBreaker {
   private lastFailure = 0;
   private state: 'closed' | 'open' | 'half-open' = 'closed';
   constructor(
-    private threshold: number = 10,
-    private resetTimeMs: number = 120_000 // 2min before half-open — discussions make 10+ LLM calls
+    private threshold: number = appConfig.llm.circuitBreakerThreshold,
+    private resetTimeMs: number = appConfig.llm.circuitBreakerResetMs,
   ) {}
 
   recordSuccess(): void {
@@ -124,17 +126,30 @@ export function getLlmStatus(): { servers: Array<{ url: string; active: number; 
  * Check if LLM servers are overloaded (total queued requests exceed threshold).
  * Used by flow engine to reject new runs when LLM is saturated.
  */
-const MAX_LLM_QUEUE_DEPTH = parseInt(process.env.LLM_MAX_QUEUE_DEPTH || '10', 10);
+const MAX_LLM_QUEUE_DEPTH = appConfig.llm.maxQueueDepth;
 export function isLlmOverloaded(): { overloaded: boolean; totalQueued: number; threshold: number } {
   let totalQueued = 0;
   semaphores.forEach(sem => { totalQueued += sem.pending; });
   return { overloaded: totalQueued >= MAX_LLM_QUEUE_DEPTH, totalQueued, threshold: MAX_LLM_QUEUE_DEPTH };
 }
 
+/**
+ * Check if any LLM circuit breaker is open (for pre-check in routes).
+ * Returns the user-facing message if open, or null if closed.
+ */
+export function isLlmCircuitOpen(): string | null {
+  for (const [url, cb] of circuitBreakers) {
+    if (!cb.canAttempt()) {
+      return ff.llmFallbackMessage;
+    }
+  }
+  return null;
+}
+
 // ─── LLM Response Cache ─────────────────────────────────────────────────────
 const LLM_CACHE = new Map<string, { response: LlmResponse; expiresAt: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const CACHE_MAX_SIZE = 200;
+const CACHE_TTL = appConfig.cache.llmCacheTtlMs;
+const CACHE_MAX_SIZE = appConfig.cache.llmCacheMaxSize;
 
 // Cleanup expired entries every 5 minutes
 setInterval(() => {
@@ -210,13 +225,13 @@ export interface LlmConfig {
 }
 
 const LLM_URLS: Record<string, string> = {
-  free: process.env.LLM_URL_FREE || 'http://192.168.178.120:5002',
-  premium: process.env.LLM_URL_PREMIUM || 'http://192.168.178.120:5001',
+  free: appConfig.llm.urlFree,
+  premium: appConfig.llm.urlPremium,
 };
 
 const LLM_MODELS: Record<string, string> = {
-  free: process.env.LLM_MODEL_FREE || 'qwen2.5-14b-instruct',
-  premium: process.env.LLM_MODEL_PREMIUM || 'qwen2.5-32b-instruct',
+  free: appConfig.llm.modelFree,
+  premium: appConfig.llm.modelPremium,
 };
 
 /** Get platform default config for a tier */
@@ -314,7 +329,7 @@ export async function callLlm(
   if (sem.pending > 0) {
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing request');
   }
-  await sem.acquire(180_000, signal); // 3min queue timeout
+  await sem.acquire(appConfig.llm.semaphoreTimeoutMs, signal);
 
   try {
     const body: any = {
@@ -335,9 +350,10 @@ export async function callLlm(
 
     // Combine caller signal with per-request timeout (5min)
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300_000);
+    const timeout = setTimeout(() => controller.abort(), appConfig.llm.perRequestTimeoutMs);
+    const onCallerAbort = () => controller.abort();
     if (signal) {
-      signal.addEventListener('abort', () => controller.abort(), { once: true });
+      signal.addEventListener('abort', onCallerAbort, { once: true });
     }
 
     let resp: globalThis.Response;
@@ -351,8 +367,10 @@ export async function callLlm(
     } catch (fetchErr) {
       cb.recordFailure();
       throw fetchErr;
+    } finally {
+      clearTimeout(timeout);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
     }
-    clearTimeout(timeout);
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => 'unknown');
@@ -405,17 +423,35 @@ export async function callLlm(
 export async function* streamLlm(
   messages: ChatMessage[],
   tools: any[] | undefined,
-  tierOrConfig: string | LlmConfig
+  tierOrConfig: string | LlmConfig,
+  signal?: AbortSignal,
 ): AsyncGenerator<LlmStreamChunk> {
   const config: LlmConfig = typeof tierOrConfig === 'string'
     ? getPlatformConfig(tierOrConfig)
     : tierOrConfig;
 
+  // Abort early if caller already cancelled
+  if (signal?.aborted) throw new Error('LLM stream request aborted');
+
+  // Circuit breaker check — fail fast if LLM is known-down
+  const cb = getCircuitBreaker(config.baseUrl);
+  if (!cb.canAttempt()) {
+    throw new Error('LLM server is temporarily unavailable (circuit breaker open). Please try again shortly.');
+  }
+
   const sem = getSemaphore(config.baseUrl);
   if (sem.pending > 0) {
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing stream request');
   }
-  await sem.acquire();
+  await sem.acquire(appConfig.llm.semaphoreTimeoutMs, signal);
+
+  // Per-request timeout (5min) combined with caller signal
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 300_000);
+  const onCallerAbort = () => controller.abort();
+  if (signal) {
+    signal.addEventListener('abort', onCallerAbort, { once: true });
+  }
 
   try {
     const body: any = {
@@ -435,16 +471,26 @@ export async function* streamLlm(
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
-    const resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+    let resp: globalThis.Response;
+    try {
+      resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      cb.recordFailure();
+      throw fetchErr;
+    }
 
     if (!resp.ok) {
       const text = await resp.text();
+      if (resp.status >= 500) cb.recordFailure();
       throw new Error(`LLM stream error ${resp.status}: ${text}`);
     }
+
+    cb.recordSuccess();
 
     const reader = resp.body?.getReader();
     if (!reader) throw new Error('No response body');
@@ -474,6 +520,8 @@ export async function* streamLlm(
       }
     }
   } finally {
+    clearTimeout(timeout);
+    if (signal) signal.removeEventListener('abort', onCallerAbort);
     sem.release();
   }
 }

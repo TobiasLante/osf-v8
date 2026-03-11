@@ -532,9 +532,11 @@ async function main() {
           res.setHeader(key, value);
         }
       }
-      // Allow embedding in iframe
-      res.removeHeader('X-Frame-Options');
+      // Upstream nginx chat-ui sends X-Frame-Options: DENY and CSP frame-ancestors 'none',
+      // which block iframe embedding. We strip both in the filter above and set permissive
+      // values here so the demo-chat page and analysis console can embed chat-ui in iframes.
       res.setHeader('X-Frame-Options', 'ALLOWALL');
+      res.setHeader('Content-Security-Policy', "frame-ancestors *");
       const buf = Buffer.from(await upstream.arrayBuffer());
       res.send(buf);
     } catch (err: any) {

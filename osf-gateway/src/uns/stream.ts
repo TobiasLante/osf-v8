@@ -3,6 +3,15 @@ import mqtt from 'mqtt';
 import { logger } from '../logger';
 import { requireAuth } from '../auth/middleware';
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+const EXTRA_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').filter(Boolean);
+const ALLOWED_ORIGINS = [
+  'https://openshopfloor.zeroguess.ai',
+  'https://osf-api.zeroguess.ai',
+  ...(IS_PROD ? [] : ['http://localhost:3000', 'http://localhost:3001']),
+  ...EXTRA_ORIGINS,
+];
+
 const router = Router();
 
 // All UNS routes require authentication
@@ -76,8 +85,10 @@ router.get('/stream', (req: Request, res: Response) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (ALLOWED_ORIGINS.length > 0) {
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]);
   }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.flushHeaders();
@@ -85,6 +96,7 @@ router.get('/stream', (req: Request, res: Response) => {
   const client = getClient();
 
   const cb = (topic: string, payload: string) => {
+    if (res.writableEnded) return;
     const data = JSON.stringify({ topic, payload, ts: Date.now() });
     res.write(`data: ${data}\n\n`);
   };
@@ -198,5 +210,13 @@ router.get('/topics', (_req: Request, res: Response) => {
 
 // Initialize cache on first import
 initCache();
+
+// Periodic cleanup: evict topic cache entries older than 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 300_000; // 5 min
+  for (const [key, entry] of topicCache) {
+    if (entry.ts < cutoff) topicCache.delete(key);
+  }
+}, 60_000).unref();
 
 export default router;

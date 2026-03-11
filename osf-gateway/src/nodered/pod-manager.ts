@@ -696,6 +696,12 @@ export class NrPodManager {
          WHERE status = 'starting' AND created_at < NOW() - INTERVAL '2 minutes'`
       );
 
+      // Cleanup old pod events (keep last 30 days)
+      await pool.query("DELETE FROM nodered_pod_events WHERE created_at < NOW() - INTERVAL '30 days'").catch(() => {});
+
+      // Cleanup old terminated pods (keep last 7 days)
+      await pool.query("DELETE FROM nodered_pods WHERE status = 'terminated' AND created_at < NOW() - INTERVAL '7 days'").catch(() => {});
+
       this.k8sBreaker.recordSuccess();
       logger.info('[PodManager] Reconciliation complete');
     } catch (err: any) {

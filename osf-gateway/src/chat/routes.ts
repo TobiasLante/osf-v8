@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
-import { callLlm, getLlmConfig, ChatMessage, ToolCall, LlmConfig } from './llm-client';
+import { callLlm, getLlmConfig, ChatMessage, ToolCall, LlmConfig, isLlmCircuitOpen } from './llm-client';
 import { getMcpTools, callMcpTool } from './tool-executor';
 import {
   createSession,
@@ -14,8 +14,13 @@ import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
 import { callLlmJson, runDynamicDiscussion, emitSSE } from '../agents/discussion-runner';
 import { loadPrompt } from '../prompt-loader';
+import { config } from '../config';
+import { ff } from '../feature-flags';
 
 const router = Router();
+
+// Per-session pipeline lock — prevents concurrent pipelines on the same session
+const activePipelines = new Set<string>();
 
 // ─── Skills-based Tool Selector ─────────────────────────────────────────
 // Reads skills.md, asks LLM which tools are relevant for the user's question,
@@ -197,6 +202,26 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     return;
   }
 
+  // UUID format validation on sessionId (prevents pod crash from malformed IDs)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (reqSessionId && !UUID_RE.test(reqSessionId)) {
+    res.status(400).json({ error: 'Invalid sessionId format' });
+    return;
+  }
+
+  // LLM circuit breaker pre-check — immediate error instead of 15min hang
+  const circuitMsg = isLlmCircuitOpen();
+  if (circuitMsg) {
+    res.status(503).json({ error: circuitMsg });
+    return;
+  }
+
+  // Per-session pipeline lock — reject concurrent requests to same session
+  if (reqSessionId && activePipelines.has(reqSessionId)) {
+    res.status(409).json({ error: 'A pipeline is already active for this session' });
+    return;
+  }
+
   // Verify session ownership if sessionId provided
   if (reqSessionId) {
     const owns = await verifySessionOwnership(reqSessionId, req.user!.userId);
@@ -229,11 +254,10 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
 
   // ── Abort controller: cancelled when client disconnects or pipeline times out ──
   const pipelineAbort = new AbortController();
-  const PIPELINE_TIMEOUT = 15 * 60_000; // 15min max for entire pipeline (discussions need ~10min)
   const pipelineTimer = setTimeout(() => {
-    logger.warn({ userId: req.user!.userId }, 'Chat pipeline timeout (15min)');
+    logger.warn({ userId: req.user!.userId }, 'Chat pipeline timeout');
     pipelineAbort.abort();
-  }, PIPELINE_TIMEOUT);
+  }, config.pipeline.timeoutMs);
 
   res.on('close', () => {
     if (!res.writableEnded) {
@@ -244,17 +268,29 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
 
   // Heartbeat to keep Cloudflare alive during long-running discussions (CF drops idle SSE after ~100s)
   const cfHeartbeat = setInterval(() => {
-    if (pipelineAbort.signal.aborted) return;
-    try { res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); } catch { /* closed */ }
-  }, 15_000);
+    if (pipelineAbort.signal.aborted || res.writableEnded) {
+      clearInterval(cfHeartbeat);
+      return;
+    }
+    try { res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); } catch {
+      logger.debug('Heartbeat write to closed connection');
+    }
+  }, config.pipeline.heartbeatIntervalMs);
+
+  // Track active pipeline for session lock
+  let pipelineSessionId: string | undefined;
 
   try {
     // Create or use session
     let sessionId = reqSessionId;
     if (!sessionId) {
       sessionId = await createSession(req.user!.userId, message.slice(0, 80));
-      res.write(`data: ${JSON.stringify({ type: 'session', sessionId })}\n\n`);
+      if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type: 'session', sessionId })}\n\n`);
     }
+
+    // Lock the session
+    pipelineSessionId = sessionId;
+    activePipelines.add(sessionId);
 
     // Save user message
     await saveMessage(sessionId, 'user', message);
@@ -280,8 +316,16 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     ];
 
     // ── Intent Classification: simple vs complex ──
-    // Always use free tier (14B) for classification — fast, consistent, independent of user tier
-    const isComplex = await classifyIntent(message, freeLlmConfig, req.user!.userId);
+    // Feature flags can override intent classification
+    let isComplex: boolean;
+    if (ff.forceSimple) {
+      isComplex = false;
+    } else if (ff.forceDiscussion) {
+      isComplex = true;
+    } else {
+      // Always use free tier (14B) for classification — fast, consistent, independent of user tier
+      isComplex = await classifyIntent(message, freeLlmConfig, req.user!.userId);
+    }
 
     if (isComplex) {
       logger.info({ userId: req.user!.userId, message: message.slice(0, 80) }, 'Complex intent → dynamic discussion');
@@ -312,7 +356,8 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
         }
         clearTimeout(pipelineTimer);
         clearInterval(cfHeartbeat);
-        res.end();
+        if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
+        if (!res.writableEnded) res.end();
       } catch (err: any) {
         logger.error({ err: err.message }, 'Dynamic discussion error');
         if (!res.writableEnded) {
@@ -323,6 +368,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
         }
         clearTimeout(pipelineTimer);
         clearInterval(cfHeartbeat);
+        if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
         if (!res.writableEnded) res.end();
       }
       return;
@@ -352,7 +398,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
           let toolArgs: Record<string, unknown> = {};
           try {
             toolArgs = JSON.parse(tc.function.arguments);
-          } catch { /* empty args */ }
+          } catch { logger.debug({ toolName: tc.function.name }, 'Failed to parse tool arguments'); }
 
           // Rate limit tools
           const toolLimitKey = `tool:${req.user!.userId}`;
@@ -399,12 +445,16 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
                 totalNodes: Array.isArray(nodes) ? nodes.length : 0,
                 totalEdges: Array.isArray(edges) ? edges.length : 0,
               })}\n\n`);
-            } catch { /* result not JSON, skip KG events */ }
+            } catch { logger.debug({ toolName }, 'KG result not JSON, skip KG events'); }
           }
 
           res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 
-          messages.push({ role: 'tool', content: result, tool_call_id: tc.id });
+          // Truncate large tool results to avoid LLM context overflow
+          const truncatedResult = result.length > config.truncation.toolResult
+            ? result.substring(0, config.truncation.toolResult) + `\n... (${result.length} chars total, truncated)`
+            : result;
+          messages.push({ role: 'tool', content: truncatedResult, tool_call_id: tc.id });
           allToolCalls.push({ name: toolName, arguments: toolArgs, result });
         }
 
@@ -429,10 +479,11 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     // Save assistant message
     await saveMessage(sessionId, 'assistant', fullContent, allToolCalls.length > 0 ? allToolCalls : undefined);
 
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     clearTimeout(pipelineTimer);
     clearInterval(cfHeartbeat);
-    res.end();
+    if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
+    if (!res.writableEnded) res.end();
   } catch (err: any) {
     logger.error({ err: err.message }, 'Chat completion error');
     if (!res.writableEnded) {
@@ -440,6 +491,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     }
     clearTimeout(pipelineTimer);
     clearInterval(cfHeartbeat);
+    if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
     if (!res.writableEnded) res.end();
   }
 });
