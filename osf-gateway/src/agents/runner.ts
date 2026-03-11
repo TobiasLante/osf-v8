@@ -18,6 +18,16 @@ export async function runAgent(
   res: Response,
   options?: RunAgentOptions
 ): Promise<void> {
+  // Abort controller: 15min max runtime + abort on client disconnect
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 900_000); // 15min max
+  res.on('close', () => controller.abort());
+
+  function safeWrite(res: Response, data: string): boolean {
+    if (res.writableEnded) return false;
+    try { res.write(data); return true; } catch { return false; }
+  }
+
   // Create agent run record (skip for anonymous/public runs)
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const isAnonymous = !userId || !UUID_RE.test(userId) || userId === '00000000-0000-0000-0000-000000000000';
@@ -30,7 +40,7 @@ export async function runAgent(
     runId = runResult.rows[0].id;
   }
 
-  res.write(`data: ${JSON.stringify({ type: 'run_start', runId, agent: agent.id })}\n\n`);
+  safeWrite(res, `data: ${JSON.stringify({ type: 'run_start', runId, agent: agent.id })}\n\n`);
 
   try {
     // Get all MCP tools, filter to agent's allowed tools
@@ -75,13 +85,19 @@ export async function runAgent(
     const maxIterations = agent.type === 'strategic' ? 10 : 6;
 
     for (let i = 0; i < maxIterations; i++) {
+      // Abort check at start of each iteration
+      if (controller.signal.aborted) {
+        logger.info({ agentId: agent.id, iteration: i }, 'Agent run aborted');
+        break;
+      }
+
       // Send heartbeat every 15s to keep SSE connection alive (Cloudflare kills idle connections after ~100s)
       const heartbeat = setInterval(() => {
-        res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`);
+        safeWrite(res, `data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`);
       }, 15_000);
       let response;
       try {
-        response = await callLlm(messages, agentTools, llmConfig);
+        response = await callLlm(messages, agentTools, llmConfig, undefined, controller.signal);
       } finally {
         clearInterval(heartbeat);
       }
@@ -94,19 +110,21 @@ export async function runAgent(
         });
 
         for (const tc of response.tool_calls) {
+          if (controller.signal.aborted) break;
+
           const toolName = tc.function.name;
           let toolArgs: Record<string, unknown> = {};
           try {
             toolArgs = JSON.parse(tc.function.arguments);
           } catch { logger.debug({ toolName: tc.function.name }, 'Failed to parse tool arguments'); }
 
-          res.write(`data: ${JSON.stringify({ type: 'tool_start', name: toolName, arguments: toolArgs })}\n\n`);
+          safeWrite(res, `data: ${JSON.stringify({ type: 'tool_start', name: toolName, arguments: toolArgs })}\n\n`);
 
           const rawResult = await callMcpTool(toolName, toolArgs);
           // Truncate extremely large tool results to avoid context overflow
           const result = rawResult.length > config.truncation.agentToolResult ? rawResult.slice(0, config.truncation.agentToolResult) + '\n... (truncated)' : rawResult;
 
-          res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
+          safeWrite(res, `data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 
           messages.push({ role: 'tool', content: result, tool_call_id: tc.id });
           allToolCalls.push({ name: toolName, arguments: toolArgs, result });
@@ -121,7 +139,7 @@ export async function runAgent(
       // Stream content
       const chunkSize = 30;
       for (let j = 0; j < finalContent.length; j += chunkSize) {
-        res.write(`data: ${JSON.stringify({ type: 'content', text: finalContent.slice(j, j + chunkSize) })}\n\n`);
+        safeWrite(res, `data: ${JSON.stringify({ type: 'content', text: finalContent.slice(j, j + chunkSize) })}\n\n`);
       }
 
       break;
@@ -135,7 +153,7 @@ export async function runAgent(
       );
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'done', runId })}\n\n`);
+    safeWrite(res, `data: ${JSON.stringify({ type: 'done', runId })}\n\n`);
   } catch (err: any) {
     logger.error({ err: err.message, agentId: agent.id, userId }, 'Agent run error');
 
@@ -143,9 +161,12 @@ export async function runAgent(
       await pool.query(
         `UPDATE agent_runs SET status = 'failed', result = $1, finished_at = NOW() WHERE id = $2`,
         [JSON.stringify({ error: err.message }), runId]
-      );
+      ).catch(dbErr => logger.error({ err: dbErr.message }, 'Failed to update agent_runs on error'));
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Agent execution failed' })}\n\n`);
+    safeWrite(res, `data: ${JSON.stringify({ type: 'error', message: 'Agent execution failed' })}\n\n`);
+    if (!res.writableEnded) res.end();
+  } finally {
+    clearTimeout(timeout);
   }
 }

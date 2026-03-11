@@ -109,6 +109,7 @@ async function fetchToolsFromUrl(url: string): Promise<any[]> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!resp.ok) throw new Error(`MCP tools/list failed at ${url}: ${resp.status}`);

@@ -726,6 +726,25 @@ router.get('/health', async (req: Request, res: Response) => {
   } catch { /* unreachable */ }
   if (!mqttReachable) { mqttStatus = 'critical'; alerts.push({ severity: 'critical', component: 'mqtt', message: 'MQTT broker unreachable' }); }
 
+  // --- Email (Resend) ---
+  let emailStatus: HealthStatus = 'healthy';
+  let emailConfigured = !!process.env.RESEND_API_KEY;
+  let emailReachable = false;
+  if (emailConfigured) {
+    try {
+      const r = await fetch('https://api.resend.com/domains', {
+        headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}` },
+        signal: AbortSignal.timeout(3000),
+      });
+      // Even a 401 (restricted key) means API is reachable
+      emailReachable = r.status < 500;
+    } catch { /* unreachable */ }
+    if (!emailReachable) { emailStatus = 'degraded'; alerts.push({ severity: 'warning', component: 'email', message: 'Resend API unreachable' }); }
+  } else {
+    emailStatus = 'critical';
+    alerts.push({ severity: 'critical', component: 'email', message: 'RESEND_API_KEY not configured — emails disabled' });
+  }
+
   // --- Cloudflare ---
   let cfStatus: HealthStatus = 'healthy';
   let cfReachable = false;
@@ -736,7 +755,7 @@ router.get('/health', async (req: Request, res: Response) => {
   if (!cfReachable) { cfStatus = 'degraded'; alerts.push({ severity: 'warning', component: 'cloudflare', message: 'Cloudflare unreachable' }); }
 
   // --- Overall ---
-  const statuses = [gatewayStatus, dbStatus, llmStatus, nrStatus, mcpStatus, factoryStatus, dbsStatus, mqttStatus, cfStatus];
+  const statuses = [gatewayStatus, dbStatus, llmStatus, nrStatus, mcpStatus, factoryStatus, dbsStatus, mqttStatus, emailStatus, cfStatus];
   let overall: HealthStatus = 'healthy';
   if (statuses.includes('critical')) overall = 'critical';
   else if (statuses.includes('degraded')) overall = 'degraded';
@@ -749,9 +768,15 @@ router.get('/health', async (req: Request, res: Response) => {
       llm: { status: llmStatus, online: llmOnline, activeRequests: llmActiveRequests, queuedRequests: llmQueuedRequests },
       nodered: { status: nrStatus, ...nrStats },
       mcp: { status: mcpStatus, services: mcpResults },
-      factory: { status: factoryStatus, services: factoryResults },
+      factory: { status: factoryStatus, services: factoryResults, kgSync: await (async () => {
+        try {
+          const r = await fetch(`${FACTORY_SIM_BASE}/api/health/kg-sync`, { signal: AbortSignal.timeout(5000) });
+          return r.ok ? await r.json() : null;
+        } catch { return null; }
+      })() },
       databases: { status: dbsStatus, checks: dbChecks },
       mqtt: { status: mqttStatus, reachable: mqttReachable },
+      email: { status: emailStatus, configured: emailConfigured, reachable: emailReachable },
       cloudflare: { status: cfStatus, reachable: cfReachable },
     },
     alerts,

@@ -104,6 +104,18 @@ export function safeParse<T>(
   return fallback;
 }
 
+// ─── Plan Specialists ───────────────────────────────────────────────────
+
+export const PlanSpecialistsSchema = z.object({
+  specialists: z.array(z.object({
+    name: z.string().default('unknown'),
+    domain: z.string().default('GENERAL'),
+    displayName: z.string().optional(),
+    focus: z.string().default(''),
+  }).passthrough()).default([]),
+  relevantTools: z.array(z.string()).default([]),
+}).passthrough();
+
 // ─── Default Fallbacks ───────────────────────────────────────────────────
 
 export const FALLBACK_SPECIALIST_REPORT = {
@@ -122,3 +134,12 @@ export const FALLBACK_MODERATOR_REVIEW = {
   preliminaryInsights: [],
   readyForSynthesis: true, // fail-open: proceed to synthesis instead of hanging
 };
+
+export const FALLBACK_CRITIQUE = {
+  supported: [],
+  concerns: [],
+  additions: [],
+  overallAssessment: '',
+};
+
+export const FALLBACK_PLAN_SPECIALISTS = null; // null → existing catch uses IMPACT_SPECIALISTS

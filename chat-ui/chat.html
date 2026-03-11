@@ -2974,6 +2974,14 @@
             }
         })();
 
+        // Receive token from parent iframe via postMessage (secure alternative to URL param)
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'auth-token' && event.data.token) {
+                _memToken = event.data.token;
+                _setLS('osf_token', event.data.token);
+            }
+        });
+
         const API_BASE = '/api';
 
         function getToken() {

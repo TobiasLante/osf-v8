@@ -351,8 +351,9 @@ export async function callLlm(
     // Combine caller signal with per-request timeout (5min)
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), appConfig.llm.perRequestTimeoutMs);
+    const onCallerAbort = () => controller.abort();
     if (signal) {
-      signal.addEventListener('abort', () => controller.abort(), { once: true });
+      signal.addEventListener('abort', onCallerAbort, { once: true });
     }
 
     let resp: globalThis.Response;
@@ -366,8 +367,10 @@ export async function callLlm(
     } catch (fetchErr) {
       cb.recordFailure();
       throw fetchErr;
+    } finally {
+      clearTimeout(timeout);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
     }
-    clearTimeout(timeout);
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => 'unknown');
@@ -420,17 +423,35 @@ export async function callLlm(
 export async function* streamLlm(
   messages: ChatMessage[],
   tools: any[] | undefined,
-  tierOrConfig: string | LlmConfig
+  tierOrConfig: string | LlmConfig,
+  signal?: AbortSignal,
 ): AsyncGenerator<LlmStreamChunk> {
   const config: LlmConfig = typeof tierOrConfig === 'string'
     ? getPlatformConfig(tierOrConfig)
     : tierOrConfig;
 
+  // Abort early if caller already cancelled
+  if (signal?.aborted) throw new Error('LLM stream request aborted');
+
+  // Circuit breaker check — fail fast if LLM is known-down
+  const cb = getCircuitBreaker(config.baseUrl);
+  if (!cb.canAttempt()) {
+    throw new Error('LLM server is temporarily unavailable (circuit breaker open). Please try again shortly.');
+  }
+
   const sem = getSemaphore(config.baseUrl);
   if (sem.pending > 0) {
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing stream request');
   }
-  await sem.acquire();
+  await sem.acquire(appConfig.llm.semaphoreTimeoutMs, signal);
+
+  // Per-request timeout (5min) combined with caller signal
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 300_000);
+  const onCallerAbort = () => controller.abort();
+  if (signal) {
+    signal.addEventListener('abort', onCallerAbort, { once: true });
+  }
 
   try {
     const body: any = {
@@ -450,16 +471,26 @@ export async function* streamLlm(
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
-    const resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+    let resp: globalThis.Response;
+    try {
+      resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      cb.recordFailure();
+      throw fetchErr;
+    }
 
     if (!resp.ok) {
       const text = await resp.text();
+      if (resp.status >= 500) cb.recordFailure();
       throw new Error(`LLM stream error ${resp.status}: ${text}`);
     }
+
+    cb.recordSuccess();
 
     const reader = resp.body?.getReader();
     if (!reader) throw new Error('No response body');
@@ -489,6 +520,8 @@ export async function* streamLlm(
       }
     }
   } finally {
+    clearTimeout(timeout);
+    if (signal) signal.removeEventListener('abort', onCallerAbort);
     sem.release();
   }
 }

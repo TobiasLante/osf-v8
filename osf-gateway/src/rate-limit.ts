@@ -80,7 +80,7 @@ setInterval(() => {
       windows.set(key, valid);
     }
   }
-}, 5 * 60_000);
+}, 5 * 60_000).unref();
 
 // ─── Redis sliding window (ZSET) ───────────────────────────────────────────
 async function checkRedis(key: string, maxPerMinute: number): Promise<boolean> {
@@ -91,18 +91,20 @@ async function checkRedis(key: string, maxPerMinute: number): Promise<boolean> {
   const windowStart = now - WINDOW_MS;
 
   try {
+    // Add first, then check count to avoid TOCTOU race
+    const member = `${now}:${Math.random()}`;
     const pipeline = redis.pipeline();
     pipeline.zremrangebyscore(redisKey, 0, windowStart);
+    pipeline.zadd(redisKey, now.toString(), member);
     pipeline.zcard(redisKey);
-    pipeline.zadd(redisKey, now.toString(), `${now}:${Math.random()}`);
     pipeline.expire(redisKey, 120); // TTL 2 min
 
     const results = await pipeline.exec();
-    const count = results?.[1]?.[1] as number ?? 0;
+    const count = results?.[2]?.[1] as number ?? 0;
 
-    if (count >= maxPerMinute) {
-      // Remove the entry we just added
-      await redis.zremrangebyscore(redisKey, now, now + 1);
+    if (count > maxPerMinute) {
+      // We pushed it over the limit — remove our entry and reject
+      await redis.zrem(redisKey, member);
       return false;
     }
     return true;
