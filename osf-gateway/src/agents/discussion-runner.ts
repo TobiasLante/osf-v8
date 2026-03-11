@@ -279,6 +279,7 @@ function extractKgGraph(toolResults: Array<{ name: string; result: string }>, ce
     return true;
   });
 
+  logger.info({ mapSize: nodesMap.size, uniqueEdges: uniqueEdges.length, totalEdgesBeforeDedup: edges.length }, 'extractKgGraph: final counts');
   return { nodes: Array.from(nodesMap.values()), edges: uniqueEdges };
 }
 
@@ -345,8 +346,11 @@ async function runKgPhase(
 
   await Promise.allSettled(kgPromises);
 
+  logger.info({ kgToolCount: kgTools.length, resultCount: toolResults.length, tools: toolResults.map(r => r.name), entityId }, 'KG phase: tools completed');
+
   // Extract graph
   const { nodes, edges } = extractKgGraph(toolResults, entityId);
+  logger.info({ nodeCount: nodes.length, edgeCount: edges.length }, 'KG phase: graph extracted');
 
   emitSSE(res, {
     type: 'kg_nodes_discovered',
@@ -1686,7 +1690,19 @@ export async function runDynamicDiscussion(
   };
 
   // ── Phase 0b: KG traversal ──
-  const params: Record<string, unknown> = { scenario: userMessage.slice(0, 100) };
+  // Extract entity IDs from user message for KG tool parameterization
+  const machineMatch = userMessage.match(/(?:Maschine|Machine|machine)\s*(\d{4,5})/i)
+    || userMessage.match(/\b(\d{4,5})\b/); // fallback: any 4-5 digit number
+  const orderMatch = userMessage.match(/\b(FA\d{6,})\b/i);
+  const extractedMachineId = machineMatch?.[1];
+  const extractedEntityId = extractedMachineId || orderMatch?.[1];
+
+  const params: Record<string, unknown> = {
+    scenario: userMessage.slice(0, 100),
+    ...(extractedMachineId && { machineId: extractedMachineId }),
+    ...(extractedEntityId && { entityId: extractedEntityId }),
+  };
+  logger.info({ extractedMachineId, extractedEntityId, scenario: params.scenario }, 'KG phase: extracted entity from user message');
   const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(dynamicAgent, res, params);
 
   const isEn = language === 'en';
