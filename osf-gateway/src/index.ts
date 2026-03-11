@@ -3,6 +3,8 @@ import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
+import { config } from './config';
+import { logFeatureFlags } from './feature-flags';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { pool, initSchema } from './db/pool';
@@ -31,9 +33,17 @@ const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
 let nrPodManager: NrPodManager;
 
+// Track active SSE responses for graceful shutdown
+const activeSseResponses = new Set<express.Response>();
+export function trackSseResponse(res: express.Response): void {
+  activeSseResponses.add(res);
+  res.on('close', () => activeSseResponses.delete(res));
+}
+
 async function main() {
   // Validate critical env vars early
   validateEncryptionKey();
+  logFeatureFlags();
 
   await initSchema();
 
@@ -197,14 +207,16 @@ async function main() {
     res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown' });
   });
 
-  // Readiness probe — checks DB connectivity
+  // Readiness probe — checks DB connectivity + LLM circuit breaker
   app.get('/health/ready', async (_req, res) => {
     const { checkDbReady } = await import('./db/pool');
+    const { isLlmCircuitOpen } = await import('./chat/llm-client');
     const dbOk = await checkDbReady();
+    const llmCircuit = isLlmCircuitOpen();
     if (dbOk) {
-      res.json({ status: 'ready', db: 'ok' });
+      res.json({ status: 'ready', db: 'ok', llmCircuitOpen: !!llmCircuit });
     } else {
-      res.status(503).json({ status: 'not_ready', db: 'unreachable' });
+      res.status(503).json({ status: 'not_ready', db: 'unreachable', llmCircuitOpen: !!llmCircuit });
     }
   });
 
@@ -249,6 +261,25 @@ async function main() {
     }
   });
 
+  // LLM status check — public endpoint for landing page "Open Analysis Console"
+  const FACTORY_SIM_URL = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+  app.get('/v7/llm-status', async (_req, res) => {
+    try {
+      const upstream = await fetch(`${FACTORY_SIM_URL}/api/infrastructure/metrics?minutes=1`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!upstream.ok) {
+        res.json({ llmOnline: false });
+        return;
+      }
+      const data: any = await upstream.json();
+      const llmHost = (data.hosts || []).find((h: any) => h.hostname?.includes('llm') || h.has_gpu);
+      res.json({ llmOnline: llmHost?.online === true });
+    } catch {
+      res.json({ llmOnline: false });
+    }
+  });
+
   // V7-DISABLED: V7 Gateway Proxy — disabled for V8 migration.
   // All agents now run through V8 /agents/run/:id SSE endpoint.
   // To re-enable: remove the `if (false)` wrapper below.
@@ -264,7 +295,7 @@ async function main() {
   }, 5 * 60 * 1000);
 
   const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
-  app.get('/v7/llm-status', requireAuth, async (_req, res) => {
+  app.get('/v7/llm-status', async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_BASE}/api/infrastructure/metrics?minutes=1`, {
         signal: AbortSignal.timeout(4000),
@@ -585,23 +616,52 @@ main().catch((err) => {
 });
 
 async function gracefulShutdown(signal: string) {
-  logger.info({ signal }, 'Shutdown signal received, starting graceful shutdown...');
+  logger.info({ signal, activeSse: activeSseResponses.size }, 'Shutdown signal received, starting graceful shutdown...');
 
   // 1. Stop accepting new flows
   runRegistry.stopAccepting();
 
-  // 2. Shutdown NR pod manager (cleanup pods)
+  // 2. Notify active SSE connections that we're shutting down
+  for (const sseRes of activeSseResponses) {
+    try {
+      sseRes.write(`data: ${JSON.stringify({ type: 'done', reason: 'server_shutdown' })}\n\n`);
+    } catch { /* already closed */ }
+  }
+
+  // 3. Shutdown NR pod manager (cleanup pods)
   if (nrPodManager) {
     await nrPodManager.shutdown().catch(err => {
       logger.error({ err: err.message }, 'NR Pod Manager shutdown error');
     });
   }
 
-  // 3. Stop accepting new HTTP connections
+  // 4. Stop accepting new HTTP connections
   httpServer?.close();
 
-  // 3. Wait up to 4 minutes for active flows to finish
-  const timedOut = await runRegistry.drainOrTimeout(240_000);
+  // 5. Drain period — wait for active SSE connections to finish
+  if (activeSseResponses.size > 0) {
+    logger.info({ activeSse: activeSseResponses.size }, `Waiting up to ${config.shutdown.drainPeriodMs / 1000}s for SSE connections to drain...`);
+    await new Promise<void>(resolve => {
+      const drainTimeout = setTimeout(() => {
+        logger.warn({ remaining: activeSseResponses.size }, 'SSE drain timeout, closing remaining connections');
+        for (const sseRes of activeSseResponses) {
+          try { sseRes.end(); } catch { /* ignore */ }
+        }
+        resolve();
+      }, config.shutdown.drainPeriodMs);
+      // Check periodically if all SSE connections are gone
+      const check = setInterval(() => {
+        if (activeSseResponses.size === 0) {
+          clearTimeout(drainTimeout);
+          clearInterval(check);
+          resolve();
+        }
+      }, 500);
+    });
+  }
+
+  // 6. Wait up to 4 minutes for active flows to finish
+  const timedOut = await runRegistry.drainOrTimeout(config.shutdown.flowDrainTimeoutMs);
 
   // 4. Mark timed-out runs as failed in DB
   if (timedOut.length > 0) {
