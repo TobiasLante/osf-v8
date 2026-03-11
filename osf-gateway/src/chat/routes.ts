@@ -159,8 +159,15 @@ router.post('/sessions', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// UUID format check for path params
+const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET /chat/sessions/:id/messages — get session messages (ownership enforced)
 router.get('/sessions/:id/messages', requireAuth, async (req: Request, res: Response) => {
+  if (!SESSION_UUID_RE.test(req.params.id)) {
+    res.status(400).json({ error: 'Invalid session ID format' });
+    return;
+  }
   try {
     const messages = await getSessionMessages(req.params.id, req.user!.userId);
     res.json({ messages });
@@ -172,6 +179,10 @@ router.get('/sessions/:id/messages', requireAuth, async (req: Request, res: Resp
 
 // DELETE /chat/sessions/:id (ownership enforced)
 router.delete('/sessions/:id', requireAuth, async (req: Request, res: Response) => {
+  if (!SESSION_UUID_RE.test(req.params.id)) {
+    res.status(400).json({ error: 'Invalid session ID format' });
+    return;
+  }
   try {
     const deleted = await deleteSession(req.params.id, req.user!.userId);
     if (!deleted) {
