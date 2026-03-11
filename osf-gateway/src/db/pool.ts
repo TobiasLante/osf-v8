@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
+import { config } from '../config';
 
 function getDatabaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
@@ -14,10 +15,11 @@ export const pool = new Pool({
   connectionString: getDatabaseUrl(),
   max: 20,
   idleTimeoutMillis: 30000,
+  statement_timeout: config.db.statementTimeoutMs,
 });
 
 // ─── Circuit Breaker ─────────────────────────────────────────────────────────
-const MAX_CONSECUTIVE_ERRORS = 5;
+const MAX_CONSECUTIVE_ERRORS = config.db.maxConsecutiveErrors;
 let consecutiveErrors = 0;
 
 pool.on('error', (err) => {

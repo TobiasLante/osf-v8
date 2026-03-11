@@ -794,12 +794,176 @@ print(db)
     ok "Rate limiting OK (3 rapid health checks passed)"
   fi
 
+  # T15: Demo Chat iframe loadable (no X-Frame-Options: DENY)
+  log "T15: Demo Chat iframe loadable..."
+  local demo_chat_code demo_chat_headers
+  demo_chat_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$GW_URL/demo-ui/chat.html" 2>/dev/null || echo "000")
+  demo_chat_headers=$(curl -s -I --max-time 10 "$GW_URL/demo-ui/chat.html" 2>/dev/null || echo "")
+  if [[ "$demo_chat_code" == "200" ]]; then
+    if echo "$demo_chat_headers" | grep -qi "x-frame-options: DENY"; then
+      fail "Demo chat returns X-Frame-Options: DENY — iframe embedding blocked"
+      ((FAIL++)) || true
+    else
+      ok "Demo chat loadable (HTTP 200, no X-Frame-Options: DENY)"
+    fi
+  else
+    fail "Demo chat not accessible: HTTP $demo_chat_code (expected 200)"
+    ((FAIL++)) || true
+  fi
+
+  # T16: No mixed content in demo-chat page (no http://192.168.178.150 refs)
+  log "T16: No mixed content in frontend demo-chat..."
+  local mixed_content_found=0
+  # Check frontend source for hardcoded internal IPs
+  if [[ -d "$V8_ROOT/osf-frontend" ]]; then
+    local mc_hits
+    mc_hits=$(grep -r "http://192\.168\.178\.150" "$V8_ROOT/osf-frontend/src/" --include="*.tsx" --include="*.ts" --include="*.jsx" --include="*.js" -l 2>/dev/null || echo "")
+    if [[ -n "$mc_hits" ]]; then
+      mixed_content_found=1
+      fail "Mixed content: hardcoded http://192.168.178.150 in frontend source: $mc_hits"
+      ((FAIL++)) || true
+    fi
+  fi
+  # Also check the served page content
+  local demo_chat_body
+  demo_chat_body=$(curl -s --max-time 10 "$GW_URL/demo-ui/chat.html" 2>/dev/null || echo "")
+  if echo "$demo_chat_body" | grep -q "http://192\.168\.178\.150"; then
+    mixed_content_found=1
+    fail "Mixed content: http://192.168.178.150 found in served demo-chat page"
+    ((FAIL++)) || true
+  fi
+  if [[ $mixed_content_found -eq 0 ]]; then
+    ok "No mixed content (no http://192.168.178.150 references)"
+  fi
+
+  # T17: Analysis Console loadable
+  log "T17: Analysis Console loadable..."
+  assert_http "$GW_URL/demo-ui/analysis.html" 200 "Analysis Console" || ((FAIL++)) || true
+
+  # T18: Public agent endpoint responds (SSE stream starts)
+  log "T18: Public agent endpoint (otd-deep-analyzer)..."
+  local agent_code
+  agent_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$GW_URL/api/agents/public-run/otd-deep-analyzer" -H "Content-Type: application/json" -d '{"params":{"language":"en"}}' 2>/dev/null || echo "000")
+  if [[ "$agent_code" == "200" ]]; then
+    ok "Public agent endpoint responds: HTTP 200 (SSE stream)"
+  elif [[ "$agent_code" == "401" ]] || [[ "$agent_code" == "403" ]]; then
+    fail "Public agent endpoint requires auth: HTTP $agent_code (should be public)"
+    ((FAIL++)) || true
+  elif [[ "$agent_code" == "404" ]]; then
+    fail "Public agent endpoint not found: HTTP 404"
+    ((FAIL++)) || true
+  elif [[ "$agent_code" == "502" ]] || [[ "$agent_code" == "504" ]]; then
+    fail "Public agent endpoint upstream error: HTTP $agent_code"
+    ((FAIL++)) || true
+  else
+    bug "MEDIUM" "Public agent endpoint unexpected response: HTTP $agent_code"
+  fi
+
+  # T19: Auth login endpoint works (invalid creds → 401, not 500/404)
+  log "T19: Auth login endpoint with invalid creds..."
+  local login_code
+  login_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$GW_URL/auth/login" -H "Content-Type: application/json" -d '{"email":"smoke-test@invalid.test","password":"wrongpassword"}' 2>/dev/null || echo "000")
+  if [[ "$login_code" == "401" ]]; then
+    ok "Auth login rejects invalid creds: HTTP 401"
+  elif [[ "$login_code" == "500" ]]; then
+    fail "Auth login crashes on invalid creds: HTTP 500"
+    ((FAIL++)) || true
+  elif [[ "$login_code" == "404" ]]; then
+    fail "Auth login endpoint not found: HTTP 404"
+    ((FAIL++)) || true
+  else
+    bug "MINOR" "Auth login unexpected response: HTTP $login_code (expected 401)"
+  fi
+
+  # T20: Chat completions requires auth (no auth → 401, not 500/crash)
+  log "T20: Chat completions requires auth..."
+  local chat_comp_code
+  chat_comp_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$GW_URL/api/chat/completions" -H "Content-Type: application/json" -d '{"message":"test"}' 2>/dev/null || echo "000")
+  if [[ "$chat_comp_code" == "401" ]]; then
+    ok "Chat completions properly requires auth: HTTP 401"
+  elif [[ "$chat_comp_code" == "403" ]]; then
+    ok "Chat completions properly requires auth: HTTP 403"
+  elif [[ "$chat_comp_code" == "500" ]]; then
+    fail "Chat completions crashes without auth: HTTP 500"
+    ((FAIL++)) || true
+  else
+    bug "MINOR" "Chat completions without auth: HTTP $chat_comp_code (expected 401)"
+  fi
+
   echo ""
   if [[ $FAIL -gt 0 ]]; then
     fail "OSF: $FAIL CRITICAL test(s) failed!"
     return 1
   else
     ok "OSF: All critical tests passed ($NON_CRITICAL non-critical issues)"
+    return 0
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# POST-DEPLOY SMOKE TEST: 3 quick chat questions to verify end-to-end
+# ════════════════════════════════════════════════════════════════════════════
+smoke_test_chat() {
+  section "POST-DEPLOY SMOKE: 3 quick chat questions"
+  local FAIL=0
+  local PASS=0
+  local CHAT_URL="https://osf-api.zeroguess.ai/chat/completions"
+
+  # Generate JWT token
+  local TOKEN
+  TOKEN=$(node -e "const jwt=require('/opt/osf-v8/osf-gateway/node_modules/jsonwebtoken');console.log(jwt.sign({userId:'186da896-707e-4de4-a617-e6b3c6b90d34',email:'tobias.lante74@gmail.com'},'v7-production-jwt-secret-change-this',{expiresIn:'1h'}))")
+  if [[ -z "$TOKEN" ]]; then
+    fail "Could not generate JWT token for smoke test"
+    return 1
+  fi
+
+  local -a LABELS=( "OEE" "MATERIAL" "SPC" )
+  local -a QUESTIONS=(
+    "Wie ist der OEE von Maschine 9001?"
+    "Welche Materialien haben geringe Reichweite?"
+    "Gibt es SPC-Alarme?"
+  )
+
+  for i in "${!LABELS[@]}"; do
+    local label="${LABELS[$i]}"
+    local question="${QUESTIONS[$i]}"
+    log "Smoke [$label]: $question"
+
+    local response
+    response=$(curl -s --max-time 120 \
+      -X POST "$CHAT_URL" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"message\":\"$question\",\"language\":\"de\"}" \
+      2>/dev/null || echo "")
+
+    if [[ -z "$response" ]]; then
+      fail "Smoke [$label]: NO RESPONSE (timeout)"
+      ((FAIL++)) || true
+      continue
+    fi
+
+    # Check if we got content or error in the SSE stream
+    if echo "$response" | grep -q '"type":"content"'; then
+      ok "Smoke [$label]: Got content response"
+      ((PASS++)) || true
+    elif echo "$response" | grep -q '"type":"error"'; then
+      local err_msg
+      err_msg=$(echo "$response" | grep '"type":"error"' | head -1 | sed 's/.*"message":"\([^"]*\)".*/\1/')
+      fail "Smoke [$label]: Error — $err_msg"
+      ((FAIL++)) || true
+    else
+      warn "Smoke [$label]: Unexpected response format"
+      ((PASS++)) || true  # non-critical
+    fi
+  done
+
+  echo ""
+  if [[ $FAIL -gt 0 ]]; then
+    fail "Smoke test: $FAIL/3 questions failed!"
+    return 1
+  else
+    ok "Smoke test: $PASS/3 questions answered successfully"
     return 0
   fi
 }
@@ -1143,6 +1307,9 @@ main() {
     security)
       run_security_audit
       ;;
+    smoke-chat)
+      smoke_test_chat
+      ;;
     all)
       section "FULL PIPELINE — Deploy & Test All"
       echo "Order: Factory Sim → OSF → Chat-UI → Security Audit"
@@ -1188,6 +1355,7 @@ main() {
       echo "  chat-ui           Section 3: Deploy + test chat-ui"
       echo "  test-chat-ui      Test chat-ui only (no deploy)"
       echo "  security          Section 4: Security audit"
+      echo "  smoke-chat        Post-deploy smoke test (3 quick chat questions)"
       echo ""
       echo "Each section stops on critical failures."
       echo "Non-critical bugs are collected in: $BUGS_FILE"

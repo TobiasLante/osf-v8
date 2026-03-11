@@ -1,8 +1,54 @@
 import { logger } from '../logger';
+import { config } from '../config';
+import { ff } from '../feature-flags';
+
+// ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
+class McpCircuitBreaker {
+  private failures = 0;
+  private lastFailure = 0;
+  private state: 'closed' | 'open' = 'closed';
+
+  recordSuccess(): void {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailure = Date.now();
+    if (this.failures >= config.mcp.circuitBreakerThreshold) {
+      if (this.state !== 'open') {
+        logger.warn({ failures: this.failures }, 'MCP circuit breaker OPEN');
+      }
+      this.state = 'open';
+    }
+  }
+
+  canAttempt(): boolean {
+    if (this.state === 'closed') return true;
+    if (Date.now() - this.lastFailure > config.mcp.circuitBreakerResetMs) {
+      this.state = 'closed';
+      this.failures = 0;
+      logger.info('MCP circuit breaker RESET');
+      return true;
+    }
+    return false;
+  }
+}
+
+const mcpCircuitBreakers = new Map<string, McpCircuitBreaker>();
+function getMcpCircuitBreaker(url: string): McpCircuitBreaker {
+  let cb = mcpCircuitBreakers.get(url);
+  if (!cb) {
+    cb = new McpCircuitBreaker();
+    mcpCircuitBreakers.set(url, cb);
+  }
+  return cb;
+}
 
 // ─── Retry Helper ─────────────────────────────────────────────────────────────
 const RETRY_BACKOFF = [2000, 4000, 8000];
-const PER_ATTEMPT_TIMEOUT = 60_000;
+const PER_ATTEMPT_TIMEOUT = config.mcp.perAttemptTimeoutMs;
 
 async function fetchWithRetry(
   url: string,
@@ -47,7 +93,7 @@ export const MCP_SERVERS: Record<string, string> = {
   kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
 };
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 min
+const CACHE_TTL = config.mcp.toolCacheTtlMs;
 
 // Per-URL cache (dedup: multiple logical servers may share the same URL)
 const urlToolCache: Record<string, { tools: any[]; time: number }> = {};
@@ -148,6 +194,15 @@ export async function callMcpTool(
   }
 
   const url = MCP_SERVERS[server];
+
+  // Circuit breaker check — fast-fail if MCP server is known-down
+  if (ff.enableMcpCircuitBreaker) {
+    const cb = getMcpCircuitBreaker(url);
+    if (!cb.canAttempt()) {
+      return JSON.stringify({ error: `MCP server temporarily unavailable (circuit breaker open)` });
+    }
+  }
+
   let resp: Response;
   try {
     resp = await fetchWithRetry(`${url}/mcp`, {
@@ -161,13 +216,18 @@ export async function callMcpTool(
       }),
     });
   } catch (err: any) {
+    if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordFailure();
     return JSON.stringify({ error: `MCP unreachable after retries: ${err.message}` });
   }
 
   if (!resp.ok) {
     const text = await resp.text();
+    if (ff.enableMcpCircuitBreaker && resp.status >= 500) getMcpCircuitBreaker(url).recordFailure();
     return JSON.stringify({ error: `MCP error ${resp.status}: ${text}` });
   }
+
+  // Success — reset circuit breaker
+  if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordSuccess();
 
   const data: any = await resp.json();
   if (data.error) {

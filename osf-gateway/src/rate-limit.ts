@@ -106,8 +106,9 @@ async function checkRedis(key: string, maxPerMinute: number): Promise<boolean> {
       return false;
     }
     return true;
-  } catch {
+  } catch (err) {
     // Redis failed — fall back to in-memory
+    logger.debug({ err: (err as Error).message }, 'Rate limiter: Redis check failed, falling back to in-memory');
     return checkInMemory(key, maxPerMinute);
   }
 }
