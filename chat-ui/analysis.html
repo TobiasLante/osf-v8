@@ -303,7 +303,6 @@
     let running = false;
     let startTime = 0;
     let timerInterval = null;
-
     function elapsed() {
         return ((Date.now() - startTime) / 1000).toFixed(0) + 's';
     }
@@ -345,7 +344,7 @@
         let finalContent = '';
 
         try {
-            const res = await fetch(`/api/agents/run/${encodeURIComponent(agentId)}`, {
+            const res = await fetch(`/api/agents/public-run/${encodeURIComponent(agentId)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

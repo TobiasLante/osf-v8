@@ -254,6 +254,51 @@ router.post('/run/:id', requireAuth, async (req: Request, res: Response) => {
   res.end();
 });
 
+// POST /agents/public-run/:id — unauthenticated agent run for landing page (limited agents, IP rate-limited)
+const PUBLIC_AGENTS = new Set(['otd-deep-analyzer', 'oee-diagnose', 'goodmorning', 'impact-analysis']);
+router.post('/public-run/:id', async (req: Request, res: Response) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  if (!checkRateLimit(`public-agent:${ip}`, 2)) {
+    res.status(429).json({ error: 'Rate limit exceeded. Please wait a few minutes.' });
+    return;
+  }
+
+  const rawId = req.params.id;
+  const agentId = AGENT_ALIASES[rawId] || rawId;
+  if (!PUBLIC_AGENTS.has(agentId)) {
+    res.status(403).json({ error: 'This agent is not available in public mode.' });
+    return;
+  }
+
+  const agent = await getAgent(agentId);
+  if (!agent) {
+    res.status(404).json({ error: 'Agent not found' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.flushHeaders();
+
+  const body = req.body || {};
+  const options = { params: { language: body.params?.language || 'en', ...(body.params || {}) } };
+  const anonymousUserId = 'anonymous';
+  const tier = 'free';
+
+  logger.info({ agentId, ip }, 'Public agent run');
+
+  if (agent.type === 'strategic') {
+    await runDiscussionAgent(agent, anonymousUserId, tier, res, options);
+  } else {
+    await runAgent(agent, anonymousUserId, tier, res, options);
+  }
+  res.end();
+});
+
 // GET /agents/:id/runs — run history
 router.get('/:id/runs', requireAuth, async (req: Request, res: Response) => {
   try {
