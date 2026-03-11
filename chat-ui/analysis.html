@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenShopFloor | Analysis Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --surface-0: #09090b;
+            --surface-1: #16161a;
+            --surface-2: #1e1e24;
+            --surface-3: #2a2a32;
+            --border: rgba(255,255,255,0.06);
+            --border-hover: rgba(255,255,255,0.12);
+            --text-0: #fafafa;
+            --text-1: #a1a1aa;
+            --text-2: #71717a;
+            --green: #34d399;
+            --amber: #fbbf24;
+            --rose: #fb7185;
+            --cyan: #22d3ee;
+            --violet: #a78bfa;
+            --accent: #ff9500;
+            --accent-glow: rgba(255, 149, 0, 0.4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--surface-0);
+            color: var(--text-0);
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface-1);
+        }
+        .header .logo {
+            font-size: 15px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ff9500, #ff5722);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header .subtitle {
+            font-size: 12px;
+            color: var(--text-2);
+        }
+        .header .back-btn {
+            margin-left: auto;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-1);
+            font-size: 12px;
+            font-family: inherit;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header .back-btn:hover { background: var(--surface-2); color: var(--text-0); }
+
+        /* Main content */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            gap: 32px;
+        }
+        .main.has-output { justify-content: flex-start; padding-top: 24px; }
+
+        .intro { text-align: center; max-width: 500px; }
+        .intro h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+        .intro p { font-size: 13px; color: var(--text-1); }
+
+        /* Agent buttons grid */
+        .agents {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            max-width: 700px;
+            width: 100%;
+        }
+
+        .agent-btn {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 20px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface-1);
+            cursor: pointer;
+            font-family: inherit;
+            text-align: left;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .agent-btn:hover { border-color: var(--border-hover); background: var(--surface-2); transform: translateY(-2px); }
+        .agent-btn:active { transform: translateY(0); }
+        .agent-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .agent-btn .agent-icon { font-size: 22px; }
+        .agent-btn .agent-name { font-size: 14px; font-weight: 600; color: var(--text-0); }
+        .agent-btn .agent-desc { font-size: 11px; color: var(--text-2); line-height: 1.5; }
+        .agent-btn .agent-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .agent-badge {
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .badge-strategic { background: rgba(167,139,250,0.15); color: var(--violet); }
+        .badge-fast { background: rgba(52,211,153,0.15); color: var(--green); }
+        .agent-duration { font-size: 10px; color: var(--text-2); font-family: 'JetBrains Mono', monospace; }
+
+        /* Output area */
+        .output-area {
+            width: 100%;
+            max-width: 800px;
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+        }
+        .output-area.active { display: flex; }
+
+        .output-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: var(--surface-1);
+            border: 1px solid var(--border);
+        }
+        .output-header .agent-running-name { font-size: 13px; font-weight: 600; }
+        .output-header .agent-running-status { font-size: 11px; color: var(--text-2); margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+
+        .output-scroll {
+            flex: 1;
+            overflow-y: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface-1);
+            padding: 16px;
+            min-height: 200px;
+        }
+
+        /* SSE event log */
+        .event-item {
+            padding: 6px 10px;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            font-size: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .event-item .ev-icon { flex-shrink: 0; }
+        .event-item .ev-text { color: var(--text-1); word-break: break-word; }
+        .event-tool { background: rgba(34,211,153,0.06); border: 1px solid rgba(34,211,153,0.12); }
+        .event-content { background: transparent; }
+        .event-error { background: rgba(251,113,133,0.08); border: 1px solid rgba(251,113,133,0.15); }
+
+        /* Final result */
+        .final-result {
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface-1);
+            font-size: 13px;
+            line-height: 1.8;
+            color: var(--text-0);
+            overflow-x: auto;
+        }
+        .final-result h1, .final-result h2, .final-result h3 { margin-top: 16px; margin-bottom: 8px; }
+        .final-result h1 { font-size: 1.3rem; }
+        .final-result h2 { font-size: 1.1rem; color: var(--accent); }
+        .final-result table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+        .final-result th, .final-result td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+        .final-result th { font-weight: 600; color: var(--text-1); background: var(--surface-2); }
+        .final-result ul { padding-left: 20px; }
+        .final-result li { margin: 4px 0; }
+        .final-result code { background: rgba(255,149,0,0.1); padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+        .final-result pre { background: var(--surface-0); border: 1px solid var(--border); padding: 12px; border-radius: 6px; overflow-x: auto; }
+        .final-result pre code { background: none; padding: 0; }
+
+        /* Pulse dot */
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .pulse-dot {
+            width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+            animation: pulse 1.5s ease infinite;
+        }
+
+        .status-done .pulse-dot { animation: none; background: var(--green); }
+        .status-error .pulse-dot { animation: none; background: var(--rose); }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .agents { grid-template-columns: 1fr; }
+            .main { padding: 24px 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <span class="logo">OpenShopFloor</span>
+    <span class="subtitle">Analysis Console</span>
+    <a href="https://openshopfloor.zeroguess.ai" class="back-btn">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+        Back to OSF
+    </a>
+</div>
+
+<div class="main" id="mainArea">
+    <div class="intro" id="introBlock">
+        <h1>Multi-Agent Analysis</h1>
+        <p>Select an analysis to run. Each agent queries live factory data through MCP tools and generates a comprehensive report.</p>
+    </div>
+
+    <div class="agents" id="agentButtons">
+        <button class="agent-btn" onclick="run('otd-deep-analyzer')" id="btn-otd">
+            <span class="agent-icon">⏰</span>
+            <span class="agent-name">OTD Deep</span>
+            <span class="agent-desc">On-Time Delivery analysis — at-risk orders, customer impact, mitigation plan</span>
+            <div class="agent-meta">
+                <span class="agent-badge badge-strategic">Strategic</span>
+                <span class="agent-duration">~2-3 min</span>
+            </div>
+        </button>
+
+        <button class="agent-btn" onclick="run('oee-diagnose')" id="btn-oee">
+            <span class="agent-icon">📊</span>
+            <span class="agent-name">OEE Fast</span>
+            <span class="agent-desc">Root-cause analysis for low OEE across machines — scrap, downtime, speed losses</span>
+            <div class="agent-meta">
+                <span class="agent-badge badge-fast">Fast</span>
+                <span class="agent-duration">~30-60s</span>
+            </div>
+        </button>
+
+        <button class="agent-btn" onclick="run('goodmorning')" id="btn-shopfloor">
+            <span class="agent-icon">🏭</span>
+            <span class="agent-name">Shopfloor Fast</span>
+            <span class="agent-desc">Morning briefing — OEE, KPIs, stock levels, open orders, SPC alarms</span>
+            <div class="agent-meta">
+                <span class="agent-badge badge-fast">Fast</span>
+                <span class="agent-duration">~30-60s</span>
+            </div>
+        </button>
+
+        <button class="agent-btn" onclick="run('impact-analysis')" id="btn-impact">
+            <span class="agent-icon">💥</span>
+            <span class="agent-name">Impact Analysis</span>
+            <span class="agent-desc">Machine breakdown impact — affected orders, customers, rerouting alternatives</span>
+            <div class="agent-meta">
+                <span class="agent-badge badge-strategic">Strategic</span>
+                <span class="agent-duration">~2-3 min</span>
+            </div>
+        </button>
+    </div>
+
+    <div class="output-area" id="outputArea">
+        <div class="output-header" id="outputHeader">
+            <div class="pulse-dot"></div>
+            <span class="agent-running-name" id="runningName">Agent</span>
+            <span class="agent-running-status" id="runningStatus">starting...</span>
+        </div>
+        <div class="output-scroll" id="outputScroll"></div>
+    </div>
+</div>
+
+<script>
+    let running = false;
+    let startTime = 0;
+    let timerInterval = null;
+
+    function elapsed() {
+        return ((Date.now() - startTime) / 1000).toFixed(0) + 's';
+    }
+
+    const AGENT_LABELS = {
+        'otd-deep-analyzer': 'OTD Deep Analysis',
+        'oee-diagnose': 'OEE Diagnose',
+        'goodmorning': 'Shopfloor Briefing',
+        'impact-analysis': 'Impact Analysis',
+    };
+
+    async function run(agentId) {
+        if (running) return;
+        running = true;
+        startTime = Date.now();
+
+        // Disable all buttons
+        document.querySelectorAll('.agent-btn').forEach(b => b.disabled = true);
+
+        // Show output
+        const mainArea = document.getElementById('mainArea');
+        const outputArea = document.getElementById('outputArea');
+        const outputScroll = document.getElementById('outputScroll');
+        const runningName = document.getElementById('runningName');
+        const runningStatus = document.getElementById('runningStatus');
+        const header = document.getElementById('outputHeader');
+
+        mainArea.classList.add('has-output');
+        outputArea.classList.add('active');
+        outputScroll.innerHTML = '';
+        runningName.textContent = AGENT_LABELS[agentId] || agentId;
+        runningStatus.textContent = 'starting...';
+        header.className = 'output-header';
+
+        timerInterval = setInterval(() => {
+            runningStatus.textContent = elapsed();
+        }, 1000);
+
+        let finalContent = '';
+
+        try {
+            const res = await fetch(`/api/agents/run/${encodeURIComponent(agentId)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    params: { language: 'en' }
+                }),
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: res.statusText }));
+                throw new Error(err.error || err.message || `HTTP ${res.status}`);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data: ')) continue;
+                    const jsonStr = trimmed.slice(6);
+                    if (jsonStr === '[DONE]') continue;
+
+                    let event;
+                    try { event = JSON.parse(jsonStr); } catch { continue; }
+
+                    handleEvent(event, outputScroll);
+
+                    if (event.type === 'content') {
+                        finalContent += event.text || '';
+                    }
+                }
+            }
+
+            // Done
+            clearInterval(timerInterval);
+            runningStatus.textContent = 'done · ' + elapsed();
+            header.classList.add('status-done');
+
+            // Show final result
+            if (finalContent) {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'final-result';
+                resultDiv.innerHTML = finalContent;
+                outputScroll.appendChild(resultDiv);
+                outputScroll.scrollTop = outputScroll.scrollHeight;
+            }
+
+        } catch (err) {
+            clearInterval(timerInterval);
+            runningStatus.textContent = 'error · ' + elapsed();
+            header.classList.add('status-error');
+            addEvent(outputScroll, 'error', '❌', err.message);
+        }
+
+        running = false;
+        document.querySelectorAll('.agent-btn').forEach(b => b.disabled = false);
+    }
+
+    function handleEvent(event, container) {
+        switch (event.type) {
+            case 'run_start':
+                addEvent(container, 'tool', '🚀', 'Agent started');
+                break;
+            case 'tool_start':
+                addEvent(container, 'tool', '🔧', `${event.name}(${formatArgs(event.arguments)})`);
+                break;
+            case 'tool_result':
+                // Skip verbose tool results — just show tool name completed
+                break;
+            case 'specialists_batch_start':
+                addEvent(container, 'tool', '👥', `${event.specialistCount || ''} specialists analyzing...`);
+                break;
+            case 'specialist_start':
+                addEvent(container, 'tool', '🔬', `${event.specialistName || event.name || 'Specialist'} started`);
+                break;
+            case 'specialist_done':
+                addEvent(container, 'tool', '✅', `${event.specialistName || event.name || 'Specialist'} done`);
+                break;
+            case 'specialists_batch_complete':
+                addEvent(container, 'tool', '📋', 'All specialists completed');
+                break;
+            case 'discussion_round_start':
+                addEvent(container, 'tool', '💬', `Discussion round ${event.discussionRound || ''}`);
+                break;
+            case 'discussion_synthesis_start':
+                addEvent(container, 'tool', '📝', 'Moderator drafting synthesis...');
+                break;
+            case 'debate_start':
+                addEvent(container, 'tool', '⚔️', 'Specialist debate');
+                break;
+            case 'debate_final':
+                addEvent(container, 'tool', '🏆', 'Final plan ready');
+                break;
+            case 'kg_traversal_start':
+                addEvent(container, 'tool', '🕸️', 'Knowledge Graph traversal...');
+                break;
+            case 'kg_traversal_end':
+                addEvent(container, 'tool', '🕸️', `KG: ${event.totalNodes || 0} nodes, ${event.totalEdges || 0} edges`);
+                break;
+            case 'heartbeat':
+                break; // silent
+            case 'error':
+                addEvent(container, 'error', '❌', event.message || 'Error');
+                break;
+            case 'done':
+                break; // handled outside
+            case 'content':
+                break; // accumulated outside
+            default:
+                if (event.message) {
+                    addEvent(container, 'tool', 'ℹ️', event.message);
+                }
+        }
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function addEvent(container, type, icon, text) {
+        const div = document.createElement('div');
+        div.className = `event-item event-${type}`;
+        div.innerHTML = `<span class="ev-icon">${icon}</span><span class="ev-text">${escapeHtml(text)}</span>`;
+        container.appendChild(div);
+    }
+
+    function formatArgs(args) {
+        if (!args || typeof args !== 'object') return '';
+        const entries = Object.entries(args);
+        if (entries.length === 0) return '';
+        return entries.slice(0, 3).map(([k, v]) => `${k}=${v}`).join(', ');
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+</script>
+
+</body>
+</html>
