@@ -894,8 +894,8 @@ print(db)
 
   # T21: Feature Inventory (Deploy Gate)
   log "T21: Feature Inventory (deploy gate)..."
-  local inv_fail=0
-  inv_fail=$(test_feature_inventory)
+  test_feature_inventory
+  local inv_fail=$?
   ((FAIL += inv_fail)) || true
 
   echo ""
@@ -977,20 +977,40 @@ test_feature_inventory() {
   # ─── Part B: Gateway Endpoint Inventory ──────────────────────────────────
   log "Part B: Gateway Endpoint Inventory (12 endpoints)..."
 
-  local -a EP_URLS=( "/health" "/admin/health" "/admin/users" "/admin/stats" "/auth/login" "/auth/register" "/auth/me" "/demo-ui/chat.html" "/demo-ui/analysis.html" "/api/agents/public-run/otd-deep-analyzer" "/api/chat/completions" "/chat" )
-  local -a EP_CODES=( "200"     "401"           "401"          "401"          "405"         "400"            "401"      "200"               "200"                    "405"                                      "401"                   "401" )
+  # Format: "METHOD URL EXPECTED_CODE"
+  local -a EP_CHECKS=(
+    "GET /health 200"
+    "GET /admin/health 401"
+    "GET /admin/users 401"
+    "GET /admin/stats 401"
+    "GET /auth/login 405"
+    "POST /auth/register 400"
+    "GET /auth/me 401"
+    "GET /demo-ui/chat.html 200"
+    "GET /demo-ui/analysis.html 200"
+    "POST /api/agents/public-run/otd-deep-analyzer 200"
+    "POST /api/chat/completions 401"
+    "POST /chat/completions 401"
+  )
 
-  for i in "${!EP_URLS[@]}"; do
-    local ep="${EP_URLS[$i]}"
-    local expected="${EP_CODES[$i]}"
+  for check in "${EP_CHECKS[@]}"; do
+    local method ep expected
+    read -r method ep expected <<< "$check"
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$GW_URL$ep" 2>/dev/null || echo "000")
-    if [[ "$code" == "$expected" ]]; then
-      ok "Endpoint $ep → $code"
+    if [[ "$method" == "POST" ]]; then
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$GW_URL$ep" 2>/dev/null || echo "000")
     else
-      fail "Endpoint $ep → $code (expected $expected)"
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$GW_URL$ep" 2>/dev/null || echo "000")
+    fi
+    if [[ "$code" == "$expected" ]]; then
+      ok "Endpoint $method $ep → $code"
+    elif [[ "$code" == "429" ]]; then
+      warn "Endpoint $method $ep → 429 (rate-limited, skipping)"
+    else
+      fail "Endpoint $method $ep → $code (expected $expected)"
       ((FAIL++)) || true
     fi
+    sleep 0.5  # avoid rate limiting
   done
 
   # ─── Part C: Frontend Source Inventory ───────────────────────────────────
@@ -998,8 +1018,7 @@ test_feature_inventory() {
 
   if [[ ! -d "$FRONTEND_SRC" ]]; then
     warn "Frontend source not found at $FRONTEND_SRC — skipping Part C"
-    echo "$FAIL"
-    return
+    return "$FAIL"
   fi
 
   # 8 Admin tabs
@@ -1045,7 +1064,7 @@ test_feature_inventory() {
     ((FAIL++)) || true
   fi
 
-  echo "$FAIL"
+  return "$FAIL"
 }
 
 # ════════════════════════════════════════════════════════════════════════════

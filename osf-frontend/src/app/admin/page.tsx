@@ -85,7 +85,7 @@ export default function AdminPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-text">Admin Panel</h1>
         <a
-          href="http://192.168.178.150:3000"
+          href="/"
           target="_blank"
           rel="noopener noreferrer"
           className="px-4 py-2 text-xs font-medium rounded-md border border-border bg-bg-surface text-text-muted hover:text-text hover:border-accent/25 transition-colors"
