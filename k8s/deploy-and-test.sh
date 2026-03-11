@@ -33,6 +33,7 @@ GATEWAY_TAG="${OSF_GATEWAY_VERSION:-1.2.0}"
 FRONTEND_TAG="${OSF_FRONTEND_VERSION:-1.3.0}"
 CHAT_UI_TAG="${OSF_CHAT_UI_VERSION:-8.2.1}"
 NODERED_TAG="${OSF_NODERED_VERSION:-latest}"
+FACTORY_SIM_TAG="${FACTORY_SIM_VERSION:-3.2.0}"
 BUGS_FILE="/home/tlante/non-critical-bugs.md"
 FACTORY_NODE="192.168.178.150"
 FACTORY_PORT="30888"
@@ -94,8 +95,10 @@ check_docker_conflicts() {
 # ────────────────────────────────────────────────────────────────────────────
 stamp_versions() {
   log "Stamping versions from .env → K8s YAMLs..."
-  log "  Gateway=$GATEWAY_TAG  Frontend=$FRONTEND_TAG  Chat-UI=$CHAT_UI_TAG  Node-RED=$NODERED_TAG"
+  log "  Gateway=$GATEWAY_TAG  Frontend=$FRONTEND_TAG  Chat-UI=$CHAT_UI_TAG  Node-RED=$NODERED_TAG  Factory-Sim=$FACTORY_SIM_TAG"
 
+  # factory-sim deployments
+  sed -i "s|image: ${REGISTRY}/factory-sim:.*|image: ${REGISTRY}/factory-sim:${FACTORY_SIM_TAG}|" "$FACTORY_K8S/factory-v3-deployments.yaml" 2>/dev/null || true
   # osf-gateway.yaml
   sed -i "s|image: ${REGISTRY}/osf-gateway:.*|image: ${REGISTRY}/osf-gateway:${GATEWAY_TAG}|" "$SCRIPT_DIR/osf-gateway.yaml"
   sed -i "s|value: \".*\" # APP_VERSION|value: \"${GATEWAY_TAG}\" # APP_VERSION|" "$SCRIPT_DIR/osf-gateway.yaml" 2>/dev/null || true
@@ -185,8 +188,8 @@ deploy_factory_sim() {
   ok "Compiled"
 
   # ── 1.2 Build Docker image (--no-cache to guarantee latest code) ───────
-  log "Building Docker image: factory-sim:3.1.0..."
-  docker build --no-cache -t "$REGISTRY/factory-sim:3.1.0" -f "$FACTORY_ROOT/Dockerfile" "$FACTORY_ROOT" 2>&1 | tail -5
+  log "Building Docker image: factory-sim:${FACTORY_SIM_TAG}..."
+  docker build --no-cache -t "$REGISTRY/factory-sim:${FACTORY_SIM_TAG}" -f "$FACTORY_ROOT/Dockerfile" "$FACTORY_ROOT" 2>&1 | tail -5
   ok "Image built"
 
   # ── 1.3 Verify image contents BEFORE pushing ──────────────────────────
@@ -194,7 +197,7 @@ deploy_factory_sim() {
   local verify_fail=0
 
   # Check port-map.js exists
-  if docker run --rm "$REGISTRY/factory-sim:3.1.0" ls /app/public/port-map.js &>/dev/null; then
+  if docker run --rm "$REGISTRY/factory-sim:${FACTORY_SIM_TAG}" ls /app/public/port-map.js &>/dev/null; then
     ok "Image contains port-map.js"
   else
     fail "Image MISSING port-map.js!"
@@ -202,14 +205,14 @@ deploy_factory_sim() {
   fi
 
   # Check station filter in compiled code (M1-x, M2-x stations filtered, ML-1/ML-2 lines allowed)
-  if docker run --rm "$REGISTRY/factory-sim:3.1.0" grep -q 'M\[0-9\]' /app/dist/db/capacity.js 2>/dev/null; then
+  if docker run --rm "$REGISTRY/factory-sim:${FACTORY_SIM_TAG}" grep -q 'M\[0-9\]' /app/dist/db/capacity.js 2>/dev/null; then
     ok "Image contains station filter"
   else
     warn "Could not verify station filter in image (non-blocking)"
   fi
 
   # Check health endpoint exists in compiled code
-  if docker run --rm "$REGISTRY/factory-sim:3.1.0" grep -q "health/live" /app/dist/api/health.js 2>/dev/null; then
+  if docker run --rm "$REGISTRY/factory-sim:${FACTORY_SIM_TAG}" grep -q "health/live" /app/dist/api/health.js 2>/dev/null; then
     ok "Image contains /api/health/live endpoint"
   else
     warn "Could not verify health endpoint in image (non-blocking)"
@@ -223,12 +226,12 @@ deploy_factory_sim() {
 
   # ── 1.4 Push to registry ───────────────────────────────────────────────
   log "Pushing to registry..."
-  docker push "$REGISTRY/factory-sim:3.1.0" 2>&1 | tail -3
-  ok "Pushed to $REGISTRY/factory-sim:3.1.0"
+  docker push "$REGISTRY/factory-sim:${FACTORY_SIM_TAG}" 2>&1 | tail -3
+  ok "Pushed to $REGISTRY/factory-sim:${FACTORY_SIM_TAG}"
 
   # Capture expected digest for post-deploy verification
   local EXPECTED_DIGEST
-  EXPECTED_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$REGISTRY/factory-sim:3.1.0" 2>/dev/null | sed 's/.*@//')
+  EXPECTED_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$REGISTRY/factory-sim:${FACTORY_SIM_TAG}" 2>/dev/null | sed 's/.*@//')
   log "Expected image digest: $EXPECTED_DIGEST"
 
   # ── 1.5 Create namespace + config ─────────────────────────────────────
