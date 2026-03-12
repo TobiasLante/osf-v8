@@ -1,0 +1,123 @@
+# OSF v8 — Health Agent CronJob + ServiceAccount + RBAC
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: health-agent
+  namespace: osf
+  labels:
+    app: health-agent
+
+---
+# ClusterRole: read access to pods, deployments, services, logs across all namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: health-agent-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets"]
+  verbs: ["get", "list"]
+# Patch for rollout restart (only used with --auto-fix)
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: health-agent-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: health-agent-reader
+subjects:
+- kind: ServiceAccount
+  name: health-agent
+  namespace: osf
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-agent
+  namespace: osf
+  labels:
+    app: health-agent
+spec:
+  schedule: "0 */2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: health-agent
+        spec:
+          serviceAccountName: health-agent
+          restartPolicy: Never
+          containers:
+          - name: health-agent
+            image: 192.168.178.150:32000/health-agent:1.0.0
+            imagePullPolicy: Always
+            # No --auto-fix by default. Add it manually for test runs:
+            # kubectl create job ha-fix --from=cronjob/health-agent -n osf -- npx tsx src/index.ts --auto-fix
+            envFrom:
+            - configMapRef:
+                name: osf-config
+            env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: DB_PASSWORD
+            - name: ERP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: ERP_DB_PASSWORD
+            - name: FACTORY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: FACTORY_DB_PASSWORD
+            - name: QMS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: QMS_DB_PASSWORD
+            - name: RESEND_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: RESEND_API_KEY
+                  optional: true
+            - name: LLM_URL
+              value: "http://192.168.178.120:5002"
+            - name: LLM_FALLBACK_URL
+              value: "http://192.168.178.120:5001"
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "256Mi"
+                cpu: "500m"
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL

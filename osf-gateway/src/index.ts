@@ -21,6 +21,7 @@ import codeAgentRoutes from './code-agents/routes';
 import adminRoutes from './admin/routes';
 import newsRoutes from './news/routes';
 import marketplaceRoutes from './marketplace/routes';
+import healthAgentRoutes from './health-agent/routes';
 import { initNodeRedProxy } from './nodered/proxy';
 import { NrPodManager } from './nodered/pod-manager';
 import internalApiRoutes from './nodered/internal-api';
@@ -572,6 +573,7 @@ async function main() {
   app.use('/admin', adminRoutes);
   app.use('/news', newsRoutes);
   app.use('/marketplace', marketplaceRoutes);
+  app.use('/health-agent', healthAgentRoutes);
 
   // Create HTTP server (before NR proxy which needs it for WebSocket upgrades)
   httpServer = http.createServer(app);

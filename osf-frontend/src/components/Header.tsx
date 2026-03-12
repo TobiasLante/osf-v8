@@ -196,6 +196,18 @@ export function Header() {
                     Admin
                   </Link>
                 )}
+                {user.role === "admin" && (
+                  <Link
+                    href="/health-agent"
+                    className={`block py-1.5 text-sm transition-colors ${
+                      pathname === "/health-agent"
+                        ? "text-accent"
+                        : "text-text-muted hover:text-accent"
+                    }`}
+                  >
+                    Health Agent
+                  </Link>
+                )}
                 <button
                   onClick={() => {
                     logout();
