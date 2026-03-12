@@ -2645,6 +2645,14 @@ function HistorianExplorerView() {
 
 // ─── Services Tab (replaces MCP Tab — MCP Servers + Background Agents) ──────
 
+interface McpServerTool {
+  name: string;
+  description: string;
+  category: string | null;
+  sensitivity: string | null;
+  governanceStatus: string;
+}
+
 interface McpServer {
   id: string;
   name: string;
@@ -3188,6 +3196,9 @@ function ServicesTab() {
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [adding, setAdding] = useState(false);
+  const [expandedServer, setExpandedServer] = useState<string | null>(null);
+  const [serverTools, setServerTools] = useState<McpServerTool[]>([]);
+  const [loadingTools, setLoadingTools] = useState(false);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -3204,20 +3215,67 @@ function ServicesTab() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Auto-derive name from URL
+  const handleUrlChange = (url: string) => {
+    setNewUrl(url);
+    if (!newName || newName === deriveNameFromUrl(newUrl)) {
+      setNewName(deriveNameFromUrl(url));
+    }
+  };
+
+  function deriveNameFromUrl(url: string): string {
+    try {
+      const u = new URL(url);
+      return u.hostname.split(".")[0].replace(/[^a-zA-Z0-9-]/g, "") || "";
+    } catch { return ""; }
+  }
+
   const addServer = async () => {
-    if (!newName.trim() || !newUrl.trim()) return;
+    if (!newUrl.trim()) return;
+    const name = newName.trim() || deriveNameFromUrl(newUrl.trim());
+    if (!name) return;
     setAdding(true);
     try {
-      await apiFetch("/admin/mcp-servers", {
+      const created = await apiFetch<{ id: string }>("/admin/mcp-servers", {
         method: "POST",
-        body: JSON.stringify({ name: newName.trim(), url: newUrl.trim() }),
+        body: JSON.stringify({ name, url: newUrl.trim() }),
       });
       setNewName(""); setNewUrl(""); setShowAdd(false);
-      setTimeout(fetchAll, 1000);
+      // Poll until server transitions from pending
+      const serverId = created.id;
+      let polls = 0;
+      const pollInterval = setInterval(async () => {
+        polls++;
+        await fetchAll();
+        const updated = servers.find(s => s.id === serverId);
+        if ((updated && updated.status !== "pending") || polls >= 10) {
+          clearInterval(pollInterval);
+          if (serverId) setExpandedServer(serverId);
+        }
+      }, 2000);
+      setTimeout(fetchAll, 500);
     } catch (err: any) {
       alert(err.message || "Failed to add server");
     } finally {
       setAdding(false);
+    }
+  };
+
+  const toggleServerExpand = async (id: string) => {
+    if (expandedServer === id) {
+      setExpandedServer(null);
+      setServerTools([]);
+      return;
+    }
+    setExpandedServer(id);
+    setLoadingTools(true);
+    try {
+      const data = await apiFetch<{ tools: McpServerTool[] }>(`/admin/mcp-servers/${id}/tools`);
+      setServerTools(data.tools);
+    } catch {
+      setServerTools([]);
+    } finally {
+      setLoadingTools(false);
     }
   };
 
@@ -3281,21 +3339,22 @@ function ServicesTab() {
 
         {showAdd && (
           <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3 mb-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
-                <label className="block text-xs text-text-muted mb-1">Name</label>
-                <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. factory-erp" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+                <label className="block text-xs text-text-muted mb-1">Server URL</label>
+                <input value={newUrl} onChange={(e) => handleUrlChange(e.target.value)} placeholder="http://192.168.1.100:8020" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+                <p className="text-xs text-text-muted mt-1">Basis-URL eines MCP-Servers. Tools werden automatisch erkannt und klassifiziert.</p>
               </div>
               <div>
-                <label className="block text-xs text-text-muted mb-1">URL</label>
-                <input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="http://factory-v3:8020" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+                <label className="block text-xs text-text-muted mb-1">Name <span className="opacity-50">(optional — wird aus URL abgeleitet)</span></label>
+                <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={deriveNameFromUrl(newUrl) || "e.g. factory-erp"} className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={addServer} disabled={adding || !newName.trim() || !newUrl.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">
-                {adding ? "Connecting..." : "Connect & Discover"}
+              <button onClick={addServer} disabled={adding || !newUrl.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">
+                {adding ? "Verbinde..." : "Verbinden & Tools erkennen"}
               </button>
-              <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Cancel</button>
+              <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Abbrechen</button>
             </div>
           </div>
         )}
@@ -3306,28 +3365,62 @@ function ServicesTab() {
 
         <div className="space-y-2">
           {servers.map((s) => (
-            <div key={s.id} className="bg-bg-surface border border-border rounded-md p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
-                  <div>
-                    <span className="text-sm font-medium text-text">{s.name}</span>
-                    <span className="ml-2 text-xs text-text-muted">{s.url}</span>
+            <div key={s.id} className="bg-bg-surface border border-border rounded-md">
+              <div className="p-4 cursor-pointer" onClick={() => toggleServerExpand(s.id)}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
+                    <div>
+                      <span className="text-sm font-medium text-text">{s.name}</span>
+                      <span className="ml-2 text-xs text-text-muted">{s.url}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => rediscover(s.id)} className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors" title="Re-discover tools">Refresh</button>
+                    <button onClick={() => deleteServer(s.id, s.name)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors">Delete</button>
+                    <span className="text-text-muted text-xs ml-1">{expandedServer === s.id ? "▲" : "▼"}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => rediscover(s.id)} className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors" title="Re-discover tools">Refresh</button>
-                  <button onClick={() => deleteServer(s.id, s.name)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors">Delete</button>
+                <div className="mt-2 flex items-center gap-4 text-xs text-text-muted">
+                  <span>{s.tool_count} Tools</span>
+                  {s.categories.length > 0 && <span>{s.categories.join(", ")}</span>}
+                  <span className={s.status === "error" ? "text-red-400" : ""}>
+                    {s.status}{s.error_message && ` — ${s.error_message}`}
+                  </span>
+                  {s.health_check_at && <span>checked {new Date(s.health_check_at).toLocaleString("de-DE")}</span>}
                 </div>
               </div>
-              <div className="mt-2 flex items-center gap-4 text-xs text-text-muted">
-                <span>{s.tool_count} tools</span>
-                {s.categories.length > 0 && <span>{s.categories.join(", ")}</span>}
-                <span className={s.status === "error" ? "text-red-400" : ""}>
-                  {s.status}{s.error_message && ` — ${s.error_message}`}
-                </span>
-                {s.health_check_at && <span>checked {new Date(s.health_check_at).toLocaleString("de-DE")}</span>}
-              </div>
+              {expandedServer === s.id && (
+                <div className="border-t border-border px-4 py-3">
+                  {loadingTools ? (
+                    <div className="text-xs text-text-muted animate-pulse">Lade Tools...</div>
+                  ) : serverTools.length === 0 ? (
+                    <div className="text-xs text-text-muted">Keine Tools gefunden.</div>
+                  ) : (
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      <div className="grid grid-cols-[1fr_100px_80px_80px] gap-2 text-xs font-medium text-text-muted mb-2">
+                        <span>Tool</span><span>Kategorie</span><span>Sensitivitaet</span><span>Status</span>
+                      </div>
+                      {serverTools.map((t) => (
+                        <div key={t.name} className="grid grid-cols-[1fr_100px_80px_80px] gap-2 text-xs">
+                          <div>
+                            <span className="text-text font-mono">{t.name}</span>
+                            {t.description && <span className="text-text-muted ml-2 hidden lg:inline">{t.description.slice(0, 60)}</span>}
+                          </div>
+                          <span className="text-text-muted">{t.category || "—"}</span>
+                          <span className="text-text-muted">{t.sensitivity || "—"}</span>
+                          <span className={
+                            t.governanceStatus === "approved" ? "text-green-400" :
+                            t.governanceStatus === "pending" ? "text-yellow-400" :
+                            t.governanceStatus === "rejected" ? "text-red-400" :
+                            "text-text-muted"
+                          }>{t.governanceStatus}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

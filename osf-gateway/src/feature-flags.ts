@@ -40,6 +40,9 @@ export const ff = {
   /** Enable /metrics endpoint (Prometheus) */
   get enableMetrics(): boolean { return flag('FF_ENABLE_METRICS', false); },
 
+  /** Use governance-category-based tool selection instead of skills.md */
+  get useCategoryToolSelection(): boolean { return flag('FF_CATEGORY_TOOL_SELECTION', true); },
+
   /** Enable MCP circuit breakers */
   get enableMcpCircuitBreaker(): boolean { return flag('FF_ENABLE_MCP_CB', true); },
 };
@@ -52,6 +55,7 @@ export function logFeatureFlags(): void {
   if (ff.disableKgPhase) active.push('FF_DISABLE_KG_PHASE');
   if (ff.disableDebate) active.push('FF_DISABLE_DEBATE');
   if (ff.enableMetrics) active.push('FF_ENABLE_METRICS');
+  if (!ff.useCategoryToolSelection) active.push('FF_CATEGORY_TOOL_SELECTION=false');
   if (!ff.enableMcpCircuitBreaker) active.push('FF_ENABLE_MCP_CB=false');
   if (process.env.FF_LLM_FALLBACK_MESSAGE) active.push('FF_LLM_FALLBACK_MESSAGE');
 

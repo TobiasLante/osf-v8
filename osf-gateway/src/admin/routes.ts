@@ -1051,6 +1051,43 @@ router.post('/mcp-servers/:id/discover', async (req: Request, res: Response) => 
   }
 });
 
+// GET /admin/mcp-servers/:id/tools — tools with governance classification
+router.get('/mcp-servers/:id/tools', async (req: Request, res: Response) => {
+  try {
+    const server = await pool.query('SELECT id, name, tools FROM mcp_servers WHERE id = $1', [req.params.id]);
+    if (server.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
+
+    const rawTools: any[] = server.rows[0].tools || [];
+    const toolNames = rawTools.map((t: any) => t.name);
+
+    // Fetch classifications for these tools
+    const classResult = toolNames.length > 0
+      ? await pool.query(
+          `SELECT tool_name, category_id, sensitivity, status FROM tool_classifications WHERE tool_name = ANY($1)`,
+          [toolNames]
+        )
+      : { rows: [] };
+
+    const classMap = new Map(classResult.rows.map((r: any) => [r.tool_name, r]));
+
+    const tools = rawTools.map((t: any) => {
+      const c = classMap.get(t.name);
+      return {
+        name: t.name,
+        description: t.description || '',
+        category: c?.category_id || null,
+        sensitivity: c?.sensitivity || null,
+        governanceStatus: c?.status || 'unclassified',
+      };
+    });
+
+    res.json({ serverName: server.rows[0].name, tools });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: get MCP server tools failed');
+    res.status(500).json({ error: 'Failed to get server tools' });
+  }
+});
+
 // DELETE /admin/mcp-servers/:id — remove server
 router.delete('/mcp-servers/:id', async (req: Request, res: Response) => {
   try {
@@ -1466,7 +1503,7 @@ async function discoverMcpServer(serverId: string, url: string): Promise<void> {
 
 /** Call Governance Agent /classify-batch and store results as pending tool classifications. */
 async function classifyToolsViaGovernanceAgent(serverId: string, rawTools: any[]): Promise<void> {
-  const governanceUrl = process.env.GOVERNANCE_AGENT_URL || 'http://governance-agent.osf.svc.cluster.local:8031';
+  const governanceUrl = process.env.GOVERNANCE_AGENT_URL || 'http://localhost:8031';
 
   const toolInputs = rawTools.map((t: any) => ({
     name: t.name,
@@ -1493,14 +1530,14 @@ async function classifyToolsViaGovernanceAgent(serverId: string, rawTools: any[]
   for (const c of classifications) {
     await pool.query(
       `INSERT INTO tool_classifications (tool_name, tool_description, category_id, sensitivity, status, classified_by, mcp_server_id)
-       VALUES ($1, $2, $3, $4, 'pending', 'agent', $5)
+       VALUES ($1, $2, $3, $4, 'approved', 'agent', $5)
        ON CONFLICT (tool_name) DO UPDATE SET
          tool_description = EXCLUDED.tool_description,
          category_id = EXCLUDED.category_id,
          sensitivity = EXCLUDED.sensitivity,
          classified_by = 'agent',
          mcp_server_id = EXCLUDED.mcp_server_id
-       WHERE tool_classifications.status = 'pending'`,
+       WHERE tool_classifications.status IN ('pending', 'approved')`,
       [c.tool_name, c.tool_description, c.category, c.sensitivity, serverId]
     );
   }

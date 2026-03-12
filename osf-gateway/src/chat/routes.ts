@@ -16,61 +16,86 @@ import { callLlmJson, runDynamicDiscussion, emitSSE } from '../agents/discussion
 import { loadPrompt } from '../prompt-loader';
 import { config } from '../config';
 import { ff } from '../feature-flags';
+import { pool } from '../db/pool';
 
 const router = Router();
 
 // Per-session pipeline lock — prevents concurrent pipelines on the same session
 const activePipelines = new Set<string>();
 
-// ─── Skills-based Tool Selector ─────────────────────────────────────────
-// Reads skills.md, asks LLM which tools are relevant for the user's question,
-// returns only those tool schemas (instead of all 148).
+// ─── Category-based Tool Selector (v9) ──────────────────────────────────
+// Uses governance tool_categories from DB instead of static skills.md.
+// LLM picks relevant categories → all approved tools in those categories are returned.
 
-let cachedSkills: string | null = null;
+let cachedCategories: { id: string; name: string; description: string }[] | null = null;
+let categoryCacheTime = 0;
+const CATEGORY_CACHE_TTL = 60_000;
 
-function getSkills(): string {
-  if (!cachedSkills) {
-    cachedSkills = loadPrompt('skills');
+async function loadCategories(): Promise<{ id: string; name: string; description: string }[]> {
+  const now = Date.now();
+  if (cachedCategories && now - categoryCacheTime < CATEGORY_CACHE_TTL) {
+    return cachedCategories;
   }
-  return cachedSkills;
+  const result = await pool.query('SELECT id, name, description FROM tool_categories ORDER BY name');
+  cachedCategories = result.rows;
+  categoryCacheTime = now;
+  return cachedCategories;
 }
 
-async function selectTools(
+async function selectToolsByCategory(
   message: string,
   allTools: any[],
   llmConfig: LlmConfig,
   userId: string,
 ): Promise<any[]> {
-  const skills = getSkills();
-  if (!skills) {
-    logger.warn('skills.md not found, using all tools');
+  const categories = await loadCategories();
+  if (categories.length === 0) {
+    logger.warn('No tool_categories in DB, using all tools');
     return allTools;
   }
 
-  const allToolNames = allTools.map((t: any) => t.function.name);
+  const catRef = categories.map(c => `- ${c.id}: ${c.name} — ${c.description}`).join('\n');
 
   try {
-    const result = await callLlmJson<{ tools: string[] }>(
+    const result = await callLlmJson<{ categories: string[] }>(
       [
-        { role: 'system', content: 'You are a tool selector for a manufacturing AI assistant. Given the user\'s question and the skills reference, select 10-20 relevant tools. Return ONLY a JSON object.' },
-        { role: 'user', content: `SKILLS REFERENCE:\n${skills}\n\nUSER QUESTION: "${message}"\n\nSelect 10-20 tools that are needed to answer this question. Include tools for related domains if the question spans multiple areas.\n\nRESPONSE FORMAT: Pure JSON, NO Markdown.\n{"tools": ["tool_name_1", "tool_name_2", ...]}` },
+        { role: 'system', content: 'Du bist ein Kategorie-Selektor fuer eine Manufacturing-AI. Waehle ALLE relevanten Kategorien fuer die Frage. Antwort als JSON.' },
+        { role: 'user', content: `KATEGORIEN:\n${catRef}\n\nFRAGE: "${message}"\n\nWaehle die relevanten Kategorien. Lieber eine Kategorie zu viel als eine zu wenig.\n\n{"categories": ["cat_id_1", "cat_id_2", ...]}` },
       ],
       llmConfig,
       userId,
     );
 
-    // Filter to only tools that actually exist
-    const selectedNames = (result.tools || []).filter((name: string) => allToolNames.includes(name));
+    const selectedCats = (result.categories || []).filter(
+      (id: string) => categories.some(c => c.id === id)
+    );
 
-    if (selectedNames.length < 2) {
-      logger.warn({ selectedNames, message: message.slice(0, 80) }, 'Tool selector returned too few tools, using all');
+    if (selectedCats.length === 0) {
+      logger.warn({ message: message.slice(0, 80) }, 'Category selector returned empty, using all tools');
       return allTools;
     }
 
-    logger.info({ count: selectedNames.length, tools: selectedNames, message: message.slice(0, 80) }, 'Skills-based tool selection');
-    return allTools.filter((t: any) => selectedNames.includes(t.function.name));
+    // Get approved tool names in selected categories
+    const toolResult = await pool.query(
+      `SELECT tool_name FROM tool_classifications
+       WHERE status = 'approved' AND category_id = ANY($1)`,
+      [selectedCats]
+    );
+    const allowedNames = new Set(toolResult.rows.map((r: any) => r.tool_name));
+
+    const filtered = allTools.filter((t: any) => allowedNames.has(t.function.name));
+
+    if (filtered.length < 2) {
+      logger.warn({ selectedCats, filteredCount: filtered.length, message: message.slice(0, 80) },
+        'Category selection returned too few tools, using all');
+      return allTools;
+    }
+
+    logger.info({ count: filtered.length, categories: selectedCats, message: message.slice(0, 80) },
+      'Category-based tool selection');
+    return filtered;
   } catch (err: any) {
-    logger.warn({ err: err.message }, 'Tool selector failed, using all tools');
+    logger.warn({ err: err.message }, 'Category selector failed, using all tools');
     return allTools;
   }
 }
@@ -319,8 +344,8 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
       res.write(`data: ${JSON.stringify({ type: 'warning', message: 'Keine MCP-Server erreichbar — Antwort ohne Tool-Zugriff.' })}\n\n`);
     }
 
-    // Skills-based tool selection: LLM picks 10-20 relevant tools from skills.md
-    const tools = await selectTools(message, allTools, freeLlmConfig, req.user!.userId);
+    // Category-based tool selection: LLM picks relevant categories from governance DB
+    const tools = await selectToolsByCategory(message, allTools, freeLlmConfig, req.user!.userId);
 
     // Build messages
     const messages: ChatMessage[] = [
