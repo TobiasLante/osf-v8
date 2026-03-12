@@ -27,6 +27,7 @@ import internalApiRoutes from './nodered/internal-api';
 import { getLlmStatus } from './chat/llm-client';
 import unsRoutes from './uns/stream';
 import { requireAuth } from './auth/middleware';
+import { startKgAgent, stopKgAgent } from './kg-agent/index';
 import { validateEncryptionKey } from './auth/crypto';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
@@ -607,6 +608,11 @@ async function main() {
     res.status(500).json({ error: 'Internal server error' });
   });
 
+  // Start KG Agent (v9: auto-discovery from MQTT → Apache AGE)
+  startKgAgent().catch(err => {
+    logger.error({ err: err.message }, 'KG Agent startup failed (non-fatal)');
+  });
+
   httpServer.listen(PORT, '0.0.0.0', () => {
     logger.info({ port: PORT }, 'osf-gateway started');
   });
@@ -636,6 +642,9 @@ async function gracefulShutdown(signal: string) {
       logger.error({ err: err.message }, 'NR Pod Manager shutdown error');
     });
   }
+
+  // Stop KG Agent
+  stopKgAgent();
 
   // 4. Stop accepting new HTTP connections
   httpServer?.close();

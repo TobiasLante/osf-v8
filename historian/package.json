@@ -1,0 +1,20 @@
+{
+  "name": "osf-historian",
+  "version": "1.0.0",
+  "description": "MQTT → TimescaleDB historian + History MCP server for OpenShopFloor",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.0",
+    "pg": "^8.13.1",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0"
+  }
+}

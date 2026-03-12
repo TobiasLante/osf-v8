@@ -1,0 +1,105 @@
+# OSF v9 — Historian Deployment (MQTT → TimescaleDB + History MCP)
+# Runs on k8sserv4 (TimescaleDB node) for fast inserts
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian
+  namespace: osf
+  labels:
+    app: historian
+    version: v9
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: historian
+  template:
+    metadata:
+      labels:
+        app: historian
+        version: v9
+    spec:
+      # Pin to k8sserv4 — the TimescaleDB node
+      nodeSelector:
+        kubernetes.io/hostname: k8sserv4
+      containers:
+      - name: historian
+        image: 192.168.178.150:32000/osf-historian:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8030
+          name: mcp
+        envFrom:
+        - configMapRef:
+            name: osf-config
+        env:
+        - name: FACTORY_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: FACTORY_DB_PASSWORD
+        - name: HISTORIAN_DB_HOST
+          value: "192.168.178.150"
+        - name: HISTORIAN_DB_PORT
+          value: "30432"
+        - name: HISTORIAN_DB_NAME
+          value: "bigdata_homelab"
+        - name: HISTORIAN_DB_USER
+          value: "admin"
+        - name: HISTORIAN_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: osf-secrets
+              key: FACTORY_DB_PASSWORD
+        - name: MQTT_BROKER_URL
+          value: "mqtt://mqtt-broker.demo.svc.cluster.local:1883"
+        - name: HISTORIAN_FLUSH_MS
+          value: "5000"
+        - name: HISTORIAN_RETENTION_DAYS
+          value: "30"
+        - name: HISTORIAN_MCP_PORT
+          value: "8030"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8030
+          periodSeconds: 30
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8030
+          periodSeconds: 10
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: historian
+  namespace: osf
+  labels:
+    app: historian
+spec:
+  type: ClusterIP
+  selector:
+    app: historian
+  ports:
+  - name: mcp
+    port: 8030
+    targetPort: 8030
