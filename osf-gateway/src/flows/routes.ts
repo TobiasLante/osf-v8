@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../auth/middleware';
 import { pool } from '../db/pool';
-import { getMcpTools, getMcpToolsForServer, MCP_SERVERS } from '../chat/tool-executor';
+import { getMcpTools, getMcpToolsForServer, getMcpServersCached } from '../chat/tool-executor';
 import { getAllAgents } from '../agents/registry';
 import { executeFlow, resumeFlow } from './engine';
 import { runRegistry } from './run-registry';
@@ -62,7 +62,7 @@ router.get('/api/tools', requireAuth, async (_req: Request, res: Response) => {
 // ─── MCP tool list per server ───────────────────────────────────────────────
 router.get('/api/tools/:server', requireAuth, async (req: Request, res: Response) => {
   const server = req.params.server;
-  if (!MCP_SERVERS[server]) {
+  if (!getMcpServersCached()[server]) {
     res.status(400).json({ error: `Unknown MCP server: ${server}` });
     return;
   }

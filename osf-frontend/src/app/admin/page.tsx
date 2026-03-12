@@ -59,7 +59,7 @@ interface ActivityResponse {
   totals: ActivityTotals[];
 }
 
-type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity";
+type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "mcp";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -95,7 +95,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "mcp", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,12 +105,13 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {t === "health" ? "Health" : t === "mcp" ? "MCP Servers" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
           </button>
         ))}
       </div>
 
       {tab === "health" && <HealthTab onNavigate={setTab} />}
+      {tab === "mcp" && <McpServersTab />}
       {tab === "users" && <UsersTab />}
       {tab === "stats" && <StatsTab />}
       {tab === "activity" && <ActivityTab />}
@@ -2146,4 +2147,186 @@ function valueColor(value: number | null | undefined, warn: number, danger: numb
   if (value >= danger) return "text-red-400";
   if (value >= warn) return "text-yellow-400";
   return "text-green-400";
+}
+
+// ─── MCP Servers Tab (v9) ──────────────────────────────────────────────────
+
+interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  auth_type: string;
+  status: string;
+  tool_count: number;
+  categories: string[];
+  health_check_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+function McpServersTab() {
+  const [servers, setServers] = useState<McpServer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newUrl, setNewUrl] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const fetchServers = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers");
+      setServers(data.servers);
+    } catch {
+      setServers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchServers(); }, [fetchServers]);
+
+  const addServer = async () => {
+    if (!newName.trim() || !newUrl.trim()) return;
+    setAdding(true);
+    try {
+      await apiFetch("/admin/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify({ name: newName.trim(), url: newUrl.trim() }),
+      });
+      setNewName("");
+      setNewUrl("");
+      setShowAdd(false);
+      setTimeout(fetchServers, 1000); // Give discovery time to start
+    } catch (err: any) {
+      alert(err.message || "Failed to add server");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const deleteServer = async (id: string, name: string) => {
+    if (!confirm(`Delete MCP server "${name}"?`)) return;
+    try {
+      await apiFetch(`/admin/mcp-servers/${id}`, { method: "DELETE" });
+      fetchServers();
+    } catch {}
+  };
+
+  const rediscover = async (id: string) => {
+    try {
+      await apiFetch(`/admin/mcp-servers/${id}/discover`, { method: "POST" });
+      setTimeout(fetchServers, 2000);
+    } catch {}
+  };
+
+  const statusColor = (s: string) =>
+    s === "online" ? "bg-green-400" : s === "error" ? "bg-red-400" : s === "pending" ? "bg-yellow-400 animate-pulse" : "bg-gray-500";
+
+  if (loading) return <div className="text-text-muted animate-pulse">Loading MCP servers...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-muted">
+          {servers.length} registered MCP server{servers.length !== 1 ? "s" : ""}
+        </p>
+        <button
+          onClick={() => setShowAdd(!showAdd)}
+          className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
+        >
+          + Add Server
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-text-muted mb-1">Name</label>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. factory-erp"
+                className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-text-muted mb-1">URL</label>
+              <input
+                value={newUrl}
+                onChange={(e) => setNewUrl(e.target.value)}
+                placeholder="http://factory-v3:8020"
+                className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={addServer}
+              disabled={adding || !newName.trim() || !newUrl.trim()}
+              className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors"
+            >
+              {adding ? "Connecting..." : "Connect & Discover"}
+            </button>
+            <button
+              onClick={() => setShowAdd(false)}
+              className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {servers.length === 0 && !showAdd && (
+        <div className="text-center py-8 text-text-muted text-sm">
+          No MCP servers registered. Add one to get started.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {servers.map((s) => (
+          <div key={s.id} className="bg-bg-surface border border-border rounded-md p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
+                <div>
+                  <span className="text-sm font-medium text-text">{s.name}</span>
+                  <span className="ml-2 text-xs text-text-muted">{s.url}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => rediscover(s.id)}
+                  className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors"
+                  title="Re-discover tools"
+                >
+                  Refresh
+                </button>
+                <button
+                  onClick={() => deleteServer(s.id, s.name)}
+                  className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center gap-4 text-xs text-text-muted">
+              <span>{s.tool_count} tools</span>
+              {s.categories.length > 0 && (
+                <span>{s.categories.join(", ")}</span>
+              )}
+              <span className={s.status === "error" ? "text-red-400" : ""}>
+                {s.status}
+                {s.error_message && ` — ${s.error_message}`}
+              </span>
+              {s.health_check_at && (
+                <span>checked {new Date(s.health_check_at).toLocaleString("de-DE")}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

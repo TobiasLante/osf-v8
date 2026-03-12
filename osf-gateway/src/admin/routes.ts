@@ -869,4 +869,154 @@ router.get('/activity', async (req: Request, res: Response) => {
   }
 });
 
+// ─── MCP Server Registry (v9) ────────────────────────────────────────────
+
+// GET /admin/mcp-servers — list all registered MCP servers
+router.get('/mcp-servers', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, url, auth_type, status, tool_count, categories, health_check_at, error_message, created_at FROM mcp_servers ORDER BY created_at'
+    );
+    res.json({ servers: result.rows });
+  } catch (err: any) {
+    if (err.code === '42P01') { res.json({ servers: [] }); return; }
+    logger.error({ err: err.message }, 'Admin: list MCP servers failed');
+    res.status(500).json({ error: 'Failed to list MCP servers' });
+  }
+});
+
+// GET /admin/mcp-servers/:id — single server with tools
+router.get('/mcp-servers/:id', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, url, auth_type, status, tools, tool_count, categories, health_check_at, error_message, created_at FROM mcp_servers WHERE id = $1',
+      [req.params.id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: get MCP server failed');
+    res.status(500).json({ error: 'Failed to get MCP server' });
+  }
+});
+
+// POST /admin/mcp-servers — register new MCP server (triggers discovery)
+router.post('/mcp-servers', async (req: Request, res: Response) => {
+  try {
+    const { name, url, auth_type } = req.body;
+    if (!name || !url) {
+      res.status(400).json({ error: 'name and url required' });
+      return;
+    }
+
+    // Insert as pending
+    const result = await pool.query(
+      `INSERT INTO mcp_servers (name, url, auth_type, status, added_by)
+       VALUES ($1, $2, $3, 'pending', $4)
+       RETURNING id, name, url, status, created_at`,
+      [name.trim(), url.trim(), auth_type || 'none', req.user!.userId]
+    );
+
+    const server = result.rows[0];
+
+    // Async discovery: connect, fetch tools, update status
+    discoverMcpServer(server.id, url.trim()).catch(err => {
+      logger.error({ err: err.message, serverId: server.id }, 'MCP discovery failed');
+    });
+
+    res.status(201).json(server);
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: create MCP server failed');
+    res.status(500).json({ error: 'Failed to create MCP server' });
+  }
+});
+
+// POST /admin/mcp-servers/:id/discover — re-run discovery
+router.post('/mcp-servers/:id/discover', async (req: Request, res: Response) => {
+  try {
+    const server = await pool.query('SELECT id, url FROM mcp_servers WHERE id = $1', [req.params.id]);
+    if (server.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
+
+    discoverMcpServer(server.rows[0].id, server.rows[0].url).catch(err => {
+      logger.error({ err: err.message, serverId: req.params.id }, 'MCP re-discovery failed');
+    });
+
+    res.json({ ok: true, message: 'Discovery started' });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: discover MCP server failed');
+    res.status(500).json({ error: 'Failed to start discovery' });
+  }
+});
+
+// DELETE /admin/mcp-servers/:id — remove server
+router.delete('/mcp-servers/:id', async (req: Request, res: Response) => {
+  try {
+    await pool.query('DELETE FROM mcp_servers WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: delete MCP server failed');
+    res.status(500).json({ error: 'Failed to delete MCP server' });
+  }
+});
+
+// Discovery logic: connect to MCP server, fetch tools, categorize, update DB
+async function discoverMcpServer(serverId: string, url: string): Promise<void> {
+  const baseUrl = url.replace(/\/mcp\/?$/, '');
+
+  try {
+    // 1. Connect + fetch tools
+    const resp = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data: any = await resp.json();
+    const rawTools = data.result?.tools || [];
+
+    // 2. Convert to OpenAI format
+    const tools = rawTools.map((t: any) => ({
+      type: 'function',
+      function: { name: t.name, description: t.description, parameters: t.inputSchema },
+    }));
+
+    // 3. Categorize based on tool name prefixes
+    const categories = new Set<string>();
+    for (const t of rawTools) {
+      const name = (t.name || '').toLowerCase();
+      if (name.startsWith('factory_get_') || name.startsWith('factory_search_')) categories.add('erp');
+      if (name.includes('oee') || name.includes('production')) categories.add('oee');
+      if (name.includes('kg_') || name.startsWith('kg_')) categories.add('kg');
+      if (name.includes('uns_') || name.startsWith('uns_')) categories.add('uns');
+      if (name.includes('quality') || name.includes('cpk')) categories.add('qms');
+      if (name.includes('warehouse') || name.includes('wms') || name.includes('tms')) categories.add('tms');
+      if (name.includes('history')) categories.add('history');
+      if (name.includes('maintenance')) categories.add('maintenance');
+    }
+
+    // 4. Update DB
+    await pool.query(
+      `UPDATE mcp_servers SET
+        status = 'online',
+        tools = $1,
+        tool_count = $2,
+        categories = $3,
+        health_check_at = NOW(),
+        error_message = NULL
+       WHERE id = $4`,
+      [JSON.stringify(tools), tools.length, [...categories], serverId]
+    );
+
+    logger.info({ serverId, toolCount: tools.length, categories: [...categories] }, 'MCP server discovered');
+  } catch (err: any) {
+    await pool.query(
+      `UPDATE mcp_servers SET status = 'error', error_message = $1, health_check_at = NOW() WHERE id = $2`,
+      [err.message, serverId]
+    );
+    throw err;
+  }
+}
+
 export default router;

@@ -1,6 +1,7 @@
 import { logger } from '../logger';
 import { config } from '../config';
 import { ff } from '../feature-flags';
+import { pool } from '../db/pool';
 
 // ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
 class McpCircuitBreaker {
@@ -84,7 +85,10 @@ function stripMcpSuffix(url: string): string {
   return url.replace(/\/mcp\/?$/, '');
 }
 
-export const MCP_SERVERS: Record<string, string> = {
+// ─── Dynamic MCP Server Registry (v9) ────────────────────────────────────────
+// Loads from mcp_servers DB table. Falls back to env vars for backward compat.
+
+const ENV_FALLBACK_SERVERS: Record<string, string> = {
   erp: stripMcpSuffix(process.env.MCP_ERP_URL || process.env.MCP_URL_ERP || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
   oee: stripMcpSuffix(process.env.MCP_OEE_URL || process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
   qms: stripMcpSuffix(process.env.MCP_QMS_URL || process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
@@ -92,6 +96,48 @@ export const MCP_SERVERS: Record<string, string> = {
   uns: stripMcpSuffix(process.env.MCP_UNS_URL || process.env.MCP_URL_UNS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8025'),
   kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
 };
+
+let dbServersCache: Record<string, string> | null = null;
+let dbServersCacheTime = 0;
+const DB_CACHE_TTL = 60_000; // Reload from DB every 60s
+
+async function loadMcpServersFromDb(): Promise<Record<string, string>> {
+  try {
+    const result = await pool.query(
+      "SELECT name, url FROM mcp_servers WHERE status = 'online'"
+    );
+    const servers: Record<string, string> = {};
+    for (const row of result.rows) {
+      servers[row.name] = stripMcpSuffix(row.url);
+    }
+    return servers;
+  } catch {
+    // Table may not exist yet or DB down — silent fallback
+    return {};
+  }
+}
+
+async function getMcpServers(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (dbServersCache && now - dbServersCacheTime < DB_CACHE_TTL) {
+    return dbServersCache;
+  }
+
+  const dbServers = await loadMcpServersFromDb();
+  // Merge: DB servers override env fallbacks
+  const merged = { ...ENV_FALLBACK_SERVERS, ...dbServers };
+  dbServersCache = merged;
+  dbServersCacheTime = now;
+  return merged;
+}
+
+// Synchronous access for backward compat (uses cache or env fallback)
+export function getMcpServersCached(): Record<string, string> {
+  return dbServersCache || ENV_FALLBACK_SERVERS;
+}
+
+// Legacy export for code that reads MCP_SERVERS directly
+export const MCP_SERVERS = ENV_FALLBACK_SERVERS;
 
 const CACHE_TTL = config.mcp.toolCacheTtlMs;
 
@@ -128,15 +174,17 @@ async function fetchToolsFromUrl(url: string): Promise<any[]> {
 }
 
 export async function getMcpToolsForServer(server: string): Promise<any[]> {
-  const url = MCP_SERVERS[server];
+  const servers = await getMcpServers();
+  const url = servers[server];
   if (!url) throw new Error(`Unknown MCP server: ${server}`);
   return fetchToolsFromUrl(url);
 }
 
 /** Get tools from ALL MCP servers combined, deduplicated by tool name */
 export async function getMcpTools(): Promise<any[]> {
+  const servers = await getMcpServers();
   // Deduplicate URLs so we don't query the same endpoint multiple times
-  const uniqueUrls = [...new Set(Object.values(MCP_SERVERS))];
+  const uniqueUrls = [...new Set(Object.values(servers))];
   const results = await Promise.allSettled(
     uniqueUrls.map(url => fetchToolsFromUrl(url))
   );
@@ -166,8 +214,9 @@ async function getToolServerMap(): Promise<Map<string, string>> {
     return toolServerMap;
   }
 
+  const servers = await getMcpServers();
   toolServerMap = new Map();
-  for (const server of Object.keys(MCP_SERVERS)) {
+  for (const server of Object.keys(servers)) {
     try {
       const tools = await getMcpToolsForServer(server);
       for (const t of tools) {
@@ -194,7 +243,8 @@ export async function callMcpTool(
     return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
 
-  const url = MCP_SERVERS[server];
+  const servers = getMcpServersCached();
+  const url = servers[server];
 
   // Circuit breaker check — fast-fail if MCP server is known-down
   if (ff.enableMcpCircuitBreaker) {

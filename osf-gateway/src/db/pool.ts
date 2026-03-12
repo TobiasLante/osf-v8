@@ -448,6 +448,26 @@ export async function initSchema(): Promise<void> {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS marketing_consent_at TIMESTAMPTZ;
     `);
 
+    // MCP Server registry (v9: dynamic instead of hardcoded)
+    await migrate('mcp_servers: create table', `
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        auth_type TEXT DEFAULT 'none',
+        credentials_encrypted TEXT,
+        status TEXT DEFAULT 'pending',
+        tools JSONB DEFAULT '[]',
+        tool_count INT DEFAULT 0,
+        categories TEXT[] DEFAULT '{}',
+        health_check_at TIMESTAMPTZ,
+        error_message TEXT,
+        added_by UUID REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON mcp_servers(status);
+    `);
+
     // Version columns on agent tables (marketplace)
     await migrate('agents/chains/code_agents: version columns', `
       ALTER TABLE agents ADD COLUMN IF NOT EXISTS version INT DEFAULT 1;
