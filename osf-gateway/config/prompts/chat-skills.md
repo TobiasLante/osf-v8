@@ -12,6 +12,8 @@ You can query machine status, OEE metrics, stock levels, work orders, quality da
 - **Energy**: Consumption overview, per-part metrics, base load, cost breakdown, trends
 - **Supply Chain**: Supplier evaluation, warehouse status, purchase suggestions
 - **Knowledge Graph**: Impact analysis, dependency graphs, bottleneck detection, what-if scenarios
+- **History & Trends**: Time-series data for any machine variable, trend analysis, anomaly detection, machine comparison
+- **Sensor Discovery**: Auto-discovered machines and sensors from the UNS (MQTT), live topology from the Knowledge Graph
 
 ## Rules
 

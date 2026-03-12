@@ -2,6 +2,7 @@ import { logger } from '../logger';
 import { config } from '../config';
 import { ff } from '../feature-flags';
 import { pool } from '../db/pool';
+import { kgSensorToolDefs, isKgSensorTool, handleKgSensorTool } from '../kg-agent/tools';
 
 // ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
 class McpCircuitBreaker {
@@ -180,7 +181,7 @@ export async function getMcpToolsForServer(server: string): Promise<any[]> {
   return fetchToolsFromUrl(url);
 }
 
-/** Get tools from ALL MCP servers combined, deduplicated by tool name */
+/** Get tools from ALL MCP servers combined + local KG sensor tools, deduplicated by tool name */
 export async function getMcpTools(): Promise<any[]> {
   const servers = await getMcpServers();
   // Deduplicate URLs so we don't query the same endpoint multiple times
@@ -201,6 +202,15 @@ export async function getMcpTools(): Promise<any[]> {
       }
     }
   }
+
+  // Add local KG sensor tools (no MCP round-trip, query Apache AGE directly)
+  for (const t of kgSensorToolDefs) {
+    if (!seen.has(t.function.name)) {
+      seen.add(t.function.name);
+      tools.push(t);
+    }
+  }
+
   return tools;
 }
 
@@ -237,6 +247,11 @@ export async function callMcpTool(
   name: string,
   args: Record<string, unknown>
 ): Promise<string> {
+  // Handle local KG sensor tools directly (no MCP round-trip)
+  if (isKgSensorTool(name)) {
+    return handleKgSensorTool(name, args);
+  }
+
   const map = await getToolServerMap();
   const server = map.get(name);
   if (!server) {

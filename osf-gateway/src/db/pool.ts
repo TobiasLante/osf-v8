@@ -468,6 +468,13 @@ export async function initSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON mcp_servers(status);
     `);
 
+    // Seed historian MCP server (v9: auto-register on startup)
+    await migrate('mcp_servers: seed historian', `
+      INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
+      VALUES ('history', 'http://historian.osf.svc.cluster.local:8030', 'none', 'pending', 6, ARRAY['history'])
+      ON CONFLICT DO NOTHING;
+    `);
+
     // Version columns on agent tables (marketplace)
     await migrate('agents/chains/code_agents: version columns', `
       ALTER TABLE agents ADD COLUMN IF NOT EXISTS version INT DEFAULT 1;

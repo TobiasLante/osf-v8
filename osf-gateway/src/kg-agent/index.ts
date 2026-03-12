@@ -246,6 +246,16 @@ export async function startKgAgent(): Promise<void> {
   logger.info('KG Agent: ready');
 }
 
+export function getKgAgentStats(): { discovered: number; updates: number; errors: number; machines: number; sensors: number; kgAvailable: boolean; flushIntervalMs: number } {
+  return {
+    ...stats,
+    machines: knownMachines.size,
+    sensors: knownSensors.size,
+    kgAvailable,
+    flushIntervalMs: FLUSH_INTERVAL_MS,
+  };
+}
+
 export function stopKgAgent(): void {
   if (flushTimer) clearInterval(flushTimer);
   if (mqttClient) {

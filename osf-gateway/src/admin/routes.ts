@@ -869,6 +869,76 @@ router.get('/activity', async (req: Request, res: Response) => {
   }
 });
 
+// ─── Agent Monitoring (v9) ───────────────────────────────────────────────
+
+// GET /admin/agents/status — status of all background agents (KG Agent, Historian)
+router.get('/agents/status', async (_req: Request, res: Response) => {
+  const agents: any[] = [];
+
+  // 1. KG Agent status (runs in-process)
+  try {
+    const { getKgAgentStats } = await import('../kg-agent/index');
+    const stats = getKgAgentStats();
+    agents.push({
+      name: 'KG Agent',
+      type: 'in-process',
+      description: 'Auto-discovers machines/sensors from MQTT UNS → Apache AGE graph',
+      status: stats ? 'running' : 'stopped',
+      ...stats,
+    });
+  } catch {
+    agents.push({
+      name: 'KG Agent',
+      type: 'in-process',
+      status: 'unknown',
+      error: 'Could not load KG Agent module',
+    });
+  }
+
+  // 2. Historian status (external service)
+  const historianUrl = process.env.HISTORIAN_URL || 'http://historian.osf.svc.cluster.local:8030';
+  try {
+    const r = await fetch(`${historianUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const data: Record<string, unknown> = await r.json() as Record<string, unknown>;
+      agents.push({
+        name: 'Historian',
+        type: 'service',
+        description: 'MQTT → TimescaleDB time-series + History MCP server',
+        status: 'running',
+        url: historianUrl,
+        ...data,
+      });
+    } else {
+      agents.push({ name: 'Historian', type: 'service', status: 'error', url: historianUrl, error: `HTTP ${r.status}` });
+    }
+  } catch (err: any) {
+    agents.push({ name: 'Historian', type: 'service', status: 'offline', url: historianUrl, error: err.message });
+  }
+
+  // 3. MCP servers from registry
+  try {
+    const result = await pool.query(
+      "SELECT name, url, status, tool_count, health_check_at, error_message FROM mcp_servers ORDER BY name"
+    );
+    for (const row of result.rows) {
+      agents.push({
+        name: `MCP: ${row.name}`,
+        type: 'mcp-server',
+        status: row.status,
+        url: row.url,
+        toolCount: row.tool_count,
+        lastHealthCheck: row.health_check_at,
+        error: row.error_message,
+      });
+    }
+  } catch {
+    // mcp_servers table may not exist
+  }
+
+  res.json({ agents, checkedAt: new Date().toISOString() });
+});
+
 // ─── MCP Server Registry (v9) ────────────────────────────────────────────
 
 // GET /admin/mcp-servers — list all registered MCP servers
