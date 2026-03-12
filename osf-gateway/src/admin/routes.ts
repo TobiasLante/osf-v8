@@ -337,7 +337,7 @@ router.put('/banner', async (req: Request, res: Response) => {
 
 // ─── Infrastructure Proxy (Factory Simulator v3) ─────────────────────────
 
-const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://localhost:8888';
 
 const INFRA_ENDPOINTS = [
   '/infrastructure/metrics',
@@ -381,11 +381,11 @@ router.get('/connectivity', async (_req: Request, res: Response) => {
     { name: 'Resend (Email)', url: 'https://api.resend.com/' },
     { name: 'GitHub API', url: 'https://api.github.com/' },
     { name: 'Cloudflare', url: 'https://cloudflare.com/cdn-cgi/trace' },
-    { name: 'MCP ERP', url: (process.env.MCP_URL_ERP || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'MCP Manufacturing', url: (process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'MCP QMS', url: (process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'MCP WMS/TMS', url: (process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'Factory Simulator', url: (process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888') + '/api/health/live' },
+    { name: 'MCP ERP', url: (process.env.MCP_URL_ERP || 'http://localhost:8020') + '/health' },
+    { name: 'MCP Manufacturing', url: (process.env.MCP_URL_OEE || 'http://localhost:8020') + '/health' },
+    { name: 'MCP QMS', url: (process.env.MCP_URL_QMS || 'http://localhost:8020') + '/health' },
+    { name: 'MCP WMS/TMS', url: (process.env.MCP_URL_TMS || 'http://localhost:8020') + '/health' },
+    { name: 'Factory Simulator', url: (process.env.FACTORY_SIM_URL || 'http://localhost:8888') + '/api/health/live' },
     { name: 'LLM Free', url: (process.env.LLM_URL_FREE || 'http://localhost:5002') + '/health' },
     { name: 'LLM Premium', url: (process.env.LLM_URL_PREMIUM || 'http://localhost:5001') + '/health' },
   ];
@@ -606,10 +606,10 @@ router.get('/health', async (req: Request, res: Response) => {
 
   // --- MCP Services ---
   const mcpServices = [
-    { name: 'ERP', url: (process.env.MCP_URL_ERP || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'Manufacturing', url: (process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'QMS', url: (process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
-    { name: 'WMS/TMS', url: (process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
+    { name: 'ERP', url: (process.env.MCP_URL_ERP || 'http://localhost:8020') + '/health' },
+    { name: 'Manufacturing', url: (process.env.MCP_URL_OEE || 'http://localhost:8020') + '/health' },
+    { name: 'QMS', url: (process.env.MCP_URL_QMS || 'http://localhost:8020') + '/health' },
+    { name: 'WMS/TMS', url: (process.env.MCP_URL_TMS || 'http://localhost:8020') + '/health' },
   ];
   const mcpResults = await Promise.all(
     mcpServices.map(async (svc) => {
@@ -629,10 +629,10 @@ router.get('/health', async (req: Request, res: Response) => {
 
   // --- All Factory Services (comprehensive check) ---
   const FACTORY_SERVICES = [
-    { name: 'Fertigung', url: process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888', hasLeader: true, hasMcp: true, mcpPort: 8020 },
-    { name: 'Montage', url: process.env.MONTAGE_URL || 'http://factory-v3-montage.factory.svc.cluster.local:8890', hasLeader: true },
-    { name: 'WMS', url: process.env.WMS_URL || 'http://factory-v3-wms.factory.svc.cluster.local:8889', hasLeader: true },
-    { name: 'Chef-Nadja', url: process.env.CHEF_URL || 'http://factory-v3-chef.factory.svc.cluster.local:8891', hasLeader: false },
+    { name: 'Fertigung', url: process.env.FACTORY_SIM_URL || 'http://localhost:8888', hasLeader: true, hasMcp: true, mcpPort: 8020 },
+    { name: 'Montage', url: process.env.MONTAGE_URL || 'http://localhost:8890', hasLeader: true },
+    { name: 'WMS', url: process.env.WMS_URL || 'http://localhost:8889', hasLeader: true },
+    { name: 'Chef-Nadja', url: process.env.CHEF_URL || 'http://localhost:8891', hasLeader: false },
   ];
 
   const factoryResults = await Promise.all(
@@ -684,12 +684,9 @@ router.get('/health', async (req: Request, res: Response) => {
 
   // --- Databases (direct connection check to all PG instances) ---
   const DB_CHECKS = [
-    { name: 'ERP (erpdb)', host: 'postgress-erp-svc.default.svc.cluster.local', port: 5432, database: 'erpdb' },
-    { name: 'OEE (bigdata)', host: 'postgress-big-svc.bigdata.svc.cluster.local', port: 5433, database: 'bigdata_homelab' },
-    { name: 'QMS (qmsdb)', host: 'qms-postgres.default.svc.cluster.local', port: 5432, database: 'qmsdb' },
-    { name: 'TMS (wmsdb)', host: 'wms-postgres.default.svc.cluster.local', port: 5432, database: 'wmsdb' },
-    { name: 'Montage-OEE', host: 'oee-montage-postgres.default.svc.cluster.local', port: 5432, database: 'oee_montage' },
-    { name: 'Warehouse', host: 'wms-warehouse-postgres.default.svc.cluster.local', port: 5432, database: 'warehousedb' },
+    { name: 'ERP (erpdb)', host: process.env.ERP_DB_HOST || 'localhost', port: parseInt(process.env.ERP_DB_PORT || '5432'), database: 'erpdb' },
+    { name: 'Factory (bigdata)', host: process.env.FACTORY_DB_HOST || 'localhost', port: parseInt(process.env.FACTORY_DB_PORT || '5432'), database: 'bigdata_homelab' },
+    { name: 'QMS (qmsdb)', host: process.env.QMS_DB_HOST || 'localhost', port: parseInt(process.env.QMS_DB_PORT || '5432'), database: 'qmsdb' },
   ];
   const dbChecks = await Promise.all(
     DB_CHECKS.map(async (db) => {
@@ -872,7 +869,7 @@ router.get('/activity', async (req: Request, res: Response) => {
 // ─── Historian Proxy (v9/v2) ──────────────────────────────────────────────
 
 // Proxy /admin/historian/* → Historian service :8030
-const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://historian.osf.svc.cluster.local:8030';
+const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://localhost:8030';
 
 router.all('/historian/*', async (req: Request, res: Response) => {
   // Strip /admin/historian prefix → forward remainder to historian
@@ -929,7 +926,7 @@ router.get('/agents/status', async (_req: Request, res: Response) => {
   }
 
   // 2. Historian status (external service)
-  const historianUrl = process.env.HISTORIAN_URL || 'http://historian.osf.svc.cluster.local:8030';
+  const historianUrl = process.env.HISTORIAN_URL || 'http://localhost:8030';
   try {
     const r = await fetch(`${historianUrl}/health`, { signal: AbortSignal.timeout(5000) });
     if (r.ok) {

@@ -274,7 +274,7 @@ async function main() {
   });
 
   // LLM status check — public endpoint for landing page "Open Analysis Console"
-  const FACTORY_SIM_URL = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+  const FACTORY_SIM_URL = process.env.FACTORY_SIM_URL || 'http://localhost:8888';
   app.get('/v7/llm-status', async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_URL}/api/infrastructure/metrics?minutes=1`, {
@@ -306,7 +306,7 @@ async function main() {
     }
   }, 5 * 60 * 1000);
 
-  const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+  const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://localhost:8888';
   app.get('/v7/llm-status', async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_BASE}/api/infrastructure/metrics?minutes=1`, {
