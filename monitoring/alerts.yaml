@@ -1,0 +1,119 @@
+# OSF Prometheus Alert Rules
+# Load into Alertmanager: prometheus.yml → rule_files: ["alerts.yaml"]
+
+groups:
+  - name: osf-critical
+    rules:
+      # Gateway down for 2 minutes
+      - alert: GatewayDown
+        expr: up{job="osf-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OSF Gateway is down"
+          description: "Gateway has been unreachable for 2+ minutes."
+
+      # LLM servers both unreachable
+      - alert: LlmOffline
+        expr: osf_mcp_failures_total > 0 and rate(osf_http_requests_total{path="/llm/status",status="200"}[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM servers unreachable"
+          description: "No successful LLM status checks in 5 minutes. Chat is non-functional."
+
+      # All MCP servers down
+      - alert: AllMcpServersDown
+        expr: increase(osf_mcp_failures_total[5m]) > 10 and increase(osf_tool_calls_total{status="ok"}[5m]) == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All MCP servers unreachable"
+          description: "No successful tool calls in 5 minutes. Chat responds without factory data."
+
+      # DB connection pool exhausted (Node.js process metric)
+      - alert: DbPoolExhausted
+        expr: nodejs_active_resources{type="PGPool"} > 18
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value }}/20 connections active. New queries may queue."
+
+  - name: osf-warning
+    rules:
+      # High error rate (>10% of requests are 5xx)
+      - alert: HighErrorRate
+        expr: rate(osf_http_requests_total{status=~"5.."}[5m]) / rate(osf_http_requests_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate ({{ $value | humanizePercentage }})"
+          description: "More than 10% of requests returning 5xx errors."
+
+      # LLM latency degraded (P95 > 30s)
+      - alert: LlmLatencyHigh
+        expr: histogram_quantile(0.95, rate(osf_llm_latency_seconds_bucket[10m])) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM P95 latency above 30s"
+          description: "LLM responses are slow. Queue may be backing up."
+
+      # MCP tool failures spiking
+      - alert: McpToolFailures
+        expr: rate(osf_tool_calls_total{status="error"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MCP tool call failures increasing"
+          description: "{{ $value }} tool failures/sec in last 5 minutes."
+
+      # Memory usage high (>80% of limit)
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / 1073741824 > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway memory usage high ({{ $value | humanize }}GB)"
+          description: "Memory above 80% of 1GB limit. Possible leak or load issue."
+
+      # Event loop lag (>500ms indicates blocking)
+      - alert: EventLoopBlocked
+        expr: nodejs_eventloop_lag_p99_seconds > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js event loop lag high ({{ $value }}s)"
+          description: "Event loop P99 > 500ms. Indicates blocking operations."
+
+  - name: osf-data
+    rules:
+      # Audit log growing too fast
+      - alert: AuditLogGrowth
+        expr: pg_stat_user_tables_n_live_tup{relname="audit_log"} > 1000000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Audit log exceeds 1M rows"
+          description: "Consider running retention cleanup."
+
+      # No backup in 48 hours (requires backup metric exporter)
+      - alert: BackupStale
+        expr: time() - osf_last_backup_timestamp > 172800
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "No database backup in 48+ hours"
+          description: "Last backup is stale. Check backup cronjob."

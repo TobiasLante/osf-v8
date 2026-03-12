@@ -29,7 +29,7 @@ import unsRoutes from './uns/stream';
 import { requireAuth } from './auth/middleware';
 import { startKgAgent, stopKgAgent } from './kg-agent/index';
 import { validateEncryptionKey } from './auth/crypto';
-import { registry } from './metrics';
+import { registry, httpRequestsTotal } from './metrics';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
@@ -101,13 +101,39 @@ async function main() {
   // Trust proxy (behind cloudflared)
   app.set('trust proxy', 1);
 
+  // ─── Load Shedding ────────────────────────────────────────────────────────
+  // Reject new requests when server is overloaded (protects DB pool + LLM queue)
+  const MAX_CONCURRENT_REQUESTS = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '200');
+  let activeRequests = 0;
+
+  app.use((req, res, next) => {
+    activeRequests++;
+    let counted = true;
+    const decrement = () => { if (counted) { activeRequests--; counted = false; } };
+    res.on('finish', decrement);
+    res.on('close', decrement);
+
+    // Allow health/metrics even under load
+    if (req.path === '/health' || req.path === '/health/ready' || req.path === '/metrics') {
+      return next();
+    }
+
+    if (activeRequests > MAX_CONCURRENT_REQUESTS) {
+      decrement();
+      logger.warn({ activeRequests, max: MAX_CONCURRENT_REQUESTS }, 'Load shedding: rejecting request');
+      res.status(503).json({ error: 'Server ueberlastet. Bitte in einigen Sekunden erneut versuchen.' });
+      return;
+    }
+    next();
+  });
+
   // Request ID middleware
   app.use((req, _res, next) => {
     req.requestId = req.headers['x-request-id'] as string || crypto.randomUUID();
     next();
   });
 
-  // Request logging
+  // Request logging + Prometheus metrics
   app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
@@ -126,6 +152,14 @@ async function main() {
       } else {
         logger.info(logData, 'request');
       }
+
+      // Prometheus: normalize path to avoid cardinality explosion
+      const metricPath = req.route?.path || req.path.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id');
+      httpRequestsTotal.inc({
+        method: req.method,
+        path: metricPath.slice(0, 50),
+        status: String(res.statusCode),
+      });
     });
     next();
   });
@@ -216,7 +250,7 @@ async function main() {
 
   // Health check (no auth)
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown' });
+    res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown', activeRequests, activeSse: activeSseResponses.size });
   });
 
   // Readiness probe — checks DB connectivity + LLM circuit breaker

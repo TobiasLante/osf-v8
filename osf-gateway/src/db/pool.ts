@@ -717,6 +717,28 @@ export async function initSchema(): Promise<void> {
       ON CONFLICT DO NOTHING;
     `);
 
+    // ─── Data Retention ─────────────────────────────────────────────────────
+    // Audit log: keep 90 days, delete older entries on every startup
+    try {
+      const deleted = await client.query(
+        `DELETE FROM audit_log WHERE ts < NOW() - INTERVAL '90 days'`
+      );
+      if ((deleted.rowCount || 0) > 0) {
+        logger.info({ deleted: deleted.rowCount }, 'Audit log retention: cleaned old entries');
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Audit log retention cleanup failed');
+    }
+
+    // Expired refresh tokens + email tokens
+    try {
+      await client.query(`DELETE FROM refresh_tokens WHERE expires_at < NOW() - INTERVAL '7 days'`);
+      await client.query(`DELETE FROM email_tokens WHERE expires_at < NOW() - INTERVAL '7 days'`);
+      await client.query(`DELETE FROM oauth_states WHERE expires_at < NOW() - INTERVAL '1 day'`);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Token cleanup failed');
+    }
+
     // ─── Schema Versioning ──────────────────────────────────────────────────
     await migrate('schema_version: create table', `
       CREATE TABLE IF NOT EXISTS schema_version (
