@@ -30,6 +30,7 @@ import { requireAuth } from './auth/middleware';
 import { startKgAgent, stopKgAgent } from './kg-agent/index';
 import { validateEncryptionKey } from './auth/crypto';
 import { registry, httpRequestsTotal } from './metrics';
+import { recordRequest, getSnapshot } from './internal-metrics';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
@@ -153,6 +154,9 @@ async function main() {
         logger.info(logData, 'request');
       }
 
+      // Internal dashboard metrics
+      recordRequest(res.statusCode);
+
       // Prometheus: normalize path to avoid cardinality explosion
       const metricPath = req.route?.path || req.path.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id');
       httpRequestsTotal.inc({
@@ -236,6 +240,15 @@ async function main() {
     }
 
     next();
+  });
+
+  // Internal dashboard snapshot (no auth — lightweight, no sensitive data)
+  app.get('/admin/dashboard/snapshot', async (_req, res) => {
+    try {
+      res.json(await getSnapshot());
+    } catch {
+      res.status(500).json({ error: 'Failed to collect metrics' });
+    }
   });
 
   // Prometheus metrics (no auth — scraped by Prometheus)

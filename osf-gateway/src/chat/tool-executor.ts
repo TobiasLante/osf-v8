@@ -6,6 +6,7 @@ import { kgSensorToolDefs, isKgSensorTool, handleKgSensorTool } from '../kg-agen
 import { isToolAllowed, filterToolsForUser } from '../auth/permissions';
 import { audit } from '../auth/audit';
 import { toolCallsTotal, mcpFailuresTotal } from '../metrics';
+import { recordToolCall } from '../internal-metrics';
 
 // ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
 class McpCircuitBreaker {
@@ -293,6 +294,7 @@ export async function callMcpTool(
   // Handle local KG sensor tools directly (no MCP round-trip)
   if (isKgSensorTool(name)) {
     toolCallsTotal.inc({ tool: name, status: 'local' });
+    recordToolCall(true);
     return handleKgSensorTool(name, args);
   }
 
@@ -329,6 +331,7 @@ export async function callMcpTool(
     if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordFailure();
     toolCallsTotal.inc({ tool: name, status: 'error' });
     mcpFailuresTotal.inc({ url });
+    recordToolCall(false);
     return JSON.stringify({ error: `MCP unreachable after retries: ${err.message}` });
   }
 
@@ -337,12 +340,14 @@ export async function callMcpTool(
     if (ff.enableMcpCircuitBreaker && resp.status >= 500) getMcpCircuitBreaker(url).recordFailure();
     toolCallsTotal.inc({ tool: name, status: 'error' });
     mcpFailuresTotal.inc({ url });
+    recordToolCall(false);
     return JSON.stringify({ error: `MCP error ${resp.status}: ${text}` });
   }
 
   // Success — reset circuit breaker
   if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordSuccess();
   toolCallsTotal.inc({ tool: name, status: 'ok' });
+  recordToolCall(true);
 
   const data: any = await resp.json();
   if (data.error) {

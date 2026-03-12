@@ -4,6 +4,8 @@ import { decryptApiKey } from '../auth/crypto';
 import { logger } from '../logger';
 import { config as appConfig } from '../config';
 import { ff } from '../feature-flags';
+import { llmLatencySeconds } from '../metrics';
+import { recordLlmCall } from '../internal-metrics';
 
 // ─── LLM Concurrency Control ────────────────────────────────────────────────
 class Semaphore {
@@ -330,6 +332,7 @@ export async function callLlm(
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing request');
   }
   await sem.acquire(appConfig.llm.semaphoreTimeoutMs, signal);
+  const llmStartTime = Date.now();
 
   try {
     const body: any = {
@@ -379,6 +382,11 @@ export async function callLlm(
     }
 
     cb.recordSuccess();
+    const llmDurationMs = Date.now() - llmStartTime;
+    const tier = config.baseUrl.includes('5001') ? 'premium' : 'free';
+    llmLatencySeconds.observe({ tier }, llmDurationMs / 1000);
+    recordLlmCall(llmDurationMs);
+
     const data: any = await resp.json();
     const choice = data.choices?.[0];
 

@@ -59,7 +59,7 @@ interface ActivityResponse {
   totals: ActivityTotals[];
 }
 
-type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "services" | "historian" | "governance";
+type Tab = "health" | "monitoring" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "services" | "historian" | "governance";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -95,7 +95,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "historian", "services", "governance", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "monitoring", "historian", "services", "governance", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,12 +105,13 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "historian" ? "Historian" : t === "services" ? "Services" : t === "governance" ? "Governance" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {t === "health" ? "Health" : t === "monitoring" ? "Monitoring" : t === "historian" ? "Historian" : t === "services" ? "Services" : t === "governance" ? "Governance" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
           </button>
         ))}
       </div>
 
       {tab === "health" && <HealthTab onNavigate={setTab} />}
+      {tab === "monitoring" && <MonitoringTab />}
       {tab === "historian" && <HistorianTab />}
       {tab === "services" && <ServicesTab />}
       {tab === "governance" && <GovernanceTab />}
@@ -122,6 +123,196 @@ export default function AdminPage() {
       {tab === "infra" && <InfraTab />}
       {tab === "nrpods" && <NrPodsTab />}
     </main>
+  );
+}
+
+// ─── Monitoring Tab ─────────────────────────────────────────────────────────
+
+interface MonSnapshot {
+  uptime: number;
+  memory: { rss: number; heapUsed: number; heapTotal: number };
+  eventLoopLag: number;
+  db: { totalCount: number; idleCount: number; waitingCount: number };
+  requests: { perMin: number; errorRate: number; history: { ts: number; requests: number; errors: number }[] };
+  llm: { callsPerMin: number; avgLatencyMs: number; history: { ts: number; calls: number; avgMs: number }[] };
+  tools: { callsPerMin: number; errorRate: number; history: { ts: number; calls: number; errors: number }[] };
+  mcpServers: { name: string; url: string; status: "online" | "degraded" | "offline"; lastCheck: number; toolCount: number }[];
+}
+
+/** Tiny inline SVG sparkline */
+function Sparkline({ data, color = "#6366f1", height = 32, width = 120 }: { data: number[]; color?: string; height?: number; width?: number }) {
+  if (data.length < 2) return <div style={{ width, height }} className="bg-bg-base rounded" />;
+  const max = Math.max(...data, 1);
+  const step = width / (data.length - 1);
+  const points = data.map((v, i) => `${i * step},${height - (v / max) * (height - 4) - 2}`).join(" ");
+  return (
+    <svg width={width} height={height} className="inline-block">
+      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+    </svg>
+  );
+}
+
+function MonitoringTab() {
+  const [data, setData] = useState<MonSnapshot | null>(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const snap = await apiFetch<MonSnapshot>("/admin/dashboard/snapshot");
+      setData(snap);
+      setError("");
+    } catch (e: any) {
+      setError(e.message || "Fehler beim Laden");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 15_000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  if (error && !data) return <div className="text-red-400 text-sm p-4">{error}</div>;
+  if (!data) return <div className="text-text-muted text-sm p-4">Laden...</div>;
+
+  const heapPct = data.memory.heapTotal > 0 ? Math.round((data.memory.heapUsed / data.memory.heapTotal) * 100) : 0;
+  const lagColor = data.eventLoopLag <= 5 ? "text-green-400" : data.eventLoopLag <= 50 ? "text-yellow-400" : "text-red-400";
+
+  return (
+    <div className="space-y-6">
+      {/* Top KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="text-xs text-text-muted mb-1">Uptime</div>
+          <div className="text-lg font-bold text-text">{formatUptime(data.uptime)}</div>
+        </div>
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="text-xs text-text-muted mb-1">Event Loop Lag</div>
+          <div className={`text-lg font-bold ${lagColor}`}>{data.eventLoopLag}ms</div>
+        </div>
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="text-xs text-text-muted mb-1">Heap</div>
+          <div className="text-lg font-bold text-text">{heapPct}%</div>
+          <div className="text-xs text-text-muted">{formatBytes(data.memory.heapUsed)} / {formatBytes(data.memory.heapTotal)}</div>
+        </div>
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="text-xs text-text-muted mb-1">RSS</div>
+          <div className="text-lg font-bold text-text">{formatBytes(data.memory.rss)}</div>
+        </div>
+      </div>
+
+      {/* Memory Bar */}
+      <div className="bg-bg-surface border border-border rounded-lg p-4">
+        <div className="text-xs text-text-muted mb-2">Heap Usage</div>
+        <div className="w-full bg-bg-base rounded-full h-3 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${heapPct > 85 ? "bg-red-500" : heapPct > 60 ? "bg-yellow-500" : "bg-green-500"}`}
+            style={{ width: `${heapPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Throughput Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Requests */}
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="text-xs text-text-muted">HTTP Requests/min</div>
+              <div className="text-2xl font-bold text-text">{data.requests.perMin}</div>
+            </div>
+            <Sparkline data={data.requests.history.map(h => h.requests)} color="#6366f1" />
+          </div>
+          <div className="text-xs">
+            <span className="text-text-muted">Fehlerrate: </span>
+            <span className={data.requests.errorRate > 0.05 ? "text-red-400" : "text-green-400"}>
+              {(data.requests.errorRate * 100).toFixed(1)}%
+            </span>
+          </div>
+          {data.requests.history.length > 0 && (
+            <Sparkline data={data.requests.history.map(h => h.errors)} color="#ef4444" height={20} />
+          )}
+        </div>
+
+        {/* LLM */}
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="text-xs text-text-muted">LLM Calls/min</div>
+              <div className="text-2xl font-bold text-text">{data.llm.callsPerMin}</div>
+            </div>
+            <Sparkline data={data.llm.history.map(h => h.calls)} color="#f59e0b" />
+          </div>
+          <div className="text-xs">
+            <span className="text-text-muted">Avg Latenz: </span>
+            <span className={data.llm.avgLatencyMs > 10000 ? "text-red-400" : data.llm.avgLatencyMs > 5000 ? "text-yellow-400" : "text-green-400"}>
+              {data.llm.avgLatencyMs > 1000 ? `${(data.llm.avgLatencyMs / 1000).toFixed(1)}s` : `${data.llm.avgLatencyMs}ms`}
+            </span>
+          </div>
+          {data.llm.history.length > 0 && (
+            <Sparkline data={data.llm.history.map(h => h.avgMs)} color="#f59e0b" height={20} />
+          )}
+        </div>
+
+        {/* Tools */}
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="text-xs text-text-muted">Tool Calls/min</div>
+              <div className="text-2xl font-bold text-text">{data.tools.callsPerMin}</div>
+            </div>
+            <Sparkline data={data.tools.history.map(h => h.calls)} color="#10b981" />
+          </div>
+          <div className="text-xs">
+            <span className="text-text-muted">Fehlerrate: </span>
+            <span className={data.tools.errorRate > 0.1 ? "text-red-400" : "text-green-400"}>
+              {(data.tools.errorRate * 100).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* DB Pool */}
+      <div className="bg-bg-surface border border-border rounded-lg p-4">
+        <div className="text-xs text-text-muted mb-3">DB Connection Pool</div>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <div className="text-xl font-bold text-text">{data.db.totalCount}</div>
+            <div className="text-xs text-text-muted">Total</div>
+          </div>
+          <div>
+            <div className="text-xl font-bold text-green-400">{data.db.idleCount}</div>
+            <div className="text-xs text-text-muted">Idle</div>
+          </div>
+          <div>
+            <div className={`text-xl font-bold ${data.db.waitingCount > 0 ? "text-yellow-400" : "text-text"}`}>{data.db.waitingCount}</div>
+            <div className="text-xs text-text-muted">Wartend</div>
+          </div>
+        </div>
+      </div>
+
+      {/* MCP Servers */}
+      {data.mcpServers.length > 0 && (
+        <div className="bg-bg-surface border border-border rounded-lg p-4">
+          <div className="text-xs text-text-muted mb-3">MCP Server Status</div>
+          <div className="space-y-2">
+            {data.mcpServers.map((s) => (
+              <div key={s.name} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${s.status === "online" ? "bg-green-400" : s.status === "degraded" ? "bg-yellow-400" : "bg-red-400"}`} />
+                  <span className="font-medium text-text">{s.name}</span>
+                  <span className="text-xs text-text-muted font-mono">{s.url}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-text-muted">
+                  <span>{s.toolCount} Tools</span>
+                  <span>{new Date(s.lastCheck).toLocaleTimeString("de-DE")}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -352,9 +543,15 @@ function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 // ─── Users Tab ──────────────────────────────────────────────────────────────
