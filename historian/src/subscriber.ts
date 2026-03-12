@@ -6,7 +6,7 @@ import type { HistoryRow, TableRow } from './db.js';
 import { resolveRoute } from './config-manager.js';
 import { pushRow, pushLegacyRow, getBufferFillPercent } from './flush-engine.js';
 
-const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://192.168.178.150:31883';
+const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const BACKPRESSURE_HIGH = 80; // % — pause MQTT
 const BACKPRESSURE_LOW = 50;  // % — resume MQTT
 

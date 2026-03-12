@@ -22,8 +22,8 @@ function bool(envKey: string, fallback: boolean): boolean {
 
 export const config = {
   llm: {
-    urlFree: str('LLM_URL_FREE', 'http://192.168.178.120:5002'),
-    urlPremium: str('LLM_URL_PREMIUM', 'http://192.168.178.120:5001'),
+    urlFree: str('LLM_URL_FREE', 'http://localhost:5002'),
+    urlPremium: str('LLM_URL_PREMIUM', 'http://localhost:5001'),
     modelFree: str('LLM_MODEL_FREE', 'qwen2.5-14b-instruct'),
     modelPremium: str('LLM_MODEL_PREMIUM', 'qwen2.5-32b-instruct'),
     maxConcurrency: int('LLM_MAX_CONCURRENCY', 4),

@@ -5,13 +5,13 @@ import mqtt from 'mqtt';
 import pg from 'pg';
 import { logger } from '../logger';
 
-const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://192.168.178.150:31883';
+const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const FLUSH_INTERVAL_MS = 15_000;
 
 // KG database (erpdb with Apache AGE)
 const kgPool = new pg.Pool({
-  host: process.env.ERP_DB_HOST || '192.168.178.150',
-  port: parseInt(process.env.ERP_DB_PORT || '30431'),
+  host: process.env.ERP_DB_HOST || 'localhost',
+  port: parseInt(process.env.ERP_DB_PORT || '5432'),
   database: process.env.ERP_DB_NAME || 'erpdb',
   user: process.env.ERP_DB_USER || 'admin',
   password: process.env.ERP_DB_PASSWORD || '',

@@ -5,6 +5,7 @@ import { pool } from '../db/pool';
 import { kgSensorToolDefs, isKgSensorTool, handleKgSensorTool } from '../kg-agent/tools';
 import { isToolAllowed, filterToolsForUser } from '../auth/permissions';
 import { audit } from '../auth/audit';
+import { toolCallsTotal, mcpFailuresTotal } from '../metrics';
 
 // ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
 class McpCircuitBreaker {
@@ -92,12 +93,12 @@ function stripMcpSuffix(url: string): string {
 // Loads from mcp_servers DB table. Falls back to env vars for backward compat.
 
 const ENV_FALLBACK_SERVERS: Record<string, string> = {
-  erp: stripMcpSuffix(process.env.MCP_ERP_URL || process.env.MCP_URL_ERP || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  oee: stripMcpSuffix(process.env.MCP_OEE_URL || process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  qms: stripMcpSuffix(process.env.MCP_QMS_URL || process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  tms: stripMcpSuffix(process.env.MCP_TMS_URL || process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  uns: stripMcpSuffix(process.env.MCP_UNS_URL || process.env.MCP_URL_UNS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8025'),
-  kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
+  erp: stripMcpSuffix(process.env.MCP_ERP_URL || process.env.MCP_URL_ERP || 'http://localhost:8020'),
+  oee: stripMcpSuffix(process.env.MCP_OEE_URL || process.env.MCP_URL_OEE || 'http://localhost:8020'),
+  qms: stripMcpSuffix(process.env.MCP_QMS_URL || process.env.MCP_URL_QMS || 'http://localhost:8020'),
+  tms: stripMcpSuffix(process.env.MCP_TMS_URL || process.env.MCP_URL_TMS || 'http://localhost:8020'),
+  uns: stripMcpSuffix(process.env.MCP_UNS_URL || process.env.MCP_URL_UNS || 'http://localhost:8025'),
+  kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://localhost:8020'),
 };
 
 let dbServersCache: Record<string, string> | null = null;
@@ -198,6 +199,12 @@ export async function getMcpTools(): Promise<any[]> {
     uniqueUrls.map(url => fetchToolsFromUrl(url))
   );
 
+  // Warn if all MCP servers are down
+  const allRejected = results.every(r => r.status === 'rejected');
+  if (allRejected && uniqueUrls.length > 0) {
+    logger.warn({ serverCount: uniqueUrls.length }, 'All MCP servers unreachable');
+  }
+
   const seen = new Set<string>();
   const tools: any[] = [];
   for (const r of results) {
@@ -285,6 +292,7 @@ export async function callMcpTool(
 
   // Handle local KG sensor tools directly (no MCP round-trip)
   if (isKgSensorTool(name)) {
+    toolCallsTotal.inc({ tool: name, status: 'local' });
     return handleKgSensorTool(name, args);
   }
 
@@ -319,17 +327,22 @@ export async function callMcpTool(
     });
   } catch (err: any) {
     if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordFailure();
+    toolCallsTotal.inc({ tool: name, status: 'error' });
+    mcpFailuresTotal.inc({ url });
     return JSON.stringify({ error: `MCP unreachable after retries: ${err.message}` });
   }
 
   if (!resp.ok) {
     const text = await resp.text();
     if (ff.enableMcpCircuitBreaker && resp.status >= 500) getMcpCircuitBreaker(url).recordFailure();
+    toolCallsTotal.inc({ tool: name, status: 'error' });
+    mcpFailuresTotal.inc({ url });
     return JSON.stringify({ error: `MCP error ${resp.status}: ${text}` });
   }
 
   // Success — reset circuit breaker
   if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordSuccess();
+  toolCallsTotal.inc({ tool: name, status: 'ok' });
 
   const data: any = await resp.json();
   if (data.error) {

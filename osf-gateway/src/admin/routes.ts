@@ -386,8 +386,8 @@ router.get('/connectivity', async (_req: Request, res: Response) => {
     { name: 'MCP QMS', url: (process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
     { name: 'MCP WMS/TMS', url: (process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020') + '/health' },
     { name: 'Factory Simulator', url: (process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888') + '/api/health/live' },
-    { name: 'LLM Free', url: (process.env.LLM_URL_FREE || 'http://192.168.178.120:5002') + '/health' },
-    { name: 'LLM Premium', url: (process.env.LLM_URL_PREMIUM || 'http://192.168.178.120:5001') + '/health' },
+    { name: 'LLM Free', url: (process.env.LLM_URL_FREE || 'http://localhost:5002') + '/health' },
+    { name: 'LLM Premium', url: (process.env.LLM_URL_PREMIUM || 'http://localhost:5001') + '/health' },
   ];
 
   const results: ConnCheck[] = await Promise.all(
@@ -574,8 +574,8 @@ router.get('/health', async (req: Request, res: Response) => {
   let llmOnline = false;
   let llmActiveRequests = 0;
   let llmQueuedRequests = 0;
-  const llmUrlFree = process.env.LLM_URL_FREE || 'http://192.168.178.120:5002';
-  const llmUrlPremium = process.env.LLM_URL_PREMIUM || 'http://192.168.178.120:5001';
+  const llmUrlFree = process.env.LLM_URL_FREE || 'http://localhost:5002';
+  const llmUrlPremium = process.env.LLM_URL_PREMIUM || 'http://localhost:5001';
   try {
     const [freeRes, premRes] = await Promise.all([
       fetch(`${llmUrlFree}/v1/models`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
@@ -718,7 +718,7 @@ router.get('/health', async (req: Request, res: Response) => {
   try {
     const net = await import('net');
     mqttReachable = await new Promise<boolean>((resolve) => {
-      const sock = net.createConnection({ host: '192.168.178.150', port: 31883, timeout: 3000 });
+      const sock = net.createConnection({ host: process.env.MQTT_HOST || 'localhost', port: parseInt(process.env.MQTT_PORT || '1883'), timeout: 3000 });
       sock.on('connect', () => { sock.destroy(); resolve(true); });
       sock.on('error', () => resolve(false));
       sock.on('timeout', () => { sock.destroy(); resolve(false); });

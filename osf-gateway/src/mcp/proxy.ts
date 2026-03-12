@@ -6,7 +6,7 @@ import { isToolAllowed, filterToolsForUser } from '../auth/permissions';
 import { audit } from '../auth/audit';
 import { getMcpTools } from '../chat/tool-executor';
 
-const MCP_URL = process.env.MCP_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020';
+const MCP_URL = process.env.MCP_URL || 'http://localhost:8020';
 
 const router = Router();
 

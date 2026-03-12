@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
 
 async function tryRefreshToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
@@ -42,6 +42,11 @@ export async function apiFetch<T = any>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  // Offline detection
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    throw new ApiError(0, 'Keine Internetverbindung');
+  }
+
   const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
 
   const headers: Record<string, string> = {
@@ -58,11 +63,12 @@ export async function apiFetch<T = any>(
     headers,
   });
 
-  // On 401, try to refresh the token once, then retry
-  if (res.status === 401 && token && !isRefreshing) {
-    isRefreshing = true;
-    const newToken = await tryRefreshToken();
-    isRefreshing = false;
+  // On 401, try to refresh the token once, then retry (all callers share one promise)
+  if (res.status === 401 && token) {
+    if (!refreshPromise) {
+      refreshPromise = tryRefreshToken().finally(() => { refreshPromise = null; });
+    }
+    const newToken = await refreshPromise;
 
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;

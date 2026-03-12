@@ -3,7 +3,7 @@
  * Sends tool name + description to LLM, gets back category + sensitivity.
  */
 
-const LLM_URL = process.env.LLM_URL || process.env.LLM_URL_FREE || 'http://192.168.178.120:5002';
+const LLM_URL = process.env.LLM_URL || process.env.LLM_URL_FREE || 'http://localhost:5002';
 const LLM_MODEL = process.env.LLM_MODEL || process.env.LLM_MODEL_FREE || 'qwen2.5-14b-instruct';
 
 const CATEGORIES = [

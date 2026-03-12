@@ -314,6 +314,11 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
       getLlmConfig(req.user!.userId, tier),
     ]);
 
+    // Warn user if no tools are available (all MCP servers down)
+    if (allTools.length === 0 && !res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: 'warning', message: 'Keine MCP-Server erreichbar — Antwort ohne Tool-Zugriff.' })}\n\n`);
+    }
+
     // Skills-based tool selection: LLM picks 10-20 relevant tools from skills.md
     const tools = await selectTools(message, allTools, freeLlmConfig, req.user!.userId);
 

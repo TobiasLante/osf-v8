@@ -17,7 +17,7 @@ const router = Router();
 // All UNS routes require authentication
 router.use(requireAuth);
 
-const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://192.168.178.150:31883';
+const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 
 // Shared MQTT connection (lazy init)
 let sharedClient: mqtt.MqttClient | null = null;

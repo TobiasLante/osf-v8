@@ -6,8 +6,8 @@ import { from as copyFrom } from 'pg-copy-streams';
 import { Readable } from 'stream';
 
 const pool = new pg.Pool({
-  host: process.env.HISTORIAN_DB_HOST || process.env.FACTORY_DB_HOST || '192.168.178.150',
-  port: parseInt(process.env.HISTORIAN_DB_PORT || process.env.FACTORY_DB_PORT || '30432'),
+  host: process.env.HISTORIAN_DB_HOST || process.env.FACTORY_DB_HOST || 'localhost',
+  port: parseInt(process.env.HISTORIAN_DB_PORT || process.env.FACTORY_DB_PORT || '5432'),
   database: process.env.HISTORIAN_DB_NAME || 'bigdata_homelab',
   user: process.env.HISTORIAN_DB_USER || process.env.FACTORY_DB_USER || 'admin',
   password: process.env.HISTORIAN_DB_PASSWORD || process.env.FACTORY_DB_PASSWORD || '',

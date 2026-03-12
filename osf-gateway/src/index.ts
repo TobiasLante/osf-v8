@@ -29,6 +29,7 @@ import unsRoutes from './uns/stream';
 import { requireAuth } from './auth/middleware';
 import { startKgAgent, stopKgAgent } from './kg-agent/index';
 import { validateEncryptionKey } from './auth/crypto';
+import { registry } from './metrics';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
@@ -203,6 +204,16 @@ async function main() {
     next();
   });
 
+  // Prometheus metrics (no auth — scraped by Prometheus)
+  app.get('/metrics', async (_req, res) => {
+    try {
+      res.setHeader('Content-Type', registry.contentType);
+      res.end(await registry.metrics());
+    } catch {
+      res.status(500).end();
+    }
+  });
+
   // Health check (no auth)
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown' });
@@ -222,8 +233,8 @@ async function main() {
   });
 
   // LLM status check (no auth, lightweight)
-  const LLM_URL_FREE = process.env.LLM_URL_FREE || 'http://192.168.178.120:5002';
-  const LLM_URL_PREMIUM = process.env.LLM_URL_PREMIUM || 'http://192.168.178.120:5001';
+  const LLM_URL_FREE = process.env.LLM_URL_FREE || 'http://localhost:5002';
+  const LLM_URL_PREMIUM = process.env.LLM_URL_PREMIUM || 'http://localhost:5001';
 
   app.get('/llm/status', async (_req, res) => {
     res.setHeader('Cache-Control', 'max-age=5');
@@ -694,6 +705,15 @@ async function gracefulShutdown(signal: string) {
   logger.info('Graceful shutdown complete');
   process.exit(0);
 }
+
+process.on('unhandledRejection', (reason: any) => {
+  logger.error({ err: reason?.message || reason }, 'Unhandled promise rejection');
+});
+
+process.on('uncaughtException', (err: Error) => {
+  logger.fatal({ err: err.message, stack: err.stack }, 'Uncaught exception — shutting down');
+  process.exit(1);
+});
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

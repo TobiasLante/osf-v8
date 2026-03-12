@@ -7,7 +7,7 @@ function getDatabaseUrl(): string {
   const pw = process.env.DB_PASSWORD;
   if (!pw) throw new Error('DB_PASSWORD environment variable is required');
   const host = process.env.DB_HOST || 'localhost';
-  const port = process.env.DB_PORT || '30436';
+  const port = process.env.DB_PORT || '5432';
   return `postgresql://osf_admin:${pw}@${host}:${port}/osf`;
 }
 
@@ -471,7 +471,7 @@ export async function initSchema(): Promise<void> {
     // Seed historian MCP server (v9: auto-register on startup)
     await migrate('mcp_servers: seed historian', `
       INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
-      VALUES ('history', 'http://historian.osf.svc.cluster.local:8030', 'none', 'pending', 6, ARRAY['history'])
+      VALUES ('history', 'http://localhost:8030', 'none', 'pending', 6, ARRAY['history'])
       ON CONFLICT DO NOTHING;
     `);
 
@@ -716,6 +716,56 @@ export async function initSchema(): Promise<void> {
       SELECT id, 'full_access', id FROM users WHERE role = 'admin'
       ON CONFLICT DO NOTHING;
     `);
+
+    // ─── Schema Versioning ──────────────────────────────────────────────────
+    await migrate('schema_version: create table', `
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INT PRIMARY KEY,
+        applied_at TIMESTAMPTZ DEFAULT NOW(),
+        description TEXT
+      );
+    `);
+
+    // Record current schema version
+    await migrate('schema_version: set v1', `
+      INSERT INTO schema_version (version, description)
+      VALUES (1, 'Initial hardened schema — governance, marketplace, historian seed')
+      ON CONFLICT (version) DO NOTHING;
+    `);
+
+    const versionResult = await client.query('SELECT MAX(version) AS v FROM schema_version');
+    logger.info({ schemaVersion: versionResult.rows[0]?.v || 0 }, 'Schema version');
+
+    // ─── Admin Seed from ENV ──────────────────────────────────────────────
+    try {
+      const userCount = await client.query('SELECT COUNT(*) AS c FROM users');
+      if (parseInt(userCount.rows[0].c) === 0) {
+        const adminEmail = process.env.ADMIN_EMAIL;
+        const adminPassword = process.env.ADMIN_PASSWORD;
+        if (adminEmail && adminPassword) {
+          const bcrypt = await import('bcryptjs');
+          const hash = await bcrypt.hash(adminPassword, 12);
+          await client.query(
+            `INSERT INTO users (email, password_hash, name, role, tier, email_verified)
+             VALUES ($1, $2, 'Admin', 'admin', 'premium', TRUE)
+             ON CONFLICT (email) DO NOTHING`,
+            [adminEmail, hash]
+          );
+          // Assign full_access governance role
+          await client.query(
+            `INSERT INTO user_roles (user_id, role_id)
+             SELECT id, 'full_access' FROM users WHERE email = $1
+             ON CONFLICT DO NOTHING`,
+            [adminEmail]
+          );
+          logger.info({ email: adminEmail }, 'Admin user seeded from ENV');
+        } else {
+          logger.warn('No users in DB and ADMIN_EMAIL/ADMIN_PASSWORD not set — no admin seeded');
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Admin seed failed');
+    }
 
     logger.info('Schema initialized');
   } finally {
