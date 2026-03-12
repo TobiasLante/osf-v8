@@ -1,0 +1,17 @@
+{
+  "name": "osf-governance-agent",
+  "version": "1.0.0",
+  "description": "LLM-based tool classification agent for factory RBAC governance",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

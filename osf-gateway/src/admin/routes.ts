@@ -1062,6 +1062,343 @@ router.delete('/mcp-servers/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ─── Governance: Roles CRUD ──────────────────────────────────────────────
+
+// GET /admin/roles — list all factory roles
+router.get('/roles', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT fr.*,
+        (SELECT COUNT(*) FROM user_roles ur WHERE ur.role_id = fr.id) as user_count,
+        COALESCE(
+          (SELECT json_agg(rp.category_id) FROM role_permissions rp WHERE rp.role_id = fr.id),
+          '[]'
+        ) as categories
+      FROM factory_roles fr ORDER BY fr.is_system DESC, fr.name
+    `);
+    res.json({ roles: result.rows });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: list roles failed');
+    res.status(500).json({ error: 'Failed to list roles' });
+  }
+});
+
+// POST /admin/roles — create factory role
+router.post('/roles', async (req: Request, res: Response) => {
+  try {
+    const { id, name, description } = req.body;
+    if (!id || !name) {
+      res.status(400).json({ error: 'id and name required' });
+      return;
+    }
+    // Validate id format (lowercase alphanumeric + underscore)
+    if (!/^[a-z][a-z0-9_]{1,30}$/.test(id)) {
+      res.status(400).json({ error: 'id must be lowercase alphanumeric with underscores, 2-31 chars' });
+      return;
+    }
+    const result = await pool.query(
+      `INSERT INTO factory_roles (id, name, description, is_system)
+       VALUES ($1, $2, $3, false) RETURNING *`,
+      [id, name, description || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    if (err.code === '23505') { res.status(409).json({ error: 'Role ID already exists' }); return; }
+    logger.error({ err: err.message }, 'Admin: create role failed');
+    res.status(500).json({ error: 'Failed to create role' });
+  }
+});
+
+// PUT /admin/roles/:id — update role
+router.put('/roles/:id', async (req: Request, res: Response) => {
+  try {
+    const { name, description } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    if (name !== undefined) { updates.push(`name = $${idx++}`); values.push(name); }
+    if (description !== undefined) { updates.push(`description = $${idx++}`); values.push(description); }
+    if (updates.length === 0) { res.status(400).json({ error: 'Nothing to update' }); return; }
+    values.push(req.params.id);
+    await pool.query(`UPDATE factory_roles SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: update role failed');
+    res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// DELETE /admin/roles/:id — delete role (system roles protected)
+router.delete('/roles/:id', async (req: Request, res: Response) => {
+  try {
+    const check = await pool.query('SELECT is_system FROM factory_roles WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) { res.status(404).json({ error: 'Role not found' }); return; }
+    if (check.rows[0].is_system) { res.status(403).json({ error: 'System roles cannot be deleted' }); return; }
+    await pool.query('DELETE FROM factory_roles WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: delete role failed');
+    res.status(500).json({ error: 'Failed to delete role' });
+  }
+});
+
+// PUT /admin/roles/:id/permissions — set category permissions for a role
+router.put('/roles/:id/permissions', async (req: Request, res: Response) => {
+  try {
+    const { categories } = req.body; // string[]
+    if (!Array.isArray(categories)) { res.status(400).json({ error: 'categories array required' }); return; }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM role_permissions WHERE role_id = $1', [req.params.id]);
+      for (const catId of categories) {
+        await client.query(
+          'INSERT INTO role_permissions (role_id, category_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [req.params.id, catId]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Invalidate permission cache for all users with this role
+    const { invalidatePermissionCache } = await import('../auth/permissions');
+    invalidatePermissionCache();
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: set role permissions failed');
+    res.status(500).json({ error: 'Failed to set permissions' });
+  }
+});
+
+// ─── Governance: User Role Assignment ────────────────────────────────────
+
+// GET /admin/users/:id/roles — get roles for a user
+router.get('/users/:id/roles', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT ur.role_id, fr.name, ur.assigned_at
+       FROM user_roles ur JOIN factory_roles fr ON fr.id = ur.role_id
+       WHERE ur.user_id = $1 ORDER BY fr.name`,
+      [req.params.id]
+    );
+    res.json({ roles: result.rows });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: get user roles failed');
+    res.status(500).json({ error: 'Failed to get user roles' });
+  }
+});
+
+// PUT /admin/users/:id/roles — set roles for a user (replaces all)
+router.put('/users/:id/roles', async (req: Request, res: Response) => {
+  try {
+    const { roles } = req.body; // string[] of role_ids
+    if (!Array.isArray(roles)) { res.status(400).json({ error: 'roles array required' }); return; }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM user_roles WHERE user_id = $1', [req.params.id]);
+      for (const roleId of roles) {
+        await client.query(
+          'INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+          [req.params.id, roleId, req.user!.userId]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Invalidate permission cache for this user
+    const { invalidatePermissionCache } = await import('../auth/permissions');
+    invalidatePermissionCache(req.params.id);
+
+    // Audit
+    const { audit: auditLog } = await import('../auth/audit');
+    auditLog({
+      user_id: req.user!.userId,
+      user_email: req.user!.email,
+      action: 'role_change',
+      detail: `Set roles for user ${req.params.id}: ${roles.join(', ')}`,
+    });
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: set user roles failed');
+    res.status(500).json({ error: 'Failed to set user roles' });
+  }
+});
+
+// ─── Governance: Tool Classifications ────────────────────────────────────
+
+// GET /admin/tool-classifications — list with optional status filter
+router.get('/tool-classifications', async (req: Request, res: Response) => {
+  try {
+    const status = req.query.status as string;
+    let query = `
+      SELECT tc.*, cat.name as category_name
+      FROM tool_classifications tc
+      LEFT JOIN tool_categories cat ON cat.id = tc.category_id
+    `;
+    const params: any[] = [];
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      query += ' WHERE tc.status = $1';
+      params.push(status);
+    }
+    query += ' ORDER BY tc.status, tc.tool_name';
+    const result = await pool.query(query, params);
+
+    // Also get pending count
+    const pendingCount = await pool.query("SELECT COUNT(*) as c FROM tool_classifications WHERE status = 'pending'");
+
+    res.json({
+      classifications: result.rows,
+      pending_count: parseInt(pendingCount.rows[0].c),
+    });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: list tool classifications failed');
+    res.status(500).json({ error: 'Failed to list classifications' });
+  }
+});
+
+// PUT /admin/tool-classifications/:toolName — approve/reject/change category
+router.put('/tool-classifications/:toolName', async (req: Request, res: Response) => {
+  try {
+    const { status, category_id, sensitivity } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (status !== undefined) {
+      if (!['approved', 'rejected', 'pending'].includes(status)) {
+        res.status(400).json({ error: 'Invalid status' });
+        return;
+      }
+      updates.push(`status = $${idx++}`);
+      values.push(status);
+      if (status === 'approved' || status === 'rejected') {
+        updates.push(`reviewed_by = $${idx++}`);
+        values.push(req.user!.userId);
+        updates.push(`reviewed_at = NOW()`);
+      }
+    }
+    if (category_id !== undefined) { updates.push(`category_id = $${idx++}`); values.push(category_id); }
+    if (sensitivity !== undefined) { updates.push(`sensitivity = $${idx++}`); values.push(sensitivity); }
+
+    if (updates.length === 0) { res.status(400).json({ error: 'Nothing to update' }); return; }
+
+    values.push(decodeURIComponent(req.params.toolName));
+    const result = await pool.query(
+      `UPDATE tool_classifications SET ${updates.join(', ')} WHERE tool_name = $${idx} RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Tool not found' }); return; }
+
+    // Invalidate all permission caches (tool classification changed)
+    const { invalidatePermissionCache } = await import('../auth/permissions');
+    invalidatePermissionCache();
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: update tool classification failed');
+    res.status(500).json({ error: 'Failed to update classification' });
+  }
+});
+
+// POST /admin/tool-classifications/bulk-approve — approve all pending
+router.post('/tool-classifications/bulk-approve', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `UPDATE tool_classifications SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
+       WHERE status = 'pending' RETURNING tool_name`,
+      [req.user!.userId]
+    );
+    const { invalidatePermissionCache } = await import('../auth/permissions');
+    invalidatePermissionCache();
+    res.json({ approved: result.rowCount, tools: result.rows.map((r: any) => r.tool_name) });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: bulk approve failed');
+    res.status(500).json({ error: 'Failed to bulk approve' });
+  }
+});
+
+// ─── Governance: Tool Categories ─────────────────────────────────────────
+
+// GET /admin/tool-categories — list all categories
+router.get('/tool-categories', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT tc.*,
+        (SELECT COUNT(*) FROM tool_classifications cl WHERE cl.category_id = tc.id) as tool_count
+       FROM tool_categories tc ORDER BY tc.name`
+    );
+    res.json({ categories: result.rows });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: list categories failed');
+    res.status(500).json({ error: 'Failed to list categories' });
+  }
+});
+
+// ─── Governance: Audit Log ───────────────────────────────────────────────
+
+// GET /admin/audit — query audit log
+router.get('/audit', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+    const action = req.query.action as string;
+    const userSearch = req.query.user as string;
+    const toolSearch = req.query.tool as string;
+
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    let idx = 1;
+
+    if (action) {
+      where += ` AND action = $${idx++}`;
+      params.push(action);
+    }
+    if (userSearch) {
+      where += ` AND (user_email ILIKE $${idx++})`;
+      params.push(`%${userSearch}%`);
+    }
+    if (toolSearch) {
+      where += ` AND (tool_name ILIKE $${idx++})`;
+      params.push(`%${toolSearch}%`);
+    }
+
+    params.push(limit, offset);
+    const result = await pool.query(
+      `SELECT * FROM audit_log ${where} ORDER BY ts DESC LIMIT $${idx++} OFFSET $${idx}`,
+      params,
+    );
+
+    const countResult = await pool.query(`SELECT COUNT(*) as c FROM audit_log ${where}`, params.slice(0, -2));
+
+    res.json({
+      entries: result.rows,
+      total: parseInt(countResult.rows[0].c),
+      limit,
+      offset,
+    });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Admin: audit log query failed');
+    res.status(500).json({ error: 'Failed to query audit log' });
+  }
+});
+
+// ─── Discovery + Governance Agent Integration ─────────────────────────────
+
 // Discovery logic: connect to MCP server, fetch tools, categorize, update DB
 async function discoverMcpServer(serverId: string, url: string): Promise<void> {
   const baseUrl = url.replace(/\/mcp\/?$/, '');
@@ -1113,6 +1450,11 @@ async function discoverMcpServer(serverId: string, url: string): Promise<void> {
     );
 
     logger.info({ serverId, toolCount: tools.length, categories: [...categories] }, 'MCP server discovered');
+
+    // Trigger Governance Agent to classify tools (async, non-blocking)
+    classifyToolsViaGovernanceAgent(serverId, rawTools).catch(err => {
+      logger.warn({ err: err.message, serverId }, 'Governance classification failed (non-critical)');
+    });
   } catch (err: any) {
     await pool.query(
       `UPDATE mcp_servers SET status = 'error', error_message = $1, health_check_at = NOW() WHERE id = $2`,
@@ -1120,6 +1462,50 @@ async function discoverMcpServer(serverId: string, url: string): Promise<void> {
     );
     throw err;
   }
+}
+
+/** Call Governance Agent /classify-batch and store results as pending tool classifications. */
+async function classifyToolsViaGovernanceAgent(serverId: string, rawTools: any[]): Promise<void> {
+  const governanceUrl = process.env.GOVERNANCE_AGENT_URL || 'http://governance-agent.osf.svc.cluster.local:8031';
+
+  const toolInputs = rawTools.map((t: any) => ({
+    name: t.name,
+    description: t.description || '',
+  }));
+
+  if (toolInputs.length === 0) return;
+
+  const resp = await fetch(`${governanceUrl}/classify-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tools: toolInputs }),
+    signal: AbortSignal.timeout(120_000), // 2min for large batches
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Governance Agent returned ${resp.status}: ${await resp.text()}`);
+  }
+
+  const data: any = await resp.json();
+  const classifications = data.classifications || [];
+
+  // Upsert into tool_classifications as 'pending'
+  for (const c of classifications) {
+    await pool.query(
+      `INSERT INTO tool_classifications (tool_name, tool_description, category_id, sensitivity, status, classified_by, mcp_server_id)
+       VALUES ($1, $2, $3, $4, 'pending', 'agent', $5)
+       ON CONFLICT (tool_name) DO UPDATE SET
+         tool_description = EXCLUDED.tool_description,
+         category_id = EXCLUDED.category_id,
+         sensitivity = EXCLUDED.sensitivity,
+         classified_by = 'agent',
+         mcp_server_id = EXCLUDED.mcp_server_id
+       WHERE tool_classifications.status = 'pending'`,
+      [c.tool_name, c.tool_description, c.category, c.sensitivity, serverId]
+    );
+  }
+
+  logger.info({ serverId, classified: classifications.length }, 'Governance Agent classified tools');
 }
 
 export default router;

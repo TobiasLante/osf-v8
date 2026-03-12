@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
 import { callLlm, getLlmConfig, ChatMessage, ToolCall, LlmConfig, isLlmCircuitOpen } from './llm-client';
-import { getMcpTools, callMcpTool } from './tool-executor';
+import { getMcpTools, getMcpToolsForUser, callMcpTool } from './tool-executor';
 import {
   createSession,
   getUserSessions,
@@ -306,10 +306,10 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     // Save user message
     await saveMessage(sessionId, 'user', message);
 
-    // Load all tools, history, and LLM configs in parallel
+    // Load all tools (filtered by user governance permissions), history, and LLM configs in parallel
     const freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
     const [allTools, history, llmConfig] = await Promise.all([
-      getMcpTools(),
+      getMcpToolsForUser(req.user!.userId),
       getSessionMessages(sessionId, req.user!.userId, 20),
       getLlmConfig(req.user!.userId, tier),
     ]);
@@ -433,7 +433,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
             })}\n\n`);
           }
 
-          const result = await callMcpTool(toolName, toolArgs);
+          const result = await callMcpTool(toolName, toolArgs, req.user!.userId, req.user!.email);
 
           // Emit KG traversal results for knowledge graph tools
           if (toolName.startsWith('kg_')) {

@@ -3,6 +3,8 @@ import { config } from '../config';
 import { ff } from '../feature-flags';
 import { pool } from '../db/pool';
 import { kgSensorToolDefs, isKgSensorTool, handleKgSensorTool } from '../kg-agent/tools';
+import { isToolAllowed, filterToolsForUser } from '../auth/permissions';
+import { audit } from '../auth/audit';
 
 // ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
 class McpCircuitBreaker {
@@ -181,6 +183,12 @@ export async function getMcpToolsForServer(server: string): Promise<any[]> {
   return fetchToolsFromUrl(url);
 }
 
+/** Get tools from ALL MCP servers, filtered by user governance permissions */
+export async function getMcpToolsForUser(userId: string): Promise<any[]> {
+  const allTools = await getMcpTools();
+  return filterToolsForUser(userId, allTools);
+}
+
 /** Get tools from ALL MCP servers combined + local KG sensor tools, deduplicated by tool name */
 export async function getMcpTools(): Promise<any[]> {
   const servers = await getMcpServers();
@@ -245,8 +253,36 @@ async function getToolServerMap(): Promise<Map<string, string>> {
 
 export async function callMcpTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  userId?: string,
+  userEmail?: string,
 ): Promise<string> {
+  // Governance: permission check (hard gate)
+  if (userId) {
+    const allowed = await isToolAllowed(userId, name);
+    if (!allowed) {
+      audit({
+        user_id: userId,
+        user_email: userEmail,
+        action: 'tool_denied',
+        tool_name: name,
+        source: 'chat',
+        detail: `Tool call denied by governance`,
+      });
+      logger.warn({ userId, tool: name }, 'Tool call denied by governance');
+      return JSON.stringify({ error: `Zugriff verweigert: Sie haben keine Berechtigung fuer das Tool "${name}". Kontaktieren Sie Ihren Administrator.` });
+    }
+
+    // Audit successful tool call
+    audit({
+      user_id: userId,
+      user_email: userEmail,
+      action: 'tool_call',
+      tool_name: name,
+      source: 'chat',
+    });
+  }
+
   // Handle local KG sensor tools directly (no MCP round-trip)
   if (isKgSensorTool(name)) {
     return handleKgSensorTool(name, args);

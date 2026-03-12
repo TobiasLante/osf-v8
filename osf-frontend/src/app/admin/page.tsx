@@ -59,7 +59,7 @@ interface ActivityResponse {
   totals: ActivityTotals[];
 }
 
-type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "services" | "historian";
+type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "services" | "historian" | "governance";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -95,7 +95,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "historian", "services", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "historian", "services", "governance", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,7 +105,7 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "historian" ? "Historian" : t === "services" ? "Services" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {t === "health" ? "Health" : t === "historian" ? "Historian" : t === "services" ? "Services" : t === "governance" ? "Governance" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
           </button>
         ))}
       </div>
@@ -113,6 +113,7 @@ export default function AdminPage() {
       {tab === "health" && <HealthTab onNavigate={setTab} />}
       {tab === "historian" && <HistorianTab />}
       {tab === "services" && <ServicesTab />}
+      {tab === "governance" && <GovernanceTab />}
       {tab === "users" && <UsersTab />}
       {tab === "stats" && <StatsTab />}
       {tab === "activity" && <ActivityTab />}
@@ -441,6 +442,7 @@ function UsersTab() {
               <th className="py-2 pr-4">Email</th>
               <th className="py-2 pr-4">Name</th>
               <th className="py-2 pr-4">Role</th>
+              <th className="py-2 pr-4">Fabrik-Rollen</th>
               <th className="py-2 pr-4">Tier</th>
               <th className="py-2 pr-4">Verified</th>
               <th className="py-2 pr-4">Locked</th>
@@ -463,6 +465,9 @@ function UsersTab() {
                     <option value="demo">demo</option>
                     <option value="admin">admin</option>
                   </select>
+                </td>
+                <td className="py-2 pr-4">
+                  <UserRolesSelect userId={u.id} />
                 </td>
                 <td className="py-2 pr-4 text-text-muted">
                   <select
@@ -2660,6 +2665,519 @@ interface AgentStatus {
   detail?: string;
   tools?: number;
   error?: string;
+}
+
+// ─── Governance Tab ──────────────────────────────────────────────────────────
+
+interface FactoryRole {
+  id: string;
+  name: string;
+  description: string | null;
+  is_system: boolean;
+  user_count: string;
+  categories: string[];
+}
+
+interface ToolClassification {
+  tool_name: string;
+  tool_description: string | null;
+  category_id: string | null;
+  category_name: string | null;
+  sensitivity: string;
+  status: string;
+  classified_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  mcp_server_id: string | null;
+}
+
+interface ToolCategory {
+  id: string;
+  name: string;
+  description: string | null;
+  sensitivity: string;
+  tool_count: string;
+}
+
+interface AuditEntry {
+  id: number;
+  ts: string;
+  user_id: string;
+  user_email: string | null;
+  action: string;
+  tool_name: string | null;
+  tool_category: string | null;
+  source: string | null;
+  ip_address: string | null;
+  detail: string | null;
+}
+
+function GovernanceTab() {
+  const [subTab, setSubTab] = useState<"roles" | "tools" | "audit">("roles");
+  const [pendingCount, setPendingCount] = useState(0);
+
+  // Fetch pending count on mount
+  useEffect(() => {
+    apiFetch<{ pending_count: number }>("/admin/tool-classifications?status=pending")
+      .then((d) => setPendingCount(d.pending_count))
+      .catch(() => {});
+  }, [subTab]);
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4">
+        {(["roles", "tools", "audit"] as const).map((st) => (
+          <button
+            key={st}
+            onClick={() => setSubTab(st)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              subTab === st ? "bg-accent/10 text-accent border border-accent/30" : "text-text-muted hover:text-text border border-border"
+            }`}
+          >
+            {st === "roles" ? "Rollen" : st === "tools" ? (
+              <>Tools{pendingCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full text-[10px]">{pendingCount}</span>}</>
+            ) : "Audit Log"}
+          </button>
+        ))}
+      </div>
+      {subTab === "roles" && <GovernanceRolesView />}
+      {subTab === "tools" && <GovernanceToolsView onCountChange={setPendingCount} />}
+      {subTab === "audit" && <GovernanceAuditView />}
+    </div>
+  );
+}
+
+function GovernanceRolesView() {
+  const [roles, setRoles] = useState<FactoryRole[]>([]);
+  const [categories, setCategories] = useState<ToolCategory[]>([]);
+  const [editRole, setEditRole] = useState<string | null>(null);
+  const [editCats, setEditCats] = useState<string[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newId, setNewId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const [r, c] = await Promise.all([
+        apiFetch<{ roles: FactoryRole[] }>("/admin/roles"),
+        apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
+      ]);
+      setRoles(r.roles);
+      setCategories(c.categories);
+    } catch {}
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const savePermissions = async (roleId: string) => {
+    try {
+      await apiFetch(`/admin/roles/${roleId}/permissions`, {
+        method: "PUT",
+        body: JSON.stringify({ categories: editCats }),
+      });
+      setEditRole(null);
+      load();
+    } catch {}
+  };
+
+  const addRole = async () => {
+    try {
+      await apiFetch("/admin/roles", {
+        method: "POST",
+        body: JSON.stringify({ id: newId, name: newName, description: newDesc }),
+      });
+      setShowAdd(false);
+      setNewId("");
+      setNewName("");
+      setNewDesc("");
+      load();
+    } catch {}
+  };
+
+  const deleteRole = async (id: string) => {
+    if (!confirm(`Rolle "${id}" wirklich loeschen?`)) return;
+    try {
+      await apiFetch(`/admin/roles/${id}`, { method: "DELETE" });
+      load();
+    } catch {}
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-medium text-text">Fabrik-Rollen</h3>
+        <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
+          + Neue Rolle
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-text-muted mb-1">ID</label>
+              <input value={newId} onChange={(e) => setNewId(e.target.value)} placeholder="z.B. team_lead" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+            </div>
+            <div>
+              <label className="block text-xs text-text-muted mb-1">Name</label>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Teamleiter" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+            </div>
+            <div>
+              <label className="block text-xs text-text-muted mb-1">Beschreibung</label>
+              <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Optional" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addRole} disabled={!newId.trim() || !newName.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">Erstellen</button>
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Abbrechen</button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {roles.map((r) => (
+          <div key={r.id} className="bg-bg-surface border border-border rounded-md p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium text-text">{r.name}</span>
+                <span className="ml-2 text-xs text-text-muted">{r.id}</span>
+                {r.is_system && <span className="ml-2 px-1.5 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] rounded">System</span>}
+                <span className="ml-2 text-xs text-text-muted">{r.user_count} User</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setEditRole(editRole === r.id ? null : r.id); setEditCats(r.categories || []); }}
+                  className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors"
+                >
+                  {editRole === r.id ? "Schliessen" : "Kategorien"}
+                </button>
+                {!r.is_system && (
+                  <button onClick={() => deleteRole(r.id)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors">Loeschen</button>
+                )}
+              </div>
+            </div>
+            {r.description && <p className="text-xs text-text-muted mt-1">{r.description}</p>}
+            <div className="flex flex-wrap gap-1 mt-2">
+              {(r.categories || []).map((c) => (
+                <span key={c} className="px-2 py-0.5 bg-accent/10 text-accent text-[10px] rounded">{c}</span>
+              ))}
+            </div>
+
+            {editRole === r.id && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-xs text-text-muted mb-2">Kategorien fuer diese Rolle:</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {categories.map((cat) => (
+                    <label key={cat.id} className="flex items-center gap-1.5 text-xs text-text cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editCats.includes(cat.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setEditCats([...editCats, cat.id]);
+                          else setEditCats(editCats.filter((c) => c !== cat.id));
+                        }}
+                        className="rounded border-border"
+                      />
+                      {cat.name}
+                      <span className={`text-[10px] ${cat.sensitivity === "critical" ? "text-red-400" : cat.sensitivity === "high" ? "text-orange-400" : cat.sensitivity === "medium" ? "text-yellow-400" : "text-green-400"}`}>
+                        ({cat.sensitivity})
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <button onClick={() => savePermissions(r.id)} className="mt-2 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 transition-colors">
+                  Speichern
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GovernanceToolsView({ onCountChange }: { onCountChange: (n: number) => void }) {
+  const [classifications, setClassifications] = useState<ToolClassification[]>([]);
+  const [categories, setCategories] = useState<ToolCategory[]>([]);
+  const [filter, setFilter] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url = filter ? `/admin/tool-classifications?status=${filter}` : "/admin/tool-classifications";
+      const [d, c] = await Promise.all([
+        apiFetch<{ classifications: ToolClassification[]; pending_count: number }>(url),
+        apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
+      ]);
+      setClassifications(d.classifications);
+      setCategories(c.categories);
+      onCountChange(d.pending_count);
+    } catch {}
+    setLoading(false);
+  }, [filter, onCountChange]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const updateClassification = async (toolName: string, updates: Record<string, any>) => {
+    try {
+      await apiFetch(`/admin/tool-classifications/${encodeURIComponent(toolName)}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+      load();
+    } catch {}
+  };
+
+  const bulkApprove = async () => {
+    if (!confirm("Alle ausstehenden Tool-Klassifizierungen genehmigen?")) return;
+    try {
+      await apiFetch("/admin/tool-classifications/bulk-approve", { method: "POST" });
+      load();
+    } catch {}
+  };
+
+  const sensitivityColor = (s: string) =>
+    s === "critical" ? "text-red-400" : s === "high" ? "text-orange-400" : s === "medium" ? "text-yellow-400" : "text-green-400";
+
+  const statusColor = (s: string) =>
+    s === "approved" ? "bg-green-500/20 text-green-400" : s === "rejected" ? "bg-red-500/20 text-red-400" : "bg-yellow-500/20 text-yellow-400";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex gap-2">
+          {["", "pending", "approved", "rejected"].map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-2 py-1 text-xs rounded ${filter === f ? "bg-accent/10 text-accent" : "text-text-muted hover:text-text"}`}
+            >
+              {f || "Alle"}
+            </button>
+          ))}
+        </div>
+        <button onClick={bulkApprove} className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
+          Alle Pending genehmigen
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-text-muted text-sm">Laden...</div>
+      ) : classifications.length === 0 ? (
+        <div className="text-center py-8 text-text-muted text-sm">Keine Tool-Klassifizierungen vorhanden. Tools werden bei MCP-Server-Discovery automatisch klassifiziert.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border text-left text-text-muted">
+                <th className="py-2 pr-3">Tool</th>
+                <th className="py-2 pr-3">Beschreibung</th>
+                <th className="py-2 pr-3">Kategorie</th>
+                <th className="py-2 pr-3">Sensitivity</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classifications.map((tc) => (
+                <tr key={tc.tool_name} className="border-b border-border/30">
+                  <td className="py-2 pr-3 text-text font-mono">{tc.tool_name}</td>
+                  <td className="py-2 pr-3 text-text-muted max-w-[200px] truncate">{tc.tool_description || "—"}</td>
+                  <td className="py-2 pr-3">
+                    <select
+                      value={tc.category_id || ""}
+                      onChange={(e) => updateClassification(tc.tool_name, { category_id: e.target.value })}
+                      className="bg-bg border border-border rounded px-1.5 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
+                    >
+                      <option value="">—</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className={`py-2 pr-3 ${sensitivityColor(tc.sensitivity)}`}>{tc.sensitivity}</td>
+                  <td className="py-2 pr-3">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${statusColor(tc.status)}`}>{tc.status}</span>
+                  </td>
+                  <td className="py-2">
+                    <div className="flex gap-1">
+                      {tc.status !== "approved" && (
+                        <button onClick={() => updateClassification(tc.tool_name, { status: "approved" })} className="px-1.5 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10 rounded">Approve</button>
+                      )}
+                      {tc.status !== "rejected" && (
+                        <button onClick={() => updateClassification(tc.tool_name, { status: "rejected" })} className="px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-500/10 rounded">Reject</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GovernanceAuditView() {
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [actionFilter, setActionFilter] = useState("");
+  const [userFilter, setUserFilter] = useState("");
+  const [toolFilter, setToolFilter] = useState("");
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (actionFilter) params.set("action", actionFilter);
+      if (userFilter) params.set("user", userFilter);
+      if (toolFilter) params.set("tool", toolFilter);
+      const d = await apiFetch<{ entries: AuditEntry[]; total: number }>(`/admin/audit?${params}`);
+      setEntries(d.entries);
+      setTotal(d.total);
+    } catch {}
+    setLoading(false);
+  }, [actionFilter, userFilter, toolFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Auto-refresh every 10s
+  useEffect(() => {
+    timerRef.current = setInterval(load, 10000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [load]);
+
+  const actionColor = (a: string) =>
+    a === "tool_denied" ? "text-red-400" : a === "tool_call" ? "text-green-400" : "text-blue-400";
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3">
+        <select
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+          className="bg-bg border border-border rounded px-2 py-1 text-xs text-text [&>option]:text-gray-900 [&>option]:bg-white"
+        >
+          <option value="">Alle Aktionen</option>
+          <option value="tool_call">tool_call</option>
+          <option value="tool_denied">tool_denied</option>
+          <option value="role_change">role_change</option>
+        </select>
+        <input
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+          placeholder="User suchen..."
+          className="px-2 py-1 text-xs bg-bg border border-border rounded text-text w-40"
+        />
+        <input
+          value={toolFilter}
+          onChange={(e) => setToolFilter(e.target.value)}
+          placeholder="Tool suchen..."
+          className="px-2 py-1 text-xs bg-bg border border-border rounded text-text w-40"
+        />
+        <span className="text-xs text-text-muted ml-auto">{total} Eintraege (auto-refresh 10s)</span>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-text-muted text-sm">Laden...</div>
+      ) : entries.length === 0 ? (
+        <div className="text-center py-8 text-text-muted text-sm">Noch keine Audit-Eintraege vorhanden.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border text-left text-text-muted">
+                <th className="py-2 pr-3">Zeit</th>
+                <th className="py-2 pr-3">User</th>
+                <th className="py-2 pr-3">Aktion</th>
+                <th className="py-2 pr-3">Tool</th>
+                <th className="py-2 pr-3">Kategorie</th>
+                <th className="py-2 pr-3">Quelle</th>
+                <th className="py-2">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id} className="border-b border-border/30">
+                  <td className="py-1.5 pr-3 text-text-muted whitespace-nowrap">{new Date(e.ts).toLocaleString("de-DE")}</td>
+                  <td className="py-1.5 pr-3 text-text">{e.user_email || e.user_id.slice(0, 8)}</td>
+                  <td className={`py-1.5 pr-3 font-mono ${actionColor(e.action)}`}>{e.action}</td>
+                  <td className="py-1.5 pr-3 text-text font-mono">{e.tool_name || "—"}</td>
+                  <td className="py-1.5 pr-3 text-text-muted">{e.tool_category || "—"}</td>
+                  <td className="py-1.5 pr-3 text-text-muted">{e.source || "—"}</td>
+                  <td className="py-1.5 text-text-muted max-w-[200px] truncate">{e.detail || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Users Tab: Factory Roles Multi-Select ───────────────────────────────────
+
+function UserRolesSelect({ userId }: { userId: string }) {
+  const [roles, setRoles] = useState<string[]>([]);
+  const [allRoles, setAllRoles] = useState<{ id: string; name: string }[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch<{ roles: { role_id: string }[] }>(`/admin/users/${userId}/roles`),
+      apiFetch<{ roles: { id: string; name: string }[] }>("/admin/roles"),
+    ]).then(([ur, ar]) => {
+      setRoles(ur.roles.map((r) => r.role_id));
+      setAllRoles(ar.roles);
+    }).catch(() => {});
+  }, [userId]);
+
+  const save = async (newRoles: string[]) => {
+    setRoles(newRoles);
+    try {
+      await apiFetch(`/admin/users/${userId}/roles`, {
+        method: "PUT",
+        body: JSON.stringify({ roles: newRoles }),
+      });
+    } catch {}
+  };
+
+  const toggle = (roleId: string) => {
+    const updated = roles.includes(roleId) ? roles.filter((r) => r !== roleId) : [...roles, roleId];
+    save(updated);
+  };
+
+  if (allRoles.length === 0) return <span className="text-text-muted text-[10px]">...</span>;
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="text-[10px] px-1.5 py-0.5 bg-bg border border-border rounded text-text-muted hover:text-text">
+        {roles.length === 0 ? "Keine Rollen" : roles.join(", ")}
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 bg-bg-surface border border-border rounded-md shadow-lg p-2 space-y-1 min-w-[160px]">
+          {allRoles.map((r) => (
+            <label key={r.id} className="flex items-center gap-1.5 text-[10px] text-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={roles.includes(r.id)}
+                onChange={() => toggle(r.id)}
+                className="rounded border-border"
+              />
+              {r.name}
+            </label>
+          ))}
+          <button onClick={() => setOpen(false)} className="text-[10px] text-text-muted hover:text-text mt-1">Schliessen</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ServicesTab() {
