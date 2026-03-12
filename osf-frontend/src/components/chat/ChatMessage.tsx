@@ -2,6 +2,10 @@
 
 import { ToolCallCard } from "./ToolCallCard";
 import { safeMarkdown } from "@/lib/markdown";
+import { KGCascadeInline } from "./KGCascadeInline";
+import { V7StreamOutput } from "@/components/V7StreamOutput";
+import type { KGState } from "./ChatWindow";
+import type { V7Event } from "./v7/types";
 
 interface ToolCallData {
   name: string;
@@ -14,10 +18,12 @@ interface ChatMessageProps {
   role: "user" | "assistant";
   content: string;
   toolCalls?: ToolCallData[];
+  kgData?: KGState;
+  v7Events?: V7Event[];
   time?: string;
 }
 
-export function ChatMessage({ role, content, toolCalls, time }: ChatMessageProps) {
+export function ChatMessage({ role, content, toolCalls, kgData, v7Events, time }: ChatMessageProps) {
   const isUser = role === "user";
   const timeStr = time || new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 
@@ -59,6 +65,27 @@ export function ChatMessage({ role, content, toolCalls, time }: ChatMessageProps
                 status={tc.status || "done"}
               />
             ))}
+          </div>
+        )}
+
+        {/* KG Cascade */}
+        {kgData && kgData.nodes.length > 0 && (
+          <KGCascadeInline
+            nodes={kgData.nodes}
+            edges={kgData.edges}
+            centerEntityId={kgData.centerEntityId}
+            status={kgData.status}
+          />
+        )}
+
+        {/* V7 Specialist/Discussion Events */}
+        {v7Events && v7Events.length > 0 && (
+          <div className="mb-2">
+            <V7StreamOutput
+              events={v7Events}
+              running={v7Events[v7Events.length - 1]?.type !== "done"}
+              maxHeight="400px"
+            />
           </div>
         )}
 

@@ -263,11 +263,20 @@ deploy_factory_sim() {
       sleep 2
       wait_count=$((wait_count + 1))
       if [[ $wait_count -gt 30 ]]; then
-        warn "Some pods still terminating after 60s — continuing anyway"
+        warn "Some pods still terminating after 60s — force-deleting remaining pods"
+        kubectl -n factory delete pods -l "app in (factory-v3-fertigung,factory-v3-wms,factory-v3-montage,factory-v3-chef)" --force --grace-period=0 2>/dev/null || true
+        sleep 3
         break
       fi
     done
     ok "All pods scaled to 0"
+
+    # Clean up DB connections from old pods (KG-Sync, leader election)
+    log "Cleaning up stale DB connections..."
+    PGPASSWORD="${ERP_DB_PASSWORD:-Kohlgrub.123}" psql -h "${ERP_DB_HOST:-192.168.178.150}" \
+      -p "${ERP_DB_PORT:-30431}" -U "${ERP_DB_USER:-admin}" -d "${ERP_DB_NAME:-erpdb}" \
+      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='erpdb' AND state='active' AND pid <> pg_backend_pid() AND (query LIKE '%cypher(%' OR query LIKE '%factory_leader%');" \
+      -t 2>/dev/null && ok "Stale DB connections terminated" || warn "Could not clean DB connections (non-blocking)"
 
     # Clean up stale ReplicaSets
     log "Cleaning up stale ReplicaSets..."
@@ -292,15 +301,50 @@ deploy_factory_sim() {
   done
   ok "imagePullPolicy set to Always"
 
-  # ── 1.10 Start fertigung FIRST (leader, DB init) ─────────────────────
-  log "Starting fertigung leader+backup (may take up to 10 min for DB init)..."
-  kubectl -n factory scale deploy factory-v3-fertigung --replicas=2
-  kubectl -n factory rollout status deploy/factory-v3-fertigung --timeout=600s || {
-    fail "Fertigung rollout timed out!"
-    kubectl -n factory logs -l app=factory-v3-fertigung --tail=50
+  # ── 1.10 Start fertigung — 1 replica first to avoid ALTER TABLE deadlocks ─
+  log "Starting fertigung (1 replica first to avoid schema migration conflicts)..."
+  kubectl -n factory scale deploy factory-v3-fertigung --replicas=1
+
+  # Poll /api/health/live instead of rollout status (server starts before init finishes)
+  log "Waiting for fertigung API to respond (up to 10 min)..."
+  local fert_ip fert_ready=false
+  for i in $(seq 1 120); do
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${FACTORY_NODE}:${FACTORY_PORT}/api/health/live" 2>/dev/null || echo "000")
+    if [[ "$http_code" == "200" ]]; then
+      fert_ready=true
+      break
+    fi
+    sleep 5
+  done
+
+  if $fert_ready; then
+    ok "Fertigung API responding (HTTP 200)"
+  else
+    fail "Fertigung API not responding after 10 min"
+    kubectl -n factory logs -l app=factory-v3-fertigung --tail=30
     return 1
-  }
-  ok "Fertigung ready (leader+backup)"
+  fi
+
+  # Wait for data to be loaded (machines > 0)
+  log "Waiting for factory data initialization..."
+  for i in $(seq 1 60); do
+    local machines
+    machines=$(curl -s --max-time 5 "http://${FACTORY_NODE}:${FACTORY_PORT}/api/erp/maschinen" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('machines',[])))" 2>/dev/null || echo "0")
+    if [[ "$machines" -gt 10 ]]; then
+      ok "Factory data loaded ($machines machines)"
+      break
+    fi
+    if [[ "$i" -eq 60 ]]; then
+      warn "Factory data still loading after 5 min — continuing (non-blocking)"
+    fi
+    sleep 5
+  done
+
+  # Now scale fertigung to 2 replicas (schema migrations done, safe to add backup)
+  log "Scaling fertigung to 2 replicas (leader+backup)..."
+  kubectl -n factory scale deploy factory-v3-fertigung --replicas=2
+  ok "Fertigung leader+backup started"
 
   # ── 1.11 Start remaining services (leader+backup) ───────────────────
   log "Starting wms, montage (leader+backup), chef..."

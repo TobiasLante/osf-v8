@@ -507,4 +507,77 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
   }
 });
 
+// ─── GET /chat/entities ─ autocomplete data for frontend ──────────────────
+// Fetches machines, articles, orders, partners from factory-sim and returns
+// a compact list the frontend caches for client-side autocomplete.
+
+const FACTORY_SIM_URL_ENTITIES = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+
+interface EntityItem {
+  id: string;
+  label: string;
+  type: 'Machine' | 'Article' | 'Order' | 'Customer' | 'Material';
+}
+
+let entitiesCache: { data: EntityItem[]; ts: number } | null = null;
+const ENTITIES_TTL_MS = 5 * 60 * 1000; // 5 min
+
+async function fetchJson<T>(url: string, fallback: T): Promise<T> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return fallback;
+    return await res.json() as T;
+  } catch {
+    return fallback;
+  }
+}
+
+router.get('/entities', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    // Return cache if fresh
+    if (entitiesCache && Date.now() - entitiesCache.ts < ENTITIES_TTL_MS) {
+      res.json({ entities: entitiesCache.data });
+      return;
+    }
+
+    const base = FACTORY_SIM_URL_ENTITIES;
+
+    const [machines, articles, orders, partners, materials] = await Promise.all([
+      fetchJson<any[]>(`${base}/api/machines`, []),
+      fetchJson<any[]>(`${base}/api/articles`, []),
+      fetchJson<any[]>(`${base}/api/workorders`, []),
+      fetchJson<any[]>(`${base}/api/partners`, []),
+      fetchJson<any[]>(`${base}/api/materials`, []),
+    ]);
+
+    const entities: EntityItem[] = [];
+
+    for (const m of machines) {
+      entities.push({ id: m.machine_no || m.machineNo || m.id, label: m.machine_no || m.machineNo || m.name || m.id, type: 'Machine' });
+    }
+    for (const a of articles) {
+      const id = a.artikel_nr || a.artikelNr || a.id;
+      entities.push({ id, label: a.bezeichnung || a.name || id, type: 'Article' });
+    }
+    for (const o of orders) {
+      const id = o.order_no || o.orderNo || o.auftrag_nr || o.id;
+      entities.push({ id, label: id, type: 'Order' });
+    }
+    for (const p of partners) {
+      const id = p.partner_nr || p.partnerNr || p.id;
+      entities.push({ id, label: p.name || p.firma || id, type: 'Customer' });
+    }
+    for (const m of materials) {
+      const id = m.teil_id || m.teilId || m.id;
+      entities.push({ id, label: m.bezeichnung || m.name || id, type: 'Material' });
+    }
+
+    entitiesCache = { data: entities, ts: Date.now() };
+    res.json({ entities });
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Entities endpoint error');
+    res.status(500).json({ error: 'Failed to fetch entities' });
+  }
+});
+
 export default router;
