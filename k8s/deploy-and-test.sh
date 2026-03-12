@@ -1191,7 +1191,7 @@ test_chat_ui() {
   # T1: Internal health check
   log "T1: Chat-UI internal health..."
   local chat_html
-  chat_html=$(kubectl -n osf exec deploy/osf-chat-ui -- wget -qO- --timeout=5 http://localhost:8080/ 2>/dev/null | head -c 200 || echo "UNREACHABLE")
+  chat_html=$(kubectl -n osf exec deploy/osf-chat-ui -- wget -qO- --timeout=5 http://127.0.0.1:8080/ 2>/dev/null | head -c 200 || echo "UNREACHABLE")
   if [[ "$chat_html" == *"html"* ]] || [[ "$chat_html" == *"HTML"* ]]; then
     ok "Chat-UI serving HTML"
   else
@@ -1202,7 +1202,7 @@ test_chat_ui() {
   # T2: Check it serves chat.html
   log "T2: Chat page..."
   local chat_page
-  chat_page=$(kubectl -n osf exec deploy/osf-chat-ui -- wget -qO- --timeout=5 http://localhost:8080/chat.html 2>/dev/null | head -c 200 || echo "UNREACHABLE")
+  chat_page=$(kubectl -n osf exec deploy/osf-chat-ui -- wget -qO- --timeout=5 http://127.0.0.1:8080/chat.html 2>/dev/null | head -c 200 || echo "UNREACHABLE")
   if [[ "$chat_page" == *"html"* ]] || [[ "$chat_page" == *"HTML"* ]]; then
     ok "Chat page (/chat.html) accessible"
   else
@@ -1210,14 +1210,14 @@ test_chat_ui() {
     ((FAIL++)) || true
   fi
 
-  # T3: divachat.html present (C6 fix)
-  log "T3: divachat.html present..."
-  local diva_page
-  diva_page=$(kubectl -n osf exec deploy/osf-chat-ui -- wget -qO- --timeout=5 http://localhost:8080/divachat.html 2>/dev/null | head -c 200 || echo "UNREACHABLE")
-  if [[ "$diva_page" == *"html"* ]] || [[ "$diva_page" == *"HTML"* ]]; then
-    ok "divachat.html accessible"
+  # T3: analysis.html present
+  log "T3: analysis.html present..."
+  local analysis_page
+  analysis_page=$(kubectl -n osf exec deploy/osf-chat-ui -- wget -qO- --timeout=5 http://127.0.0.1:8080/analysis.html 2>/dev/null | head -c 200 || echo "UNREACHABLE")
+  if [[ "$analysis_page" == *"html"* ]] || [[ "$analysis_page" == *"HTML"* ]]; then
+    ok "analysis.html accessible"
   else
-    fail "divachat.html missing from image"
+    fail "analysis.html missing from image"
     ((FAIL++)) || true
   fi
 
