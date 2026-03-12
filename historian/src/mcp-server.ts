@@ -1,12 +1,19 @@
-// Historian — History MCP Server (JSON-RPC 2.0)
+// Historian v2 — MCP Server + REST API
+// Existing MCP tools unchanged + new REST endpoints for dashboard
 
 import http from 'http';
-import { query } from './db.js';
-import { getStats } from './subscriber.js';
+import {
+  query, getRoutes, createRoute, updateRoute, deleteRoute,
+  getRetentionPolicies, setRetentionPolicy,
+  createTable, listTables,
+} from './db.js';
+import { getSubscriberStats, getExplorerMessages } from './subscriber.js';
+import { getFlushStats } from './flush-engine.js';
 
 const MCP_PORT = parseInt(process.env.HISTORIAN_MCP_PORT || '8030');
 
-// Tool definitions
+// ─── MCP Tool Definitions (unchanged) ─────────────────────────────────────────
+
 const tools = [
   {
     name: 'history_get_trend',
@@ -88,7 +95,8 @@ const tools = [
   },
 ];
 
-// Tool handlers
+// ─── MCP Tool Handlers (unchanged) ────────────────────────────────────────────
+
 async function handleTool(name: string, args: Record<string, any>): Promise<any> {
   switch (name) {
     case 'history_get_trend': {
@@ -188,7 +196,8 @@ async function handleTool(name: string, args: Record<string, any>): Promise<any>
   }
 }
 
-// JSON-RPC 2.0 MCP handler
+// ─── JSON-RPC 2.0 MCP Handler ────────────────────────────────────────────────
+
 function handleJsonRpc(body: any): any {
   const { id, method, params } = body;
 
@@ -210,28 +219,226 @@ function handleJsonRpc(body: any): any {
       result: {
         protocolVersion: '2024-11-05',
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'osf-historian', version: '1.0.0' },
+        serverInfo: { name: 'osf-historian', version: '2.0.0' },
       },
     };
   }
 
-  // Notifications (no response needed)
   if (method === 'notifications/initialized') return null;
 
   return { jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown method: ${method}` } };
 }
 
+// ─── REST API Routes ──────────────────────────────────────────────────────────
+
+async function handleRestApi(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
+  const url = new URL(req.url || '/', `http://localhost`);
+  const path = url.pathname;
+  const method = req.method || 'GET';
+
+  // CORS headers for dashboard
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+
+  // GET /health — enhanced with per-table stats
+  if (method === 'GET' && path === '/health') {
+    const subscriber = getSubscriberStats();
+    const flush = getFlushStats();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      version: '2.0.0',
+      mqtt: {
+        connected: subscriber.mqttConnected,
+        paused: subscriber.paused,
+        received: subscriber.received,
+        routed: subscriber.routed,
+        unrouted: subscriber.unrouted,
+        pauses: subscriber.pauses,
+      },
+      flush: flush.totals,
+      perTable: flush.perTable,
+      legacy: flush.legacy,
+      explorer: { size: subscriber.explorerSize },
+    }));
+    return true;
+  }
+
+  // GET /stats — live stats
+  if (method === 'GET' && path === '/stats') {
+    const subscriber = getSubscriberStats();
+    const flush = getFlushStats();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      mqtt: subscriber,
+      flush: flush.totals,
+      perTable: flush.perTable,
+      legacy: flush.legacy,
+    }));
+    return true;
+  }
+
+  // GET /routes — all category routes
+  if (method === 'GET' && path === '/routes') {
+    try {
+      const routes = await getRoutes();
+      json(res, 200, { routes });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // POST /routes — create new route
+  if (method === 'POST' && path === '/routes') {
+    const body = await readBody(req);
+    const { category, target_table, flush_interval_s } = body;
+    if (!category || !target_table) {
+      json(res, 400, { error: 'category and target_table required' });
+      return true;
+    }
+    try {
+      const route = await createRoute(category, target_table, flush_interval_s || 5);
+      json(res, 201, route);
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // PUT /routes/:id — update route
+  const routeMatch = path.match(/^\/routes\/(\d+)$/);
+  if (method === 'PUT' && routeMatch) {
+    const body = await readBody(req);
+    try {
+      const route = await updateRoute(parseInt(routeMatch[1]), body);
+      if (!route) { json(res, 404, { error: 'Not found' }); return true; }
+      json(res, 200, route);
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // DELETE /routes/:id — delete route
+  if (method === 'DELETE' && routeMatch) {
+    try {
+      const ok = await deleteRoute(parseInt(routeMatch[1]));
+      json(res, ok ? 200 : 404, { ok });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // GET /retention — retention policies
+  if (method === 'GET' && path === '/retention') {
+    try {
+      const policies = await getRetentionPolicies();
+      json(res, 200, { policies });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // PUT /retention/:table — set retention + downsampling
+  const retentionMatch = path.match(/^\/retention\/([a-z0-9_]+)$/);
+  if (method === 'PUT' && retentionMatch) {
+    const body = await readBody(req);
+    const { retention_days, downsampling_interval, downsampling_retention_days } = body;
+    if (!retention_days) {
+      json(res, 400, { error: 'retention_days required' });
+      return true;
+    }
+    try {
+      const policy = await setRetentionPolicy(
+        retentionMatch[1],
+        retention_days,
+        downsampling_interval || null,
+        downsampling_retention_days || null
+      );
+      json(res, 200, policy);
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // GET /explorer — ring-buffer messages with filtering
+  if (method === 'GET' && path === '/explorer') {
+    const machine = url.searchParams.get('machine') || undefined;
+    const category = url.searchParams.get('category') || undefined;
+    const variable = url.searchParams.get('variable') || undefined;
+    const messages = getExplorerMessages({ machine, category, variable });
+    json(res, 200, { messages, count: messages.length });
+    return true;
+  }
+
+  // POST /tables — create new table
+  if (method === 'POST' && path === '/tables') {
+    const body = await readBody(req);
+    if (!body.name) {
+      json(res, 400, { error: 'name required' });
+      return true;
+    }
+    try {
+      await createTable(body.name);
+      json(res, 201, { ok: true, table: body.name });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // GET /tables — list historian tables
+  if (method === 'GET' && path === '/tables') {
+    try {
+      const tables = await listTables();
+      json(res, 200, { tables });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  return false; // Not handled
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function json(res: http.ServerResponse, status: number, data: any): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+function readBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); }
+      catch { resolve({}); }
+    });
+  });
+}
+
+// ─── Server ───────────────────────────────────────────────────────────────────
+
 export function startMcpServer(): http.Server {
   const server = http.createServer(async (req, res) => {
-    // Health endpoint
-    if (req.method === 'GET' && req.url === '/health') {
-      const s = getStats();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', ...s }));
-      return;
-    }
+    // Try REST API first
+    const handled = await handleRestApi(req, res);
+    if (handled) return;
 
-    // MCP endpoint
+    // MCP endpoint (POST /mcp or POST /)
     if (req.method === 'POST' && (req.url === '/mcp' || req.url === '/')) {
       let body = '';
       req.on('data', (chunk) => { body += chunk; });
@@ -259,7 +466,7 @@ export function startMcpServer(): http.Server {
   });
 
   server.listen(MCP_PORT, () => {
-    console.log(`[mcp] History MCP server listening on :${MCP_PORT}`);
+    console.log(`[mcp] Historian v2 server listening on :${MCP_PORT}`);
   });
 
   return server;

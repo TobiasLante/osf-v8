@@ -59,7 +59,7 @@ interface ActivityResponse {
   totals: ActivityTotals[];
 }
 
-type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "mcp";
+type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "services" | "historian";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -95,7 +95,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "mcp", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "historian", "services", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,13 +105,14 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "mcp" ? "MCP Servers" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {t === "health" ? "Health" : t === "historian" ? "Historian" : t === "services" ? "Services" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
           </button>
         ))}
       </div>
 
       {tab === "health" && <HealthTab onNavigate={setTab} />}
-      {tab === "mcp" && <McpServersTab />}
+      {tab === "historian" && <HistorianTab />}
+      {tab === "services" && <ServicesTab />}
       {tab === "users" && <UsersTab />}
       {tab === "stats" && <StatsTab />}
       {tab === "activity" && <ActivityTab />}
@@ -2149,7 +2150,495 @@ function valueColor(value: number | null | undefined, warn: number, danger: numb
   return "text-green-400";
 }
 
-// ─── MCP Servers Tab (v9) ──────────────────────────────────────────────────
+// ─── Historian Tab ──────────────────────────────────────────────────────────
+
+interface HistorianStats {
+  status: string;
+  version: string;
+  mqtt: { connected: boolean; paused: boolean; received: number; routed: number; unrouted: number; pauses: number };
+  flush: { bufferSize: number; inserted: number; errors: number; msgPerSec: number };
+  perTable: { table: string; bufferSize: number; inserted: number; errors: number; flushes: number; lastFlushMs: number; deadLettered: number }[];
+  legacy: { bufferSize: number; inserted: number; errors: number; flushes: number };
+  explorer: { size: number };
+}
+
+interface HistorianRoute {
+  id: number;
+  category: string;
+  target_table: string;
+  flush_interval_s: number;
+  enabled: boolean;
+}
+
+interface RetentionPolicy {
+  target_table: string;
+  retention_days: number;
+  downsampling_interval: string | null;
+  downsampling_retention_days: number | null;
+}
+
+interface ExplorerMsg {
+  ts: string;
+  topic: string;
+  machine: string;
+  category: string;
+  variable: string;
+  value: number | null;
+  value_text: string | null;
+  unit: string | null;
+  routed_to: string | null;
+}
+
+type HistorianView = "status" | "routes" | "retention" | "explorer";
+
+function HistorianTab() {
+  const [view, setView] = useState<HistorianView>("status");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 mb-4">
+        {(["status", "routes", "retention", "explorer"] as HistorianView[]).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              view === v ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text hover:bg-bg-surface"
+            }`}
+          >
+            {v === "status" ? "Live Status" : v === "routes" ? "Routen" : v === "retention" ? "Verdichtung" : "Explorer"}
+          </button>
+        ))}
+      </div>
+
+      {view === "status" && <HistorianStatusView />}
+      {view === "routes" && <HistorianRoutesView />}
+      {view === "retention" && <HistorianRetentionView />}
+      {view === "explorer" && <HistorianExplorerView />}
+    </div>
+  );
+}
+
+function HistorianStatusView() {
+  const [data, setData] = useState<HistorianStats | null>(null);
+  const [error, setError] = useState("");
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const d = await apiFetch<HistorianStats>("/admin/historian/health");
+      setData(d);
+      setError("");
+    } catch {
+      setError("Historian nicht erreichbar");
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+    const iv = setInterval(fetchStats, 3000);
+    return () => clearInterval(iv);
+  }, [fetchStats]);
+
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
+  if (!data) return <div className="text-text-muted animate-pulse text-sm">Loading...</div>;
+
+  const bufferPct = Math.min(100, (data.flush.bufferSize / 50000) * 100);
+
+  return (
+    <div className="space-y-4">
+      {/* Top Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-bg-surface border border-border rounded-md p-3">
+          <div className="text-xs text-text-muted mb-1">MQTT</div>
+          <div className={`text-lg font-bold ${data.mqtt.connected ? "text-green-400" : "text-red-400"}`}>
+            {data.mqtt.connected ? "Connected" : "Disconnected"}
+          </div>
+          {data.mqtt.paused && <div className="text-xs text-yellow-400 mt-1">BACKPRESSURE</div>}
+        </div>
+        <div className="bg-bg-surface border border-border rounded-md p-3">
+          <div className="text-xs text-text-muted mb-1">msg/sec</div>
+          <div className="text-lg font-bold text-text">{data.flush.msgPerSec}</div>
+        </div>
+        <div className="bg-bg-surface border border-border rounded-md p-3">
+          <div className="text-xs text-text-muted mb-1">Inserted</div>
+          <div className="text-lg font-bold text-text">{data.flush.inserted.toLocaleString()}</div>
+        </div>
+        <div className="bg-bg-surface border border-border rounded-md p-3">
+          <div className="text-xs text-text-muted mb-1">Errors</div>
+          <div className={`text-lg font-bold ${data.flush.errors > 0 ? "text-red-400" : "text-green-400"}`}>
+            {data.flush.errors}
+          </div>
+        </div>
+      </div>
+
+      {/* Buffer Fill */}
+      <div className="bg-bg-surface border border-border rounded-md p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text-muted">Buffer ({data.flush.bufferSize.toLocaleString()} rows)</span>
+          <span className={`text-xs font-medium ${bufferPct >= 80 ? "text-red-400" : bufferPct >= 50 ? "text-yellow-400" : "text-green-400"}`}>
+            {bufferPct.toFixed(0)}%
+          </span>
+        </div>
+        <ProgressBar value={bufferPct} />
+      </div>
+
+      {/* MQTT Stats */}
+      <div className="bg-bg-surface border border-border rounded-md p-3">
+        <div className="text-xs text-text-muted mb-2">MQTT Stats</div>
+        <div className="grid grid-cols-4 gap-3 text-xs">
+          <div><span className="text-text-muted">Received:</span> <span className="text-text">{data.mqtt.received.toLocaleString()}</span></div>
+          <div><span className="text-text-muted">Routed:</span> <span className="text-text">{data.mqtt.routed.toLocaleString()}</span></div>
+          <div><span className="text-text-muted">Unrouted:</span> <span className="text-text">{data.mqtt.unrouted.toLocaleString()}</span></div>
+          <div><span className="text-text-muted">Pauses:</span> <span className="text-text">{data.mqtt.pauses}</span></div>
+        </div>
+      </div>
+
+      {/* Per-Table Cards */}
+      <div className="text-xs text-text-muted mb-1">Per-Table Status</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {data.perTable.map((t) => (
+          <div key={t.table} className="bg-bg-surface border border-border rounded-md p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-text">{t.table}</span>
+              <span className="text-xs text-text-muted">{t.lastFlushMs}ms</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              <div><span className="text-text-muted">Buffer:</span> <span className="text-text">{t.bufferSize}</span></div>
+              <div><span className="text-text-muted">Inserted:</span> <span className="text-text">{t.inserted.toLocaleString()}</span></div>
+              <div><span className="text-text-muted">Errors:</span> <span className={t.errors > 0 ? "text-red-400" : "text-text"}>{t.errors}</span></div>
+              <div><span className="text-text-muted">Dead:</span> <span className={t.deadLettered > 0 ? "text-red-400" : "text-text"}>{t.deadLettered}</span></div>
+            </div>
+          </div>
+        ))}
+        {/* Legacy */}
+        <div className="bg-bg-surface border border-border rounded-md p-3 opacity-60">
+          <div className="text-sm font-medium text-text mb-2">uns_history (legacy)</div>
+          <div className="grid grid-cols-2 gap-1 text-xs">
+            <div><span className="text-text-muted">Buffer:</span> <span className="text-text">{data.legacy.bufferSize}</span></div>
+            <div><span className="text-text-muted">Inserted:</span> <span className="text-text">{data.legacy.inserted.toLocaleString()}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistorianRoutesView() {
+  const [routes, setRoutes] = useState<HistorianRoute[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newCat, setNewCat] = useState("");
+  const [newTable, setNewTable] = useState("");
+  const [newFlush, setNewFlush] = useState("5");
+
+  const fetchRoutes = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ routes: HistorianRoute[] }>("/admin/historian/routes");
+      setRoutes(data.routes);
+    } catch {
+      setRoutes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchRoutes(); }, [fetchRoutes]);
+
+  const addRoute = async () => {
+    if (!newCat.trim() || !newTable.trim()) return;
+    try {
+      await apiFetch("/admin/historian/routes", {
+        method: "POST",
+        body: JSON.stringify({
+          category: newCat.trim(),
+          target_table: newTable.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+          flush_interval_s: parseInt(newFlush) || 5,
+        }),
+      });
+      setNewCat(""); setNewTable(""); setShowAdd(false);
+      fetchRoutes();
+    } catch (err: any) {
+      alert(err.message || "Failed to add route");
+    }
+  };
+
+  const toggleRoute = async (id: number, enabled: boolean) => {
+    try {
+      await apiFetch(`/admin/historian/routes/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled: !enabled }),
+      });
+      fetchRoutes();
+    } catch {}
+  };
+
+  const removeRoute = async (id: number, category: string) => {
+    if (!confirm(`Route "${category}" loeschen?`)) return;
+    try {
+      await apiFetch(`/admin/historian/routes/${id}`, { method: "DELETE" });
+      fetchRoutes();
+    } catch {}
+  };
+
+  if (loading) return <div className="text-text-muted animate-pulse text-sm">Loading routes...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-muted">{routes.length} Routen konfiguriert</p>
+        <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
+          + Neue Route
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-text-muted mb-1">Kategorie</label>
+              <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="z.B. Vibration" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+            </div>
+            <div>
+              <label className="block text-xs text-text-muted mb-1">Zieltabelle</label>
+              <input value={newTable} onChange={(e) => setNewTable(e.target.value)} placeholder="z.B. vibration" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+            </div>
+            <div>
+              <label className="block text-xs text-text-muted mb-1">Flush (s)</label>
+              <input type="number" value={newFlush} onChange={(e) => setNewFlush(e.target.value)} min="1" max="60" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addRoute} disabled={!newCat.trim() || !newTable.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">Erstellen</button>
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Abbrechen</button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-bg-surface border border-border rounded-md overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-text-muted text-xs">
+              <th className="text-left p-3">Kategorie</th>
+              <th className="text-left p-3">Zieltabelle</th>
+              <th className="text-left p-3">Flush</th>
+              <th className="text-left p-3">Status</th>
+              <th className="text-right p-3">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {routes.map((r) => (
+              <tr key={r.id} className="border-b border-border/50 last:border-0">
+                <td className="p-3 text-text font-medium">{r.category === "*" ? "* (Fallback)" : r.category}</td>
+                <td className="p-3 text-text-muted font-mono text-xs">{r.target_table}</td>
+                <td className="p-3 text-text-muted">{r.flush_interval_s}s</td>
+                <td className="p-3">
+                  <button onClick={() => toggleRoute(r.id, r.enabled)} className={`px-2 py-0.5 text-xs rounded ${r.enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+                    {r.enabled ? "Aktiv" : "Deaktiviert"}
+                  </button>
+                </td>
+                <td className="p-3 text-right">
+                  <button onClick={() => removeRoute(r.id, r.category)} className="text-xs text-red-400 hover:text-red-300 transition-colors">Loeschen</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function HistorianRetentionView() {
+  const [policies, setPolicies] = useState<RetentionPolicy[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const fetchPolicies = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ policies: RetentionPolicy[] }>("/admin/historian/retention");
+      setPolicies(data.policies);
+    } catch {
+      setPolicies([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchPolicies(); }, [fetchPolicies]);
+
+  const updatePolicy = async (table: string, retDays: number, dsInterval: string | null, dsRetDays: number | null) => {
+    setSaving(table);
+    try {
+      await apiFetch(`/admin/historian/retention/${table}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          retention_days: retDays,
+          downsampling_interval: dsInterval,
+          downsampling_retention_days: dsRetDays,
+        }),
+      });
+      fetchPolicies();
+    } catch (err: any) {
+      alert(err.message || "Failed to update");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  if (loading) return <div className="text-text-muted animate-pulse text-sm">Loading retention policies...</div>;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-text-muted">Rohdaten-Retention und Verdichtung pro Tabelle konfigurieren.</p>
+
+      <div className="space-y-3">
+        {policies.map((p) => (
+          <div key={p.target_table} className="bg-bg-surface border border-border rounded-md p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-text font-mono">{p.target_table}</span>
+              {saving === p.target_table && <span className="text-xs text-accent animate-pulse">Speichern...</span>}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Rohdaten (Tage)</label>
+                <input
+                  type="number"
+                  defaultValue={p.retention_days}
+                  min={1}
+                  max={3650}
+                  className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
+                  onBlur={(e) => {
+                    const v = parseInt(e.target.value);
+                    if (v && v !== p.retention_days) updatePolicy(p.target_table, v, p.downsampling_interval, p.downsampling_retention_days);
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Verdichtung</label>
+                <select
+                  defaultValue={p.downsampling_interval || ""}
+                  className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
+                  onChange={(e) => {
+                    const v = e.target.value || null;
+                    updatePolicy(p.target_table, p.retention_days, v, v ? (p.downsampling_retention_days || 180) : null);
+                  }}
+                >
+                  <option value="">Keine</option>
+                  <option value="1 minute">1 Minute</option>
+                  <option value="5 minutes">5 Minuten</option>
+                  <option value="15 minutes">15 Minuten</option>
+                  <option value="1 hour">1 Stunde</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Verdichtung Retention (Tage)</label>
+                <input
+                  type="number"
+                  defaultValue={p.downsampling_retention_days || ""}
+                  min={1}
+                  max={3650}
+                  disabled={!p.downsampling_interval}
+                  className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text disabled:opacity-40"
+                  onBlur={(e) => {
+                    const v = parseInt(e.target.value);
+                    if (v && v !== p.downsampling_retention_days) updatePolicy(p.target_table, p.retention_days, p.downsampling_interval, v);
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HistorianExplorerView() {
+  const [messages, setMessages] = useState<ExplorerMsg[]>([]);
+  const [filterMachine, setFilterMachine] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterVariable, setFilterVariable] = useState("");
+  const [paused, setPaused] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const fetchMessages = useCallback(async () => {
+    if (paused) return;
+    try {
+      const params = new URLSearchParams();
+      if (filterMachine) params.set("machine", filterMachine);
+      if (filterCategory) params.set("category", filterCategory);
+      if (filterVariable) params.set("variable", filterVariable);
+      const data = await apiFetch<{ messages: ExplorerMsg[] }>(`/admin/historian/explorer?${params}`);
+      setMessages(data.messages.slice(0, 200));
+    } catch {
+      setMessages([]);
+    }
+  }, [paused, filterMachine, filterCategory, filterVariable]);
+
+  useEffect(() => {
+    fetchMessages();
+    const iv = setInterval(fetchMessages, 2000);
+    return () => clearInterval(iv);
+  }, [fetchMessages]);
+
+  useEffect(() => {
+    if (autoScroll && listRef.current) {
+      listRef.current.scrollTop = 0;
+    }
+  }, [messages, autoScroll]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <input value={filterMachine} onChange={(e) => setFilterMachine(e.target.value)} placeholder="Machine" className="px-3 py-1.5 text-xs bg-bg-base border border-border rounded-md text-text w-28" />
+        <input value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} placeholder="Category" className="px-3 py-1.5 text-xs bg-bg-base border border-border rounded-md text-text w-28" />
+        <input value={filterVariable} onChange={(e) => setFilterVariable(e.target.value)} placeholder="Variable" className="px-3 py-1.5 text-xs bg-bg-base border border-border rounded-md text-text w-28" />
+        <button onClick={() => setPaused(!paused)} className={`px-3 py-1.5 text-xs rounded-md ${paused ? "bg-yellow-500/10 text-yellow-400" : "bg-green-500/10 text-green-400"}`}>
+          {paused ? "Paused" : "Live"}
+        </button>
+        <label className="flex items-center gap-1 text-xs text-text-muted">
+          <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
+          Auto-Scroll
+        </label>
+        <span className="text-xs text-text-muted ml-auto">{messages.length} messages</span>
+      </div>
+
+      <div ref={listRef} className="bg-bg-surface border border-border rounded-md overflow-auto max-h-[600px]">
+        <table className="w-full text-xs font-mono">
+          <thead className="sticky top-0 bg-bg-surface">
+            <tr className="text-text-muted border-b border-border">
+              <th className="text-left p-2">Time</th>
+              <th className="text-left p-2">Machine</th>
+              <th className="text-left p-2">Category</th>
+              <th className="text-left p-2">Variable</th>
+              <th className="text-right p-2">Value</th>
+              <th className="text-left p-2">Unit</th>
+              <th className="text-left p-2">Table</th>
+            </tr>
+          </thead>
+          <tbody>
+            {messages.map((m, i) => (
+              <tr key={i} className="border-b border-border/30 hover:bg-bg-base/50">
+                <td className="p-2 text-text-muted whitespace-nowrap">{new Date(m.ts).toLocaleTimeString("de-DE")}</td>
+                <td className="p-2 text-text">{m.machine}</td>
+                <td className="p-2 text-text-muted">{m.category}</td>
+                <td className="p-2 text-text">{m.variable}</td>
+                <td className="p-2 text-right text-accent">{m.value !== null ? m.value : m.value_text || "-"}</td>
+                <td className="p-2 text-text-muted">{m.unit || ""}</td>
+                <td className="p-2 text-text-muted">{m.routed_to || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {messages.length === 0 && (
+          <div className="text-center py-8 text-text-muted text-sm">Keine Messages{paused ? " (paused)" : ""}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Services Tab (replaces MCP Tab — MCP Servers + Background Agents) ──────
 
 interface McpServer {
   id: string;
@@ -2164,26 +2653,38 @@ interface McpServer {
   created_at: string;
 }
 
-function McpServersTab() {
+interface AgentStatus {
+  name: string;
+  type: string;
+  status: string;
+  detail?: string;
+  tools?: number;
+  error?: string;
+}
+
+function ServicesTab() {
   const [servers, setServers] = useState<McpServer[]>([]);
+  const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [adding, setAdding] = useState(false);
 
-  const fetchServers = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const data = await apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers");
-      setServers(data.servers);
-    } catch {
-      setServers([]);
+      const [mcpData, agentData] = await Promise.all([
+        apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers").catch(() => ({ servers: [] as McpServer[] })),
+        apiFetch<{ agents: AgentStatus[] }>("/admin/agents/status").catch(() => ({ agents: [] as AgentStatus[] })),
+      ]);
+      setServers(mcpData.servers);
+      setAgents(agentData.agents);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchServers(); }, [fetchServers]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const addServer = async () => {
     if (!newName.trim() || !newUrl.trim()) return;
@@ -2193,10 +2694,8 @@ function McpServersTab() {
         method: "POST",
         body: JSON.stringify({ name: newName.trim(), url: newUrl.trim() }),
       });
-      setNewName("");
-      setNewUrl("");
-      setShowAdd(false);
-      setTimeout(fetchServers, 1000); // Give discovery time to start
+      setNewName(""); setNewUrl(""); setShowAdd(false);
+      setTimeout(fetchAll, 1000);
     } catch (err: any) {
       alert(err.message || "Failed to add server");
     } finally {
@@ -2208,124 +2707,112 @@ function McpServersTab() {
     if (!confirm(`Delete MCP server "${name}"?`)) return;
     try {
       await apiFetch(`/admin/mcp-servers/${id}`, { method: "DELETE" });
-      fetchServers();
+      fetchAll();
     } catch {}
   };
 
   const rediscover = async (id: string) => {
     try {
       await apiFetch(`/admin/mcp-servers/${id}/discover`, { method: "POST" });
-      setTimeout(fetchServers, 2000);
+      setTimeout(fetchAll, 2000);
     } catch {}
   };
 
   const statusColor = (s: string) =>
-    s === "online" ? "bg-green-400" : s === "error" ? "bg-red-400" : s === "pending" ? "bg-yellow-400 animate-pulse" : "bg-gray-500";
+    s === "online" || s === "running" ? "bg-green-400"
+    : s === "error" || s === "stopped" ? "bg-red-400"
+    : s === "pending" ? "bg-yellow-400 animate-pulse"
+    : "bg-gray-500";
 
-  if (loading) return <div className="text-text-muted animate-pulse">Loading MCP servers...</div>;
+  if (loading) return <div className="text-text-muted animate-pulse text-sm">Loading services...</div>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-text-muted">
-          {servers.length} registered MCP server{servers.length !== 1 ? "s" : ""}
-        </p>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
-        >
-          + Add Server
-        </button>
-      </div>
-
-      {showAdd && (
-        <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-text-muted mb-1">Name</label>
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. factory-erp"
-                className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-text-muted mb-1">URL</label>
-              <input
-                value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                placeholder="http://factory-v3:8020"
-                className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={addServer}
-              disabled={adding || !newName.trim() || !newUrl.trim()}
-              className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors"
-            >
-              {adding ? "Connecting..." : "Connect & Discover"}
-            </button>
-            <button
-              onClick={() => setShowAdd(false)}
-              className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {servers.length === 0 && !showAdd && (
-        <div className="text-center py-8 text-text-muted text-sm">
-          No MCP servers registered. Add one to get started.
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {servers.map((s) => (
-          <div key={s.id} className="bg-bg-surface border border-border rounded-md p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
-                <div>
-                  <span className="text-sm font-medium text-text">{s.name}</span>
-                  <span className="ml-2 text-xs text-text-muted">{s.url}</span>
+    <div className="space-y-6">
+      {/* Background Agents Section */}
+      <div>
+        <h3 className="text-sm font-medium text-text mb-3">Background Agents</h3>
+        {agents.length === 0 ? (
+          <div className="text-xs text-text-muted">No agents registered</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {agents.map((a) => (
+              <div key={a.name} className="bg-bg-surface border border-border rounded-md p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className={`w-2 h-2 rounded-full ${statusColor(a.status)}`} />
+                  <span className="text-sm font-medium text-text">{a.name}</span>
+                </div>
+                <div className="text-xs text-text-muted">
+                  {a.type} &mdash; {a.status}
+                  {a.tools !== undefined && ` &mdash; ${a.tools} tools`}
+                  {a.error && <span className="text-red-400 block mt-1">{a.error}</span>}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => rediscover(s.id)}
-                  className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors"
-                  title="Re-discover tools"
-                >
-                  Refresh
-                </button>
-                <button
-                  onClick={() => deleteServer(s.id, s.name)}
-                  className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors"
-                >
-                  Delete
-                </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* MCP Servers Section */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-text">MCP Servers</h3>
+          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
+            + Add Server
+          </button>
+        </div>
+
+        {showAdd && (
+          <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3 mb-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Name</label>
+                <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. factory-erp" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">URL</label>
+                <input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="http://factory-v3:8020" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
               </div>
             </div>
-            <div className="mt-2 flex items-center gap-4 text-xs text-text-muted">
-              <span>{s.tool_count} tools</span>
-              {s.categories.length > 0 && (
-                <span>{s.categories.join(", ")}</span>
-              )}
-              <span className={s.status === "error" ? "text-red-400" : ""}>
-                {s.status}
-                {s.error_message && ` — ${s.error_message}`}
-              </span>
-              {s.health_check_at && (
-                <span>checked {new Date(s.health_check_at).toLocaleString("de-DE")}</span>
-              )}
+            <div className="flex gap-2">
+              <button onClick={addServer} disabled={adding || !newName.trim() || !newUrl.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">
+                {adding ? "Connecting..." : "Connect & Discover"}
+              </button>
+              <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Cancel</button>
             </div>
           </div>
-        ))}
+        )}
+
+        {servers.length === 0 && !showAdd && (
+          <div className="text-center py-6 text-text-muted text-xs">No MCP servers registered.</div>
+        )}
+
+        <div className="space-y-2">
+          {servers.map((s) => (
+            <div key={s.id} className="bg-bg-surface border border-border rounded-md p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
+                  <div>
+                    <span className="text-sm font-medium text-text">{s.name}</span>
+                    <span className="ml-2 text-xs text-text-muted">{s.url}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => rediscover(s.id)} className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors" title="Re-discover tools">Refresh</button>
+                  <button onClick={() => deleteServer(s.id, s.name)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors">Delete</button>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-4 text-xs text-text-muted">
+                <span>{s.tool_count} tools</span>
+                {s.categories.length > 0 && <span>{s.categories.join(", ")}</span>}
+                <span className={s.status === "error" ? "text-red-400" : ""}>
+                  {s.status}{s.error_message && ` — ${s.error_message}`}
+                </span>
+                {s.health_check_at && <span>checked {new Date(s.health_check_at).toLocaleString("de-DE")}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

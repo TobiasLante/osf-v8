@@ -1,54 +1,85 @@
-// Historian — Main entry point
-// Persistent MQTT subscriber → TimescaleDB + History MCP server
+// Historian v2 — Main entry point
+// MQTT → routed TimescaleDB tables with COPY protocol + MCP server + REST API
 
-import { initSchema, cleanup } from './db.js';
-import { start as startSubscriber, stop as stopSubscriber, getStats } from './subscriber.js';
+import { initSchema, cleanupWithDropChunks } from './db.js';
+import { initDiskBuffer, replayPendingBatches, removeFlushedBatches } from './disk-buffer.js';
+import { loadRoutes, startHotReload, stopHotReload } from './config-manager.js';
+import { replayBatch, startLegacyFlush, flushAll, stopAll, getFlushStats } from './flush-engine.js';
+import { start as startSubscriber, stop as stopSubscriber, getSubscriberStats } from './subscriber.js';
 import { startMcpServer } from './mcp-server.js';
 
-const RETENTION_DAYS = parseInt(process.env.HISTORIAN_RETENTION_DAYS || '30');
+const LEGACY_FLUSH_MS = parseInt(process.env.HISTORIAN_FLUSH_MS || '5000');
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1_000; // Every 6 hours
 
 async function main(): Promise<void> {
-  console.log('[historian] Starting...');
-  console.log(`[historian] Retention: ${RETENTION_DAYS} days`);
+  console.log('[historian] Starting v2...');
 
-  // 1. Init DB schema
+  // 1. Init disk buffer
+  initDiskBuffer();
+
+  // 2. Init DB schema (creates tables, seeds default routes)
   await initSchema();
 
-  // 2. Start MQTT subscriber
+  // 3. Load routes into memory
+  await loadRoutes();
+  startHotReload();
+
+  // 4. Replay disk buffer (crash recovery)
+  const pendingBatches = await replayPendingBatches();
+  if (pendingBatches.length > 0) {
+    let flushed = 0;
+    for (const batch of pendingBatches) {
+      const ok = await replayBatch(batch.table, batch.rows);
+      if (ok) flushed++;
+    }
+    removeFlushedBatches(flushed);
+    console.log(`[historian] Replayed ${flushed}/${pendingBatches.length} pending batches`);
+  }
+
+  // 5. Start legacy flush (for uns_history compatibility)
+  startLegacyFlush(LEGACY_FLUSH_MS);
+
+  // 6. Start MQTT subscriber (QoS 1, persistent session)
   await startSubscriber();
 
-  // 3. Start MCP server
+  // 7. Start MCP + REST API server
   startMcpServer();
 
-  // 4. Periodic cleanup
+  // 8. Periodic cleanup with drop_chunks
   setInterval(async () => {
     try {
-      const deleted = await cleanup(RETENTION_DAYS);
-      if (deleted > 0) {
-        console.log(`[historian] Cleanup: removed ${deleted} rows older than ${RETENTION_DAYS} days`);
-      }
+      await cleanupWithDropChunks();
+      console.log('[historian] Cleanup completed (drop_chunks)');
     } catch (err: any) {
       console.error(`[historian] Cleanup error: ${err.message}`);
     }
   }, CLEANUP_INTERVAL_MS);
 
-  // 5. Stats logging
+  // 9. Stats logging
   setInterval(() => {
-    const s = getStats();
-    console.log(`[historian] received=${s.received} inserted=${s.inserted} buffer=${s.bufferSize} errors=${s.errors}`);
+    const sub = getSubscriberStats();
+    const flush = getFlushStats();
+    const tables = flush.perTable.map(t => `${t.table}:${t.bufferSize}`).join(' ');
+    console.log(
+      `[historian] rx=${sub.received} routed=${sub.routed} inserted=${flush.totals.inserted} ` +
+      `buf=${flush.totals.bufferSize} err=${flush.totals.errors} msg/s=${flush.totals.msgPerSec} ` +
+      `mqtt=${sub.mqttConnected ? 'up' : 'DOWN'}${sub.paused ? ' PAUSED' : ''} [${tables}]`
+    );
   }, 60_000);
 
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[historian] Shutting down...');
+    stopHotReload();
     await stopSubscriber();
+    await flushAll();
+    stopAll();
     process.exit(0);
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  console.log('[historian] Ready');
+  console.log('[historian] v2 Ready');
 }
 
 main().catch((err) => {

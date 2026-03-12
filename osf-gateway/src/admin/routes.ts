@@ -869,6 +869,39 @@ router.get('/activity', async (req: Request, res: Response) => {
   }
 });
 
+// ─── Historian Proxy (v9/v2) ──────────────────────────────────────────────
+
+// Proxy /admin/historian/* → Historian service :8030
+const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://historian.osf.svc.cluster.local:8030';
+
+router.all('/historian/*', async (req: Request, res: Response) => {
+  // Strip /admin/historian prefix → forward remainder to historian
+  const subPath = req.path.replace(/^\/historian/, '') || '/';
+  const targetUrl = `${HISTORIAN_URL}${subPath}`;
+
+  try {
+    const fetchOpts: RequestInit = {
+      method: req.method,
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    };
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      fetchOpts.body = JSON.stringify(req.body);
+    }
+
+    const resp = await fetch(targetUrl, fetchOpts);
+    const data = await resp.text();
+
+    res.status(resp.status);
+    res.setHeader('Content-Type', resp.headers.get('content-type') || 'application/json');
+    res.send(data);
+  } catch (err: any) {
+    logger.error({ err: err.message, path: subPath }, 'Historian proxy failed');
+    res.status(502).json({ error: 'Historian service unavailable', detail: err.message });
+  }
+});
+
 // ─── Agent Monitoring (v9) ───────────────────────────────────────────────
 
 // GET /admin/agents/status — status of all background agents (KG Agent, Historian)

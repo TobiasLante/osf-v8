@@ -1,19 +1,47 @@
-// Historian — MQTT subscriber with buffered batch insert
+// Historian v2 — MQTT Subscriber
+// QoS 1 + persistent session, route engine, backpressure, explorer ring-buffer
 
 import mqtt from 'mqtt';
-import { batchInsert, type HistoryRow } from './db.js';
+import type { HistoryRow, TableRow } from './db.js';
+import { resolveRoute } from './config-manager.js';
+import { pushRow, pushLegacyRow, getBufferFillPercent } from './flush-engine.js';
 
 const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://192.168.178.150:31883';
-const FLUSH_INTERVAL_MS = parseInt(process.env.HISTORIAN_FLUSH_MS || '5000');
-const MAX_BUFFER = 10_000;
+const BACKPRESSURE_HIGH = 80; // % — pause MQTT
+const BACKPRESSURE_LOW = 50;  // % — resume MQTT
 
 let client: mqtt.MqttClient | null = null;
-let buffer: HistoryRow[] = [];
-let flushTimer: NodeJS.Timeout | null = null;
-let stats = { received: 0, inserted: 0, errors: 0, flushes: 0 };
+let paused = false;
+let stats = { received: 0, routed: 0, unrouted: 0, pauses: 0 };
 
-// Parse topic: Factory/{Machine}/{WorkOrder}/{Tool}/{Category}/{Variable}
-function parseTopic(topic: string): { machine: string; workOrder: string | null; toolId: string | null; category: string; variable: string } | null {
+// Explorer ring-buffer: last 1000 messages
+const EXPLORER_SIZE = 1000;
+const explorerBuffer: ExplorerMessage[] = [];
+let explorerIndex = 0;
+
+export interface ExplorerMessage {
+  ts: string;
+  topic: string;
+  machine: string;
+  category: string;
+  variable: string;
+  value: number | null;
+  value_text: string | null;
+  unit: string | null;
+  routed_to: string | null;
+}
+
+// ─── Topic Parser ─────────────────────────────────────────────────────────────
+
+interface ParsedTopic {
+  machine: string;
+  workOrder: string | null;
+  toolId: string | null;
+  category: string;
+  variable: string;
+}
+
+function parseTopic(topic: string): ParsedTopic | null {
   const parts = topic.split('/');
   if (parts.length < 6 || parts[0] !== 'Factory') return null;
 
@@ -22,9 +50,11 @@ function parseTopic(topic: string): { machine: string; workOrder: string | null;
     workOrder: parts[2] === '---' ? null : parts[2],
     toolId: parts[3] === '---' ? null : parts[3],
     category: parts[4],
-    variable: parts.slice(5).join('/'), // Handle nested variables
+    variable: parts.slice(5).join('/'),
   };
 }
+
+// ─── Message Handler ──────────────────────────────────────────────────────────
 
 function onMessage(topic: string, payload: Buffer): void {
   const parsed = parseTopic(topic);
@@ -53,12 +83,34 @@ function onMessage(topic: string, payload: Buffer): void {
 
     unit = json.Unit || json.unit || null;
   } catch {
-    // Non-JSON payload — store as text
     valueText = payload.toString().slice(0, 500);
   }
 
   stats.received++;
-  buffer.push({
+
+  // Route to target table
+  const route = resolveRoute(parsed.category);
+  let routedTo: string | null = null;
+
+  if (route) {
+    const tableRow: TableRow = {
+      machine: parsed.machine,
+      variable: parsed.variable,
+      value,
+      value_text: valueText,
+      unit,
+      work_order: parsed.workOrder,
+      tool_id: parsed.toolId,
+    };
+    pushRow(route.target_table, route.flush_interval_s, tableRow);
+    routedTo = route.target_table;
+    stats.routed++;
+  } else {
+    stats.unrouted++;
+  }
+
+  // Also push to legacy uns_history (keeps MCP tools working)
+  const legacyRow: HistoryRow = {
     machine: parsed.machine,
     category: parsed.category,
     variable: parsed.variable,
@@ -68,54 +120,119 @@ function onMessage(topic: string, payload: Buffer): void {
     work_order: parsed.workOrder,
     tool_id: parsed.toolId,
     topic,
-  });
+  };
+  pushLegacyRow(legacyRow);
 
-  // Prevent unbounded growth
-  if (buffer.length > MAX_BUFFER) {
-    buffer = buffer.slice(-MAX_BUFFER);
+  // Explorer ring-buffer
+  const explorerMsg: ExplorerMessage = {
+    ts: new Date().toISOString(),
+    topic,
+    machine: parsed.machine,
+    category: parsed.category,
+    variable: parsed.variable,
+    value,
+    value_text: valueText,
+    unit,
+    routed_to: routedTo,
+  };
+
+  if (explorerBuffer.length < EXPLORER_SIZE) {
+    explorerBuffer.push(explorerMsg);
+  } else {
+    explorerBuffer[explorerIndex % EXPLORER_SIZE] = explorerMsg;
+  }
+  explorerIndex++;
+
+  // Backpressure check
+  checkBackpressure();
+}
+
+// ─── Backpressure ─────────────────────────────────────────────────────────────
+
+function checkBackpressure(): void {
+  if (!client) return;
+
+  const fill = getBufferFillPercent();
+
+  if (!paused && fill >= BACKPRESSURE_HIGH) {
+    paused = true;
+    stats.pauses++;
+    // Unsubscribe to stop receiving messages
+    client.unsubscribe('Factory/#');
+    console.warn(`[subscriber] BACKPRESSURE: paused at ${fill.toFixed(0)}% buffer fill`);
+  } else if (paused && fill <= BACKPRESSURE_LOW) {
+    paused = false;
+    client.subscribe('Factory/#', { qos: 1 });
+    console.log(`[subscriber] BACKPRESSURE: resumed at ${fill.toFixed(0)}% buffer fill`);
   }
 }
 
-async function flush(): Promise<void> {
-  if (buffer.length === 0) return;
+// ─── Explorer ─────────────────────────────────────────────────────────────────
 
-  const batch = buffer.splice(0); // Take all, clear buffer
-  try {
-    const count = await batchInsert(batch);
-    stats.inserted += count;
-    stats.flushes++;
-    if (stats.flushes % 100 === 0) {
-      console.log(`[subscriber] Stats: received=${stats.received}, inserted=${stats.inserted}, errors=${stats.errors}, flushes=${stats.flushes}`);
+export function getExplorerMessages(filter?: {
+  machine?: string;
+  category?: string;
+  variable?: string;
+}): ExplorerMessage[] {
+  let messages: ExplorerMessage[];
+
+  if (explorerBuffer.length < EXPLORER_SIZE) {
+    messages = [...explorerBuffer];
+  } else {
+    // Ring-buffer: read from explorerIndex to end, then start to explorerIndex
+    const idx = explorerIndex % EXPLORER_SIZE;
+    messages = [
+      ...explorerBuffer.slice(idx),
+      ...explorerBuffer.slice(0, idx),
+    ];
+  }
+
+  if (filter) {
+    if (filter.machine) {
+      const m = filter.machine.toLowerCase();
+      messages = messages.filter(msg => msg.machine.toLowerCase().includes(m));
     }
-  } catch (err: any) {
-    stats.errors++;
-    console.error(`[subscriber] Batch insert failed (${batch.length} rows): ${err.message}`);
-    // Put rows back at front of buffer for retry (but limit total)
-    if (buffer.length < MAX_BUFFER) {
-      buffer.unshift(...batch.slice(0, MAX_BUFFER - buffer.length));
+    if (filter.category) {
+      const c = filter.category.toLowerCase();
+      messages = messages.filter(msg => msg.category.toLowerCase().includes(c));
+    }
+    if (filter.variable) {
+      const v = filter.variable.toLowerCase();
+      messages = messages.filter(msg => msg.variable.toLowerCase().includes(v));
     }
   }
+
+  return messages.reverse(); // Newest first
 }
 
-export function getStats() {
-  return { ...stats, bufferSize: buffer.length };
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
+export function getSubscriberStats() {
+  return {
+    ...stats,
+    paused,
+    mqttConnected: client?.connected || false,
+    explorerSize: Math.min(explorerBuffer.length, EXPLORER_SIZE),
+  };
 }
+
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 export async function start(): Promise<void> {
-  console.log(`[subscriber] Connecting to ${MQTT_BROKER}...`);
+  console.log(`[subscriber] Connecting to ${MQTT_BROKER} (QoS 1, persistent session)...`);
 
   client = mqtt.connect(MQTT_BROKER, {
-    clientId: `osf-historian-${Date.now()}`,
+    clientId: 'osf-historian-v2',
     reconnectPeriod: 5_000,
     connectTimeout: 10_000,
-    clean: true,
+    clean: false, // Persistent session — no message loss
   });
 
   client.on('connect', () => {
     console.log('[subscriber] MQTT connected');
-    client!.subscribe('Factory/#', { qos: 0 }, (err) => {
+    client!.subscribe('Factory/#', { qos: 1 }, (err) => {
       if (err) console.error(`[subscriber] Subscribe error: ${err.message}`);
-      else console.log('[subscriber] Subscribed to Factory/#');
+      else console.log('[subscriber] Subscribed to Factory/# (QoS 1)');
     });
   });
 
@@ -128,15 +245,9 @@ export async function start(): Promise<void> {
   client.on('close', () => {
     console.log('[subscriber] MQTT disconnected, reconnecting...');
   });
-
-  // Start flush timer
-  flushTimer = setInterval(flush, FLUSH_INTERVAL_MS);
-  console.log(`[subscriber] Flush interval: ${FLUSH_INTERVAL_MS}ms`);
 }
 
 export async function stop(): Promise<void> {
-  if (flushTimer) clearInterval(flushTimer);
-  await flush(); // Final flush
   if (client) {
     client.end(true);
     client = null;
