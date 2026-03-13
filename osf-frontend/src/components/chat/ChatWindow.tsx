@@ -1,17 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChatMessage, TypingIndicator } from "./ChatMessage";
 import { streamSSE, apiFetch } from "@/lib/api";
-import { V7Event } from "./v7/types";
-import { KGNode, KGEdge } from "./KGCascadeInline";
-
-export interface KGState {
-  nodes: KGNode[];
-  edges: KGEdge[];
-  centerEntityId?: string;
-  status: "traversing" | "done";
-}
 
 interface Message {
   role: "user" | "assistant";
@@ -22,8 +13,6 @@ interface Message {
     result?: string;
     status?: "running" | "done" | "error";
   }>;
-  kgData?: KGState;
-  v7Events?: V7Event[];
   time?: string;
 }
 
@@ -32,41 +21,6 @@ interface ChatWindowProps {
   onSessionCreated: (id: string) => void;
 }
 
-/* ─── Entity autocomplete types ──────────────────────────────────────── */
-
-interface EntityItem {
-  id: string;
-  label: string;
-  type: "Machine" | "Article" | "Order" | "Customer" | "Material";
-}
-
-const TYPE_BADGES: Record<string, { label: string; color: string }> = {
-  Machine: { label: "Maschine", color: "text-orange-400 bg-orange-400/10" },
-  Article: { label: "Artikel", color: "text-blue-400 bg-blue-400/10" },
-  Order: { label: "Auftrag", color: "text-emerald-400 bg-emerald-400/10" },
-  Customer: { label: "Kunde", color: "text-cyan-400 bg-cyan-400/10" },
-  Material: { label: "Material", color: "text-purple-400 bg-purple-400/10" },
-};
-
-// Words that trigger autocomplete (German + English)
-const TRIGGER_WORDS = [
-  "maschine", "machine", "anlage",
-  "artikel", "article", "teil", "part",
-  "auftrag", "order", "bestellung",
-  "kunde", "customer", "partner",
-  "material", "werkstoff", "rohstoff",
-  "werkzeug", "tool",
-  "oee", "kapazit",
-];
-
-// Prefixes that directly trigger autocomplete
-const ENTITY_PREFIXES = [
-  "SGM-", "CNC-", "DRH-", "FRS-", "SGF-", "BZ-", "MTG-",
-  "ART-", "FA-", "KD-", "WKZ-", "MAT-",
-];
-
-const MAX_HISTORY = 10;
-
 export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -74,25 +28,6 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
   const [showWelcome, setShowWelcome] = useState(true);
   const mainRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // ─── Message history (arrow up/down) ───────────────────────────────
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIdx, setHistoryIdx] = useState(-1);
-  const savedInput = useRef("");
-
-  // ─── Autocomplete ─────────────────────────────────────────────────
-  const [entities, setEntities] = useState<EntityItem[]>([]);
-  const [suggestions, setSuggestions] = useState<EntityItem[]>([]);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
-
-  // Load entities on mount
-  useEffect(() => {
-    apiFetch<{ entities: EntityItem[] }>("/chat/entities")
-      .then(({ entities }) => setEntities(entities))
-      .catch(() => {});
-  }, []);
 
   // Load session messages
   useEffect(() => {
@@ -126,109 +61,12 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
     }
   }, [messages, isLoading]);
 
-  // ─── Autocomplete matching ──────────────────────────────────────────
-  const computeSuggestions = useCallback(
-    (text: string) => {
-      if (!text || entities.length === 0) {
-        setShowSuggestions(false);
-        return;
-      }
-
-      // Get the last word/token being typed
-      const words = text.split(/\s+/);
-      const lastWord = words[words.length - 1];
-      if (!lastWord || lastWord.length < 2) {
-        setShowSuggestions(false);
-        return;
-      }
-
-      const lw = lastWord.toLowerCase();
-
-      // Check 1: Direct prefix match (e.g. "SGM-", "CNC-0")
-      const prefixMatch = ENTITY_PREFIXES.some(
-        (p) => lw.startsWith(p.toLowerCase()) || p.toLowerCase().startsWith(lw)
-      );
-
-      // Check 2: Trigger word anywhere in the current input
-      const textLower = text.toLowerCase();
-      const triggerMatch = TRIGGER_WORDS.some((tw) => textLower.includes(tw));
-
-      if (!prefixMatch && !triggerMatch) {
-        setShowSuggestions(false);
-        return;
-      }
-
-      // Filter entities matching the last word
-      const matches = entities.filter((e) => {
-        const idLower = e.id.toLowerCase();
-        const labelLower = e.label.toLowerCase();
-        return idLower.includes(lw) || labelLower.includes(lw) || lw.includes(idLower);
-      });
-
-      // If trigger word matched but no direct entity match on last word,
-      // show entities of the matching type
-      if (matches.length === 0 && triggerMatch && !prefixMatch) {
-        const typeMap: Record<string, string> = {
-          maschine: "Machine", machine: "Machine", anlage: "Machine",
-          artikel: "Article", article: "Article", teil: "Article", part: "Article",
-          auftrag: "Order", order: "Order", bestellung: "Order",
-          kunde: "Customer", customer: "Customer", partner: "Customer",
-          material: "Material", werkstoff: "Material", rohstoff: "Material",
-          werkzeug: "Material", tool: "Material",
-        };
-        const matchedTrigger = TRIGGER_WORDS.find((tw) => textLower.includes(tw));
-        const targetType = matchedTrigger ? typeMap[matchedTrigger] : null;
-        if (targetType) {
-          const typeMatches = entities
-            .filter((e) => e.type === targetType)
-            .slice(0, 8);
-          if (typeMatches.length > 0) {
-            setSuggestions(typeMatches);
-            setSelectedSuggestion(0);
-            setShowSuggestions(true);
-            return;
-          }
-        }
-      }
-
-      if (matches.length > 0 && matches.length <= 12) {
-        setSuggestions(matches.slice(0, 8));
-        setSelectedSuggestion(0);
-        setShowSuggestions(true);
-      } else {
-        setShowSuggestions(false);
-      }
-    },
-    [entities]
-  );
-
-  // ─── Apply suggestion ──────────────────────────────────────────────
-  const applySuggestion = useCallback(
-    (entity: EntityItem) => {
-      const words = input.split(/\s+/);
-      words[words.length - 1] = entity.id;
-      setInput(words.join(" ") + " ");
-      setShowSuggestions(false);
-      inputRef.current?.focus();
-    },
-    [input]
-  );
-
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
 
-    // Push to history
-    setHistory((prev) => {
-      const filtered = prev.filter((h) => h !== text);
-      return [text, ...filtered].slice(0, MAX_HISTORY);
-    });
-    setHistoryIdx(-1);
-    savedInput.current = "";
-
     setInput("");
     setShowWelcome(false);
-    setShowSuggestions(false);
     setIsLoading(true);
 
     const time = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -236,29 +74,6 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
 
     const pendingToolCalls: Message["toolCalls"] = [];
     let assistantContent = "";
-    let kgState: KGState | undefined;
-    const v7Events: V7Event[] = [];
-
-    // Helper: upsert the last assistant message
-    const upsertAssistant = (patch: Partial<Message>) => {
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last?.role === "assistant") {
-          updated[updated.length - 1] = { ...last, ...patch };
-        } else {
-          updated.push({
-            role: "assistant",
-            content: patch.content ?? "",
-            toolCalls: patch.toolCalls,
-            kgData: patch.kgData,
-            v7Events: patch.v7Events,
-            time,
-          });
-        }
-        return updated;
-      });
-    };
 
     try {
       for await (const event of streamSSE("/chat/completions", {
@@ -276,7 +91,27 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
               arguments: event.arguments,
               status: "running",
             });
-            upsertAssistant({ toolCalls: [...pendingToolCalls!] });
+            // Update message to show running tool
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastAssistant = updated.findIndex(
+                (m, i) => i === updated.length - 1 && m.role === "assistant"
+              );
+              if (lastAssistant === -1) {
+                updated.push({
+                  role: "assistant",
+                  content: "",
+                  toolCalls: [...pendingToolCalls!],
+                  time,
+                });
+              } else {
+                updated[lastAssistant] = {
+                  ...updated[lastAssistant],
+                  toolCalls: [...pendingToolCalls!],
+                };
+              }
+              return updated;
+            });
             break;
 
           case "tool_result": {
@@ -287,90 +122,40 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
               tc.result = event.result;
               tc.status = "done";
             }
-            upsertAssistant({ toolCalls: [...pendingToolCalls!] });
+            setMessages((prev) => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last?.role === "assistant") {
+                updated[updated.length - 1] = {
+                  ...last,
+                  toolCalls: [...pendingToolCalls!],
+                };
+              }
+              return updated;
+            });
             break;
           }
 
           case "content":
             assistantContent += event.text;
-            upsertAssistant({
-              content: assistantContent,
-              toolCalls: pendingToolCalls!.length > 0 ? [...pendingToolCalls!] : undefined,
+            setMessages((prev) => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last?.role === "assistant") {
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: assistantContent,
+                };
+              } else {
+                updated.push({
+                  role: "assistant",
+                  content: assistantContent,
+                  toolCalls: pendingToolCalls!.length > 0 ? [...pendingToolCalls!] : undefined,
+                  time,
+                });
+              }
+              return updated;
             });
-            break;
-
-          /* ── KG traversal events ────────────────────────────────── */
-          case "kg_traversal_start":
-            kgState = {
-              nodes: [],
-              edges: [],
-              centerEntityId: event.centerEntityId || event.entityId,
-              status: "traversing",
-            };
-            upsertAssistant({ kgData: { ...kgState } });
-            break;
-
-          case "kg_nodes_discovered": {
-            if (!kgState) {
-              kgState = { nodes: [], edges: [], status: "traversing" };
-            }
-            const newNodes: KGNode[] = (event.nodes || []).map((n: any) => ({
-              id: n.id,
-              label: n.label || n.id,
-              type: n.type || "Entity",
-            }));
-            const newEdges: KGEdge[] = (event.edges || []).map((e: any) => ({
-              from: e.from || e.source,
-              to: e.to || e.target,
-              label: e.label || e.type || "",
-            }));
-            kgState.nodes = [...kgState.nodes, ...newNodes];
-            kgState.edges = [...kgState.edges, ...newEdges];
-            upsertAssistant({ kgData: { ...kgState } });
-            break;
-          }
-
-          case "kg_traversal_end":
-            if (kgState) {
-              kgState.status = "done";
-              upsertAssistant({ kgData: { ...kgState } });
-            }
-            break;
-
-          /* ── V7 intent/specialist/discussion events ─────────────── */
-          case "intent_classification":
-          case "specialists_planned":
-          case "specialist_start":
-          case "specialist_complete":
-          case "specialist_error":
-          case "specialists_batch_start":
-          case "specialists_batch_complete":
-          case "discussion_round_start":
-          case "discussion_question":
-          case "discussion_answer":
-          case "discussion_recruit":
-          case "discussion_recruit_result":
-          case "discussion_round_complete":
-          case "discussion_synthesis_start":
-          case "debate_start":
-          case "debate_draft":
-          case "debate_critique":
-          case "debate_final":
-          case "plan":
-          case "step_start":
-          case "step_complete":
-          case "step_error":
-          case "thinking":
-          case "tool_call_start":
-          case "tool_call_end":
-          case "intermediate_result":
-          case "init":
-            v7Events.push(event as V7Event);
-            upsertAssistant({ v7Events: [...v7Events] });
-            break;
-
-          /* ── Ignored ────────────────────────────────────────────── */
-          case "heartbeat":
             break;
 
           case "error":
@@ -396,74 +181,10 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // ─── Suggestion navigation ───────────────────────────────────
-    if (showSuggestions && suggestions.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedSuggestion((prev) => (prev + 1) % suggestions.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedSuggestion((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-        return;
-      }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-        e.preventDefault();
-        applySuggestion(suggestions[selectedSuggestion]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setShowSuggestions(false);
-        return;
-      }
-    }
-
-    // ─── Message history (arrow up/down when no suggestions) ─────
-    if (e.key === "ArrowUp" && !e.shiftKey && !showSuggestions) {
-      // Only activate if cursor is at start of input
-      const textarea = inputRef.current;
-      if (textarea && textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
-        e.preventDefault();
-        if (history.length === 0) return;
-        if (historyIdx === -1) {
-          savedInput.current = input;
-        }
-        const newIdx = Math.min(historyIdx + 1, history.length - 1);
-        setHistoryIdx(newIdx);
-        setInput(history[newIdx]);
-      }
-      return;
-    }
-    if (e.key === "ArrowDown" && !e.shiftKey && !showSuggestions) {
-      const textarea = inputRef.current;
-      if (textarea && textarea.selectionStart === input.length) {
-        e.preventDefault();
-        if (historyIdx <= 0) {
-          setHistoryIdx(-1);
-          setInput(savedInput.current);
-          return;
-        }
-        const newIdx = historyIdx - 1;
-        setHistoryIdx(newIdx);
-        setInput(history[newIdx]);
-      }
-      return;
-    }
-
-    // ─── Send on Enter ───────────────────────────────────────────
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setInput(val);
-    setHistoryIdx(-1);
-    computeSuggestions(val);
   };
 
   return (
@@ -502,19 +223,19 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 max-w-[900px] w-full">
               {[
                 {
-                  icon: "\u{1F4CA}",
+                  icon: "📊",
                   title: "OEE Overview",
                   desc: "Check OEE metrics across all machines",
                   prompt: "Show me the current OEE for all machines",
                 },
                 {
-                  icon: "\u{1F4E6}",
+                  icon: "📦",
                   title: "Stock Check",
                   desc: "View material stock levels and shortages",
                   prompt: "Which materials are running low?",
                 },
                 {
-                  icon: "\u2699\uFE0F",
+                  icon: "⚙️",
                   title: "Capacity Status",
                   desc: "Analyze machine capacity and bottlenecks",
                   prompt: "Give me the current capacity overview",
@@ -551,8 +272,6 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
                 role={msg.role}
                 content={msg.content}
                 toolCalls={msg.toolCalls}
-                kgData={msg.kgData}
-                v7Events={msg.v7Events}
                 time={msg.time}
               />
             ))}
@@ -566,53 +285,11 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
         <div className="flex items-end gap-2.5 max-w-[900px] mx-auto">
           <div className="flex-1 relative">
             <div className="absolute inset-[-2px] rounded-[16px] bg-accent-gradient opacity-0 blur-[8px] pointer-events-none transition-opacity peer-focus:opacity-15" />
-
-            {/* Autocomplete dropdown */}
-            {showSuggestions && suggestions.length > 0 && (
-              <div
-                ref={suggestionsRef}
-                className="absolute bottom-full left-0 right-0 mb-1 rounded-md border border-border bg-bg-surface shadow-lg overflow-hidden z-50"
-              >
-                {suggestions.map((s, i) => {
-                  const badge = TYPE_BADGES[s.type] || { label: s.type, color: "text-text-dim bg-bg-surface-2" };
-                  return (
-                    <button
-                      key={`${s.type}-${s.id}`}
-                      onMouseDown={(e) => {
-                        e.preventDefault(); // prevent blur
-                        applySuggestion(s);
-                      }}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
-                        i === selectedSuggestion
-                          ? "bg-accent/10 text-text"
-                          : "text-text-muted hover:bg-bg-surface-2"
-                      }`}
-                    >
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badge.color}`}>
-                        {badge.label}
-                      </span>
-                      <span className="font-mono text-[13px]">{s.id}</span>
-                      {s.label !== s.id && (
-                        <span className="text-xs text-text-dim truncate">{s.label}</span>
-                      )}
-                    </button>
-                  );
-                })}
-                <div className="px-3 py-1 border-t border-border/50 text-[10px] text-text-dim">
-                  <kbd className="px-1 py-0.5 rounded bg-bg-surface-2 text-[10px]">Tab</kbd> or <kbd className="px-1 py-0.5 rounded bg-bg-surface-2 text-[10px]">Enter</kbd> to select &middot; <kbd className="px-1 py-0.5 rounded bg-bg-surface-2 text-[10px]">Esc</kbd> to dismiss
-                </div>
-              </div>
-            )}
-
             <textarea
               ref={inputRef}
               value={input}
-              onChange={handleInputChange}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              onBlur={() => {
-                // Delay to allow click on suggestion
-                setTimeout(() => setShowSuggestions(false), 150);
-              }}
               placeholder="Ask about OEE, stock levels, machine status..."
               rows={1}
               className="peer w-full px-5 py-3.5 rounded-md border border-border bg-bg-surface text-text text-sm resize-none min-h-[52px] max-h-[200px] focus:outline-none focus:border-accent focus:bg-bg-surface-2 transition-colors placeholder:text-text-dim"

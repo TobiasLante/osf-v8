@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { streamSSE, SSEEvent } from "@/lib/api";
-import { KGCascadeInline, KGNode, KGEdge } from "@/components/chat/KGCascadeInline";
+import { KGNode, KGEdge } from "@/components/chat/KGCascadeInline";
+import { KG3D } from "@/components/chat/KG3D";
 import { V7Event } from "@/components/chat/v7/types";
 import { useV7Events } from "@/components/chat/v7/useV7Events";
 import { SpecialistCard } from "@/components/chat/v7/SpecialistCard";
@@ -10,7 +11,7 @@ import { DiscussionThread } from "@/components/chat/v7/DiscussionThread";
 import { SynthesisCard } from "@/components/chat/v7/SynthesisCard";
 import { safeMarkdown } from "@/lib/markdown";
 import { mdClasses } from "@/components/chat/v7/types";
-import { LS_TOKEN } from "@/lib/constants";
+// LS_TOKEN used by streamSSE internally via api.ts
 import { useAuth } from "@/lib/auth-context";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -31,19 +32,22 @@ const DATA_SOURCES: DataSource[] = [
   { id: "mrp", label: "MRP", icon: "M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z", color: "#10b981" },
 ];
 
-interface SMProfile {
+interface KGTypeEntry {
   id: string;
   label: string;
   color: string;
 }
 
-const SM_PROFILES: SMProfile[] = [
-  { id: "asset", label: "Asset Profile", color: "#ff9500" },
-  { id: "oee", label: "OEE Profile", color: "#f59e0b" },
-  { id: "workorder", label: "Work Order Profile", color: "#3b82f6" },
-  { id: "customer", label: "Customer Profile", color: "#06b6d4" },
-  { id: "quality", label: "Quality Profile", color: "#a855f7" },
-  { id: "energy", label: "Energy Profile", color: "#22c55e" },
+const KG_TYPES: KGTypeEntry[] = [
+  { id: "machine", label: "Machine", color: "#ff9500" },
+  { id: "sensor", label: "Sensor", color: "#f59e0b" },
+  { id: "order", label: "Order", color: "#10b981" },
+  { id: "article", label: "Article", color: "#3b82f6" },
+  { id: "customer", label: "Customer", color: "#06b6d4" },
+  { id: "material", label: "Material", color: "#ec4899" },
+  { id: "tool", label: "Tool", color: "#eab308" },
+  { id: "process", label: "Process", color: "#a855f7" },
+  { id: "alternative", label: "Alternative", color: "#22c55e" },
 ];
 
 function matchToolToSources(toolName: string): string[] {
@@ -54,21 +58,36 @@ function matchToolToSources(toolName: string): string[] {
   if (/material|stock|bom|bestand|lager/.test(t)) { sources.push("erp", "mrp"); }
   if (/customer|kunde|delivery|liefertermin/.test(t)) { sources.push("erp"); }
   if (/quality|spc|scrap|ausschuss|qualit/.test(t)) { sources.push("bde"); }
-  if (/kg_|graph|traversal/.test(t)) { sources.push("uns"); }
+  // KG tools touch multiple sources — light them all up for demo effect
+  if (/kg_|graph|traversal|what_if|dependency|bottleneck|critical_path|energy_hotpath/.test(t)) {
+    sources.push("uns", "erp", "bde", "mrp");
+  }
+  if (/factory_get|factory_/.test(t)) { sources.push("erp", "bde"); }
   if (sources.length === 0) sources.push("erp"); // default
-  return [...new Set(sources)];
+  return Array.from(new Set(sources));
 }
 
-function matchToolToProfiles(toolName: string): string[] {
+function matchToolToKgTypes(toolName: string): string[] {
   const t = toolName.toLowerCase();
-  const profiles: string[] = [];
-  if (/machine|maschine|asset|anlage|sensor/.test(t)) profiles.push("asset");
-  if (/oee|availability|performance|verfügbarkeit|leistung/.test(t)) profiles.push("oee");
-  if (/order|auftrag|work.?order|fertigung/.test(t)) profiles.push("workorder");
-  if (/customer|kunde|delivery|liefertermin/.test(t)) profiles.push("customer");
-  if (/quality|spc|scrap|ausschuss|qualit/.test(t)) profiles.push("quality");
-  if (/energy|energie|strom|power/.test(t)) profiles.push("energy");
-  return [...new Set(profiles)];
+  const types: string[] = [];
+  if (/machine|maschine|asset|anlage|status/.test(t)) types.push("machine");
+  if (/sensor/.test(t)) types.push("sensor");
+  if (/oee|availability|performance/.test(t)) types.push("machine", "sensor");
+  if (/order|auftrag|work.?order|fertigung|schedule/.test(t)) types.push("order");
+  if (/customer|kunde|delivery|liefertermin/.test(t)) types.push("customer");
+  if (/quality|spc|scrap|ausschuss|qualit/.test(t)) types.push("process");
+  if (/material|stock|bom|bestand|lager/.test(t)) types.push("material");
+  if (/energy|energie|strom|power|hotpath/.test(t)) types.push("machine", "process");
+  if (/article|artikel|teil|part/.test(t)) types.push("article");
+  if (/tool|werkzeug/.test(t)) types.push("tool");
+  if (/alternative|replace|ersatz/.test(t)) types.push("alternative");
+  // KG tools activate multiple types
+  if (/kg_what_if.*machine|kg_dependency/.test(t)) types.push("machine", "order", "article");
+  if (/kg_bottleneck|kg_critical_path/.test(t)) types.push("order", "machine", "process");
+  if (/kg_energy/.test(t)) types.push("machine", "process");
+  if (/factory_get_machine/.test(t)) types.push("machine");
+  if (/factory_get_order|factory_get_customer/.test(t)) types.push("order", "customer");
+  return Array.from(new Set(types));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -414,7 +433,7 @@ export default function FomiPage() {
 
   /* ── i3X Panel state ───────────────────────────────────────────────── */
   const [activeSources, setActiveSources] = useState<Set<string>>(new Set());
-  const [activeProfiles, setActiveProfiles] = useState<Set<string>>(new Set());
+  const [activeKgTypes, setActiveKgTypes] = useState<Set<string>>(new Set());
   const [kgNodes, setKgNodes] = useState<KGNode[]>([]);
   const [kgEdges, setKgEdges] = useState<KGEdge[]>([]);
   const [kgCenter, setKgCenter] = useState<string | undefined>();
@@ -460,16 +479,16 @@ export default function FomiPage() {
   const processToolForI3X = useCallback((toolName: string) => {
     const sources = matchToolToSources(toolName);
     sources.forEach(activateSource);
-    const profiles = matchToolToProfiles(toolName);
-    profiles.forEach((p) => setActiveProfiles((prev) => new Set(prev).add(p)));
+    const kgTypes = matchToolToKgTypes(toolName);
+    kgTypes.forEach((t) => setActiveKgTypes((prev) => new Set(prev).add(t)));
   }, [activateSource]);
 
   /* ── Extract impact stats from assistant content ───────────────────── */
   const extractImpactStats = useCallback((content: string) => {
     const orderMatches = content.match(/FA-\d{4,}/g);
-    if (orderMatches) setImpactOrders((prev) => [...new Set([...prev, ...orderMatches])]);
+    if (orderMatches) setImpactOrders((prev) => Array.from(new Set([...prev, ...orderMatches])));
     const custMatches = content.match(/KD-\d{3,}/g);
-    if (custMatches) setImpactCustomers((prev) => [...new Set([...prev, ...custMatches])]);
+    if (custMatches) setImpactCustomers((prev) => Array.from(new Set([...prev, ...custMatches])));
     const costMatch = content.match(/(\d[\d.,]*)\s*€\s*\/?\s*h/i) || content.match(/€\s*(\d[\d.,]*)/);
     if (costMatch) setImpactCost(costMatch[0]);
   }, []);
@@ -521,7 +540,10 @@ export default function FomiPage() {
         case "kg_traversal_start":
           setKgStatus("traversing");
           setKgCenter(event.centerEntityId || event.entityId);
-          activateSource("uns");
+          // Light up ALL data sources — KG queries span the entire factory
+          ["uns", "erp", "bde", "mrp"].forEach(activateSource);
+          // Activate base KG types
+          setActiveKgTypes((prev) => { const n = new Set(prev); n.add("machine"); n.add("sensor"); return n; });
           break;
 
         case "kg_nodes_discovered": {
@@ -529,12 +551,33 @@ export default function FomiPage() {
           const newE: KGEdge[] = (event.edges || []).map((e: any) => ({ from: e.from || e.source, to: e.to || e.target, label: e.label || e.type || "" }));
           setKgNodes((prev) => [...prev, ...newN]);
           setKgEdges((prev) => [...prev, ...newE]);
+          // Activate KG types based on discovered node types
+          const discoveredTypes = new Set(newN.map((n) => n.type.toLowerCase()));
+          discoveredTypes.forEach((dt) => setActiveKgTypes((prev) => new Set(prev).add(dt)));
+          // Re-pulse data sources on each batch
+          ["uns", "erp"].forEach(activateSource);
           break;
         }
 
         case "kg_traversal_end":
           setKgStatus("done");
           break;
+
+        case "kg_summary": {
+          // Discussion runner sends this — extract nodes/edges if we don't have them yet
+          const sumNodes: KGNode[] = (event.nodes || []).map((n: any) => ({ id: n.id, label: n.label || n.id, type: n.type || "Entity" }));
+          const sumEdges: KGEdge[] = (event.edges || []).map((e: any) => ({ from: e.from || e.source, to: e.to || e.target, label: e.label || e.type || "" }));
+          if (sumNodes.length > 0) {
+            setKgNodes((prev) => prev.length === 0 ? sumNodes : prev);
+            setKgEdges((prev) => prev.length === 0 ? sumEdges : prev);
+          }
+          if (event.centerEntity) setKgCenter(typeof event.centerEntity === "string" ? event.centerEntity : event.centerEntity.id);
+          // Activate KG types based on stats
+          if (event.stats?.affectedOrders > 0) setActiveKgTypes((prev) => new Set(prev).add("order"));
+          if (event.stats?.affectedCustomers > 0) setActiveKgTypes((prev) => new Set(prev).add("customer"));
+          if (event.stats?.alternatives > 0) setActiveKgTypes((prev) => new Set(prev).add("alternative"));
+          break;
+        }
 
         case "done":
           break;
@@ -751,13 +794,13 @@ export default function FomiPage() {
                         {msg.toolCalls && msg.toolCalls.length > 0 && (
                           <div className="space-y-1">
                             {msg.toolCalls.map((tc, j) => (
-                              <div key={j} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs">
+                              <div key={j} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm">
                                 {tc.status === "running" ? (
-                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
                                 ) : (
-                                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                                 )}
-                                <span className="font-mono text-amber-400">{tc.name}</span>
+                                <span className="font-mono text-amber-400/90">{tc.name}</span>
                               </div>
                             ))}
                           </div>
@@ -777,17 +820,17 @@ export default function FomiPage() {
                 {streaming && (
                   <div className="space-y-2">
                     {activityHint && (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs text-white/30 animate-pulse">
-                        <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white/70">
+                        <svg className="w-4 h-4 animate-spin text-[#ff9500]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93" />
                         </svg>
                         {activityHint}
                       </div>
                     )}
-                    <div className="flex items-center gap-1.5 px-2 py-3">
-                      <div className="w-2 h-2 rounded-full bg-[#ff9500] animate-bounce [animation-delay:0ms]" />
-                      <div className="w-2 h-2 rounded-full bg-[#ff9500] animate-bounce [animation-delay:200ms]" />
-                      <div className="w-2 h-2 rounded-full bg-[#ff9500] animate-bounce [animation-delay:400ms]" />
+                    <div className="flex items-center gap-2 px-2 py-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:0ms]" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:200ms]" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:400ms]" />
                     </div>
                   </div>
                 )}
@@ -831,8 +874,8 @@ export default function FomiPage() {
               {/* ── Data Sources ──────────────────────────────────────── */}
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Interoperability</span>
-                  <span className="text-[10px] text-white/20">-- Data Sources</span>
+                  <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Interoperability</span>
+                  <span className="text-xs text-white/40">— Data Sources</span>
                 </div>
                 <div className="grid grid-cols-4 gap-3">
                   {DATA_SOURCES.map((src) => {
@@ -861,8 +904,8 @@ export default function FomiPage() {
                           <path d={src.icon} />
                         </svg>
                         <span
-                          className="text-xs font-semibold transition-all duration-500"
-                          style={{ color: isActive ? src.color : "rgba(255,255,255,0.3)" }}
+                          className="text-sm font-semibold transition-all duration-500"
+                          style={{ color: isActive ? src.color : "rgba(255,255,255,0.45)" }}
                         >
                           {src.label}
                         </span>
@@ -875,45 +918,45 @@ export default function FomiPage() {
                 </div>
               </div>
 
-              {/* ── SM Profiles ───────────────────────────────────────── */}
+              {/* ── KG Type System ────────────────────────────────────── */}
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Integration</span>
-                  <span className="text-[10px] text-white/20">-- CESMII SM Profiles</span>
+                  <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Integration</span>
+                  <span className="text-xs text-white/40">— Knowledge Graph Types</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {SM_PROFILES.map((p) => {
-                    const isActive = activeProfiles.has(p.id);
+                  {KG_TYPES.map((t) => {
+                    const isActive = activeKgTypes.has(t.id);
                     return (
                       <div
-                        key={p.id}
-                        className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all duration-700 ${
+                        key={t.id}
+                        className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition-all duration-700 ${
                           isActive
                             ? "border-white/20 scale-100 opacity-100"
-                            : "border-transparent scale-95 opacity-30"
+                            : "border-white/[0.06] scale-95 opacity-50"
                         }`}
                         style={{
-                          color: isActive ? p.color : "rgba(255,255,255,0.3)",
-                          backgroundColor: isActive ? `${p.color}15` : "transparent",
-                          borderColor: isActive ? `${p.color}40` : "transparent",
+                          color: isActive ? t.color : "rgba(255,255,255,0.45)",
+                          backgroundColor: isActive ? `${t.color}15` : "transparent",
+                          borderColor: isActive ? `${t.color}40` : "transparent",
                         }}
                       >
-                        {p.label}
+                        {t.label}
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              {/* ── Knowledge Graph ────────────────────────────────────── */}
+              {/* ── Knowledge Graph (3D) ─────────────────────────────── */}
               {kgNodes.length > 0 && (
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
                   <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-                    <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Intelligence</span>
-                    <span className="text-[10px] text-white/20">-- Knowledge Graph</span>
-                    <span className="ml-auto text-[10px] text-white/30">{kgNodes.length} nodes, {kgEdges.length} edges</span>
+                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Intelligence</span>
+                    <span className="text-xs text-white/40">— Knowledge Graph</span>
+                    <span className="ml-auto text-xs text-white/50">{kgNodes.length} nodes, {kgEdges.length} edges</span>
                   </div>
-                  <KGCascadeInline nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} />
+                  <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={380} />
                 </div>
               )}
 
@@ -949,14 +992,14 @@ export default function FomiPage() {
               )}
 
               {/* Placeholder when no data yet */}
-              {kgNodes.length === 0 && impactOrders.length === 0 && activeProfiles.size === 0 && (
-                <div className="flex flex-col items-center justify-center h-[60%] text-center opacity-30">
-                  <svg className="w-20 h-20 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+              {kgNodes.length === 0 && impactOrders.length === 0 && activeKgTypes.size === 0 && (
+                <div className="flex flex-col items-center justify-center h-[60%] text-center">
+                  <svg className="w-20 h-20 mb-4 text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
                     <path d="M8 12l2 2 4-4" />
                   </svg>
-                  <p className="text-sm">Ask a question to see i3X insights light up</p>
-                  <p className="text-xs mt-1">Data sources, SM profiles, and the knowledge graph will activate in real-time</p>
+                  <p className="text-base text-white/50">Ask a question to see i3X insights light up</p>
+                  <p className="text-sm mt-1 text-white/30">Data sources, SM profiles, and the knowledge graph will activate in real-time</p>
                 </div>
               )}
             </div>
