@@ -11,6 +11,7 @@ import { SynthesisCard } from "@/components/chat/v7/SynthesisCard";
 import { safeMarkdown } from "@/lib/markdown";
 import { mdClasses } from "@/components/chat/v7/types";
 import { LS_TOKEN } from "@/lib/constants";
+import { useAuth } from "@/lib/auth-context";
 
 /* ═══════════════════════════════════════════════════════════════════════
    i3X DATA SOURCE & SM PROFILE MAPPING
@@ -277,8 +278,48 @@ interface ChatMsg {
    ═══════════════════════════════════════════════════════════════════════ */
 
 export default function FomiPage() {
+  /* ── Auth (for admin-only record button) ───────────────────────────── */
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
   /* ── Act switching ─────────────────────────────────────────────────── */
   const [act, setAct] = useState<"impact" | "discussion">("impact");
+
+  /* ── Recording mode (admin only) ───────────────────────────────────── */
+  const [recording, setRecording] = useState(false);
+  const recordedChatEvents = useRef<Array<{ _delay: number } & Record<string, any>>>([]);
+  const recordedDiscussionEvents = useRef<Array<{ _delay: number } & Record<string, any>>>([]);
+  const recordingStart = useRef(0);
+
+  const startRecording = useCallback(() => {
+    recordedChatEvents.current = [];
+    recordedDiscussionEvents.current = [];
+    recordingStart.current = Date.now();
+    setRecording(true);
+  }, []);
+
+  const recordEvent = useCallback((event: SSEEvent, target: "chat" | "discussion") => {
+    if (!recording) return;
+    const delay = Date.now() - recordingStart.current;
+    const buf = target === "chat" ? recordedChatEvents : recordedDiscussionEvents;
+    buf.current.push({ _delay: delay, ...event });
+  }, [recording]);
+
+  const downloadRecording = useCallback(() => {
+    const data = {
+      recordedAt: new Date().toISOString(),
+      chatEvents: recordedChatEvents.current,
+      discussionEvents: recordedDiscussionEvents.current,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fomi-recording-${new Date().toISOString().slice(0, 16).replace(/:/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setRecording(false);
+  }, []);
 
   /* ── Fallback mode (Feature A) — triple-click logo ─────────────────── */
   const [fallbackMode, setFallbackMode] = useState(false);
@@ -427,6 +468,7 @@ export default function FomiPage() {
 
     for await (const event of eventSource) {
       touchActivity();
+      recordEvent(event, "chat");
 
       switch (event.type) {
         case "tool_start":
@@ -530,6 +572,7 @@ export default function FomiPage() {
 
       for await (const event of source) {
         touchActivity();
+        recordEvent(event, "discussion");
         setV7Events((prev) => [...prev, event as V7Event]);
         if (event.type === "done" || event.type === "error") break;
       }
@@ -598,6 +641,21 @@ export default function FomiPage() {
               Expert Discussion
             </button>
           </div>
+
+          {/* Record button — admin only */}
+          {isAdmin && (
+            <button
+              onClick={recording ? downloadRecording : startRecording}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                recording
+                  ? "border-red-500/40 bg-red-500/10 text-red-400"
+                  : "border-white/10 bg-white/[0.03] text-white/50 hover:text-white/80"
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${recording ? "bg-red-500 animate-pulse" : "bg-white/30"}`} />
+              {recording ? "Save Recording" : "Record"}
+            </button>
+          )}
 
           {/* i3X badge */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03]">
