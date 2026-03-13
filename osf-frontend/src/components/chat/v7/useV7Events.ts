@@ -49,7 +49,6 @@ export function useV7Events(events: V7Event[]): V7DerivedState {
         existing.report = sResult?.report || sResult;
         existing.duration = sResult?.durationMs || ev.duration;
       } else {
-        // Specialist was never seen via specialist_start — add it directly
         specialists.set(key, { name: sResult?.displayName || sResult?.name || key, status: 'done', report: sResult?.report || sResult, duration: sResult?.durationMs || ev.duration });
       }
     }
