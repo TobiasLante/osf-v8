@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import mqtt from 'mqtt';
 import jwt from 'jsonwebtoken';

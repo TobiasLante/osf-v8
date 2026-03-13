@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: osf-kg-agent
-  namespace: osf-v9
+  namespace: osf
   labels:
     app: osf-kg-agent
     version: v9
@@ -56,7 +56,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: osf-kg-agent
-  namespace: osf-v9
+  namespace: osf
   labels:
     app: osf-kg-agent
 spec:

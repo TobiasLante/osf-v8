@@ -1,10 +1,13 @@
 FROM node:20-alpine
 
+RUN adduser -D -u 1000 appuser
+
 WORKDIR /app
 COPY package.json tsconfig.json ./
 RUN npm install --production
 COPY src/ ./src/
 
+USER appuser
 EXPOSE 8031
 
 CMD ["npx", "tsx", "src/index.ts"]
