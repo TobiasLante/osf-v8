@@ -219,6 +219,8 @@ const FALLBACK_DISCUSSION_EVENTS: FallbackEvent[] = [
   { _delay: 24000, type: "done", message: "Impact analysis complete", duration: 24000 },
 ];
 
+const LS_FALLBACK_KEY = "fomi_recorded_fallback";
+
 /** Play fallback events with realistic timing */
 async function* playFallbackEvents(events: FallbackEvent[]): AsyncGenerator<SSEEvent> {
   let lastDelay = 0;
@@ -229,6 +231,19 @@ async function* playFallbackEvents(events: FallbackEvent[]): AsyncGenerator<SSEE
     const { _delay, ...event } = ev;
     yield event;
   }
+}
+
+/** Load recorded fallback from localStorage (overrides hardcoded if present) */
+function loadRecordedFallback(): { chat: FallbackEvent[]; discussion: FallbackEvent[] } | null {
+  try {
+    const raw = localStorage.getItem(LS_FALLBACK_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data.chatEvents?.length > 0 || data.discussionEvents?.length > 0) {
+      return { chat: data.chatEvents || [], discussion: data.discussionEvents || [] };
+    }
+  } catch {}
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -287,9 +302,22 @@ export default function FomiPage() {
 
   /* ── Recording mode (admin only) ───────────────────────────────────── */
   const [recording, setRecording] = useState(false);
+  const [hasRecordedFallback, setHasRecordedFallback] = useState(false);
   const recordedChatEvents = useRef<Array<{ _delay: number } & Record<string, any>>>([]);
   const recordedDiscussionEvents = useRef<Array<{ _delay: number } & Record<string, any>>>([]);
   const recordingStart = useRef(0);
+  const liveFallbackChat = useRef<FallbackEvent[]>([]);
+  const liveFallbackDiscussion = useRef<FallbackEvent[]>([]);
+
+  // Load recorded fallback from localStorage on mount
+  useEffect(() => {
+    const saved = loadRecordedFallback();
+    if (saved) {
+      liveFallbackChat.current = saved.chat;
+      liveFallbackDiscussion.current = saved.discussion;
+      setHasRecordedFallback(true);
+    }
+  }, []);
 
   const startRecording = useCallback(() => {
     recordedChatEvents.current = [];
@@ -305,19 +333,19 @@ export default function FomiPage() {
     buf.current.push({ _delay: delay, ...event });
   }, [recording]);
 
-  const downloadRecording = useCallback(() => {
+  const stopRecording = useCallback(() => {
+    // Save to localStorage + set as active fallback — ready for triple-click
     const data = {
       recordedAt: new Date().toISOString(),
       chatEvents: recordedChatEvents.current,
       discussionEvents: recordedDiscussionEvents.current,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `fomi-recording-${new Date().toISOString().slice(0, 16).replace(/:/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      localStorage.setItem(LS_FALLBACK_KEY, JSON.stringify(data));
+    } catch {}
+    liveFallbackChat.current = recordedChatEvents.current as FallbackEvent[];
+    liveFallbackDiscussion.current = recordedDiscussionEvents.current as FallbackEvent[];
+    setHasRecordedFallback(true);
     setRecording(false);
   }, []);
 
@@ -533,8 +561,9 @@ export default function FomiPage() {
 
     try {
       if (fallbackMode) {
-        // Feature A: Play pre-recorded events
-        await processChatStream(playFallbackEvents(FALLBACK_CHAT_EVENTS));
+        // Feature A: Play recorded events (live recording if available, else hardcoded)
+        const fbEvents = liveFallbackChat.current.length > 0 ? liveFallbackChat.current : FALLBACK_CHAT_EVENTS;
+        await processChatStream(playFallbackEvents(fbEvents));
       } else {
         // Live mode with auto-reconnect (Feature C)
         await processChatStream(streamSSEWithRetry("/chat/completions", { message: text }));
@@ -543,7 +572,8 @@ export default function FomiPage() {
       // If live failed, auto-fallback
       if (!fallbackMode) {
         console.warn("Live stream failed, switching to fallback:", err.message);
-        await processChatStream(playFallbackEvents(FALLBACK_CHAT_EVENTS));
+        const fbEvents = liveFallbackChat.current.length > 0 ? liveFallbackChat.current : FALLBACK_CHAT_EVENTS;
+        await processChatStream(playFallbackEvents(fbEvents));
       } else {
         setMessages((prev) => [...prev, { role: "assistant", content: `Connection error: ${err.message}` }]);
       }
@@ -564,8 +594,9 @@ export default function FomiPage() {
     startDeadAirWatch();
 
     try {
+      const fbDisc = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
       const source = fallbackMode
-        ? playFallbackEvents(FALLBACK_DISCUSSION_EVENTS)
+        ? playFallbackEvents(fbDisc)
         : streamSSEWithRetry("/agents/run/impact-analysis", {
             question: messages[0]?.content || "What happens if SGM-004 goes down right now?",
           });
@@ -580,8 +611,9 @@ export default function FomiPage() {
       // Auto-fallback on failure
       if (!fallbackMode) {
         console.warn("Live discussion failed, switching to fallback:", err.message);
+        const fbDiscFallback = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
         setV7Events([]);
-        for await (const event of playFallbackEvents(FALLBACK_DISCUSSION_EVENTS)) {
+        for await (const event of playFallbackEvents(fbDiscFallback)) {
           touchActivity();
           setV7Events((prev) => [...prev, event as V7Event]);
           if (event.type === "done") break;
@@ -645,15 +677,19 @@ export default function FomiPage() {
           {/* Record button — admin only */}
           {isAdmin && (
             <button
-              onClick={recording ? downloadRecording : startRecording}
+              onClick={recording ? stopRecording : startRecording}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
                 recording
                   ? "border-red-500/40 bg-red-500/10 text-red-400"
-                  : "border-white/10 bg-white/[0.03] text-white/50 hover:text-white/80"
+                  : hasRecordedFallback
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    : "border-white/10 bg-white/[0.03] text-white/50 hover:text-white/80"
               }`}
             >
-              <span className={`w-2 h-2 rounded-full ${recording ? "bg-red-500 animate-pulse" : "bg-white/30"}`} />
-              {recording ? "Save Recording" : "Record"}
+              <span className={`w-2 h-2 rounded-full ${
+                recording ? "bg-red-500 animate-pulse" : hasRecordedFallback ? "bg-emerald-400" : "bg-white/30"
+              }`} />
+              {recording ? "Stop & Save" : hasRecordedFallback ? "Re-Record" : "Record"}
             </button>
           )}
 
