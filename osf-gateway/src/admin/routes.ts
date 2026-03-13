@@ -909,24 +909,25 @@ router.all('/historian/*', async (req: Request, res: Response) => {
 router.get('/agents/status', async (_req: Request, res: Response) => {
   const agents: any[] = [];
 
-  // 1. KG Agent status (runs in-process)
+  // 1. KG Agent status (external service — v9)
+  const kgAgentUrl = process.env.KG_AGENT_URL || 'http://osf-kg-agent:8032';
   try {
-    const { getKgAgentStats } = await import('../kg-agent/index');
-    const stats = getKgAgentStats();
-    agents.push({
-      name: 'KG Agent',
-      type: 'in-process',
-      description: 'Auto-discovers machines/sensors from MQTT UNS → Apache AGE graph',
-      status: stats ? 'running' : 'stopped',
-      ...stats,
-    });
-  } catch {
-    agents.push({
-      name: 'KG Agent',
-      type: 'in-process',
-      status: 'unknown',
-      error: 'Could not load KG Agent module',
-    });
+    const r = await fetch(`${kgAgentUrl}/stats`, { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const stats: Record<string, unknown> = await r.json() as Record<string, unknown>;
+      agents.push({
+        name: 'KG Agent',
+        type: 'service',
+        description: 'Auto-discovers machines/sensors from MQTT UNS → Apache AGE graph',
+        status: 'running',
+        url: kgAgentUrl,
+        ...stats,
+      });
+    } else {
+      agents.push({ name: 'KG Agent', type: 'service', status: 'error', url: kgAgentUrl, error: `HTTP ${r.status}` });
+    }
+  } catch (err: any) {
+    agents.push({ name: 'KG Agent', type: 'service', status: 'offline', url: kgAgentUrl, error: err.message });
   }
 
   // 2. Historian status (external service)
@@ -950,7 +951,49 @@ router.get('/agents/status', async (_req: Request, res: Response) => {
     agents.push({ name: 'Historian', type: 'service', status: 'offline', url: historianUrl, error: err.message });
   }
 
-  // 3. MCP servers from registry
+  // 3. UNS Stream status (external service — v9)
+  const unsStreamUrl = process.env.UNS_STREAM_URL || 'http://osf-uns-stream:8033';
+  try {
+    const r = await fetch(`${unsStreamUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const data: Record<string, unknown> = await r.json() as Record<string, unknown>;
+      agents.push({
+        name: 'UNS Stream',
+        type: 'service',
+        description: 'MQTT → SSE live stream + topic cache',
+        status: 'running',
+        url: unsStreamUrl,
+        ...data,
+      });
+    } else {
+      agents.push({ name: 'UNS Stream', type: 'service', status: 'error', url: unsStreamUrl, error: `HTTP ${r.status}` });
+    }
+  } catch (err: any) {
+    agents.push({ name: 'UNS Stream', type: 'service', status: 'offline', url: unsStreamUrl, error: err.message });
+  }
+
+  // 4. MCP Proxy status (external service — v9)
+  const mcpProxyUrl = process.env.MCP_PROXY_URL || 'http://osf-mcp-proxy:8034';
+  try {
+    const r = await fetch(`${mcpProxyUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const data: Record<string, unknown> = await r.json() as Record<string, unknown>;
+      agents.push({
+        name: 'MCP Proxy',
+        type: 'service',
+        description: 'JSON-RPC proxy to Factory/Historian MCP servers',
+        status: 'running',
+        url: mcpProxyUrl,
+        ...data,
+      });
+    } else {
+      agents.push({ name: 'MCP Proxy', type: 'service', status: 'error', url: mcpProxyUrl, error: `HTTP ${r.status}` });
+    }
+  } catch (err: any) {
+    agents.push({ name: 'MCP Proxy', type: 'service', status: 'offline', url: mcpProxyUrl, error: err.message });
+  }
+
+  // 5. MCP servers from registry
   try {
     const result = await pool.query(
       "SELECT name, url, status, tool_count, health_check_at, error_message FROM mcp_servers ORDER BY name"

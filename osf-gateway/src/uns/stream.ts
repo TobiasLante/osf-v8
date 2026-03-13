@@ -127,10 +127,47 @@ router.get('/stream', (req: Request, res: Response) => {
 // GET /uns/snapshot — returns last known values for all topics (quick overview)
 const topicCache = new Map<string, { payload: string; ts: number }>();
 
+// Load active subscriptions from Historian API
+const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://localhost:8030';
+let cachedSubscriptions: string[] = ['Factory/#']; // fallback
+
+async function loadSubscriptionsFromHistorian(): Promise<void> {
+  try {
+    const resp = await fetch(`${HISTORIAN_URL}/profiles`, { signal: AbortSignal.timeout(5_000) });
+    if (!resp.ok) return;
+    const data = await resp.json() as { profiles?: Array<{ enabled: boolean; subscription: string }> };
+    if (data.profiles && data.profiles.length > 0) {
+      const subs = [...new Set(data.profiles.filter((p: any) => p.enabled).map((p: any) => p.subscription))];
+      if (subs.length > 0) cachedSubscriptions = subs as string[];
+    }
+  } catch {
+    // Keep fallback
+  }
+}
+
 // Keep a cache of recent messages
 function initCache() {
   const client = getClient();
-  client.subscribe('Factory/#', { qos: 0 });
+
+  // Subscribe to all active profile subscriptions
+  loadSubscriptionsFromHistorian().then(() => {
+    for (const sub of cachedSubscriptions) {
+      client.subscribe(sub, { qos: 0 });
+    }
+  });
+
+  // Reload subscriptions periodically
+  setInterval(async () => {
+    const oldSubs = [...cachedSubscriptions];
+    await loadSubscriptionsFromHistorian();
+    // Subscribe to new, unsubscribe from removed
+    for (const sub of cachedSubscriptions) {
+      if (!oldSubs.includes(sub)) client.subscribe(sub, { qos: 0 });
+    }
+    for (const sub of oldSubs) {
+      if (!cachedSubscriptions.includes(sub)) client.unsubscribe(sub);
+    }
+  }, 30_000);
 
   client.on('message', (topic, payload) => {
     topicCache.set(topic, { payload: payload.toString(), ts: Date.now() });

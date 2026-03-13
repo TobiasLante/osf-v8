@@ -4,6 +4,7 @@
 import { initSchema, cleanupWithDropChunks } from './db.js';
 import { initDiskBuffer, replayPendingBatches, removeFlushedBatches } from './disk-buffer.js';
 import { loadRoutes, startHotReload, stopHotReload } from './config-manager.js';
+import { loadProfiles, startProfileReload, stopProfileReload } from './topic-profiles.js';
 import { replayBatch, startLegacyFlush, flushAll, stopAll, getFlushStats } from './flush-engine.js';
 import { start as startSubscriber, stop as stopSubscriber, getSubscriberStats } from './subscriber.js';
 import { startMcpServer } from './mcp-server.js';
@@ -20,9 +21,11 @@ async function main(): Promise<void> {
   // 2. Init DB schema (creates tables, seeds default routes)
   await initSchema();
 
-  // 3. Load routes into memory
+  // 3. Load routes + topic profiles into memory
   await loadRoutes();
   startHotReload();
+  await loadProfiles();
+  startProfileReload();
 
   // 4. Replay disk buffer (crash recovery)
   const pendingBatches = await replayPendingBatches();
@@ -71,6 +74,7 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     console.log('[historian] Shutting down...');
     stopHotReload();
+    stopProfileReload();
     await stopSubscriber();
     await flushAll();
     stopAll();

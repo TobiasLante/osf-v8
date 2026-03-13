@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-mcp-proxy
+  namespace: osf-v9
+  labels:
+    app: osf-mcp-proxy
+    version: v9
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-mcp-proxy
+  template:
+    metadata:
+      labels:
+        app: osf-mcp-proxy
+        version: v9
+    spec:
+      containers:
+        - name: mcp-proxy
+          image: 192.168.178.150:32000/osf-mcp-proxy:v9
+          ports:
+            - containerPort: 8034
+          envFrom:
+            - configMapRef:
+                name: osf-config
+            - secretRef:
+                name: osf-secrets
+          env:
+            - name: PORT
+              value: "8034"
+            - name: GATEWAY_URL
+              value: "http://osf-gateway:8012"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8034
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8034
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-mcp-proxy
+  namespace: osf-v9
+  labels:
+    app: osf-mcp-proxy
+spec:
+  selector:
+    app: osf-mcp-proxy
+  ports:
+    - port: 8034
+      targetPort: 8034
+      protocol: TCP

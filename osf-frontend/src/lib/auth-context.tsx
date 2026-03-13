@@ -53,35 +53,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
     const stored = localStorage.getItem(LS_TOKEN);
     if (stored) {
       setToken(stored);
-      apiFetch<{ user: User }>("/auth/me")
+      apiFetch<{ user: User }>("/auth/me", { signal: controller.signal })
         .then(({ user }) => {
+          if (controller.signal.aborted) return;
           setUser(user);
           // apiFetch may have auto-refreshed an expired token — sync state with localStorage
           const currentToken = localStorage.getItem(LS_TOKEN);
           if (currentToken && currentToken !== stored) setToken(currentToken);
         })
-        .catch(async () => {
+        .catch(async (err) => {
+          if (controller.signal.aborted) return;
           // Token might be expired — try refresh
           const newToken = await refreshAccessToken();
+          if (controller.signal.aborted) return;
           if (newToken) {
             setToken(newToken);
             try {
-              const { user } = await apiFetch<{ user: User }>("/auth/me");
+              const { user } = await apiFetch<{ user: User }>("/auth/me", { signal: controller.signal });
+              if (controller.signal.aborted) return;
               setUser(user);
             } catch {
-              clearAuth();
+              if (!controller.signal.aborted) clearAuth();
             }
           } else {
             clearAuth();
           }
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
     } else {
       setLoading(false);
     }
+    return () => controller.abort();
   }, []);
 
   const clearAuth = useCallback(() => {

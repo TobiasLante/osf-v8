@@ -43,6 +43,22 @@ body {
   color: var(--text);
 }
 
+/* Dark-theme defaults for all form elements */
+input, select, textarea {
+  background-color: var(--bg-surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-dim);
+}
+
+select option {
+  background-color: var(--bg-surface);
+  color: var(--text);
+}
+
 /* Scroll reveal animations */
 .scroll-hidden {
   opacity: 0;

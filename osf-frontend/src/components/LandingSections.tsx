@@ -307,14 +307,21 @@ export function LandingSections() {
             </div>
           </ScrollReveal>
 
-          {/* UNS Live Link */}
+          {/* UNS + i3X Links */}
           <ScrollReveal delay={250}>
-            <div className="mt-8 text-center">
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <a
                 href="/uns"
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-md border border-accent/30 bg-accent/5 text-sm text-accent hover:bg-accent/10 hover:-translate-y-0.5 transition-all"
               >
-                <span>Explore the Live Data</span>
+                <span>Explore Live UNS Data</span>
+                <span>&rarr;</span>
+              </a>
+              <a
+                href="/i3x"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-md border border-border bg-bg-surface text-sm text-text-muted hover:border-accent/25 hover:text-accent hover:-translate-y-0.5 transition-all"
+              >
+                <span>i3X Alignment &amp; Architecture</span>
                 <span>&rarr;</span>
               </a>
             </div>

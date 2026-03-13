@@ -6,9 +6,11 @@ import {
   query, getRoutes, createRoute, updateRoute, deleteRoute,
   getRetentionPolicies, setRetentionPolicy,
   createTable, listTables,
+  getTopicProfiles, createTopicProfile, updateTopicProfile, deleteTopicProfile,
 } from './db.js';
 import { getSubscriberStats, getExplorerMessages } from './subscriber.js';
 import { getFlushStats } from './flush-engine.js';
+import { runDiscovery } from './discover.js';
 
 const MCP_PORT = parseInt(process.env.HISTORIAN_MCP_PORT || '8030');
 
@@ -403,6 +405,84 @@ async function handleRestApi(req: http.IncomingMessage, res: http.ServerResponse
     try {
       const tables = await listTables();
       json(res, 200, { tables });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // GET /profiles — all topic profiles
+  if (method === 'GET' && path === '/profiles') {
+    try {
+      const profiles = await getTopicProfiles();
+      json(res, 200, { profiles });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // POST /profiles — create new profile
+  if (method === 'POST' && path === '/profiles') {
+    const body = await readBody(req);
+    if (!body.name || !body.prefix || !body.subscription || body.seg_variable_start === undefined) {
+      json(res, 400, { error: 'name, prefix, subscription, and seg_variable_start required' });
+      return true;
+    }
+    try {
+      const profile = await createTopicProfile({
+        name: body.name,
+        prefix: body.prefix,
+        subscription: body.subscription,
+        seg_machine: body.seg_machine ?? null,
+        seg_work_order: body.seg_work_order ?? null,
+        seg_tool_id: body.seg_tool_id ?? null,
+        seg_category: body.seg_category ?? null,
+        seg_variable_start: body.seg_variable_start,
+        null_marker: body.null_marker ?? '---',
+        priority: body.priority ?? 0,
+        example_topic: body.example_topic ?? null,
+      });
+      json(res, 201, profile);
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // PUT /profiles/:id — update profile
+  const profileMatch = path.match(/^\/profiles\/(\d+)$/);
+  if (method === 'PUT' && profileMatch) {
+    const body = await readBody(req);
+    try {
+      const profile = await updateTopicProfile(parseInt(profileMatch[1]), body);
+      if (!profile) { json(res, 404, { error: 'Not found' }); return true; }
+      json(res, 200, profile);
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // DELETE /profiles/:id — delete profile (builtins protected)
+  if (method === 'DELETE' && profileMatch) {
+    try {
+      const ok = await deleteTopicProfile(parseInt(profileMatch[1]));
+      if (!ok) { json(res, 403, { error: 'Cannot delete built-in profile' }); return true; }
+      json(res, 200, { ok: true });
+    } catch (err: any) {
+      json(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
+  // POST /discover — auto-discovery
+  if (method === 'POST' && path === '/discover') {
+    const body = await readBody(req);
+    const duration = body.duration_s || 30;
+    try {
+      const result = await runDiscovery(duration);
+      json(res, 200, result);
     } catch (err: any) {
       json(res, 500, { error: err.message });
     }

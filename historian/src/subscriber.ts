@@ -5,6 +5,7 @@ import mqtt from 'mqtt';
 import type { HistoryRow, TableRow } from './db.js';
 import { resolveRoute } from './config-manager.js';
 import { pushRow, pushLegacyRow, getBufferFillPercent } from './flush-engine.js';
+import { parseTopic, getActiveSubscriptions } from './topic-profiles.js';
 
 const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const BACKPRESSURE_HIGH = 80; // % — pause MQTT
@@ -29,29 +30,6 @@ export interface ExplorerMessage {
   value_text: string | null;
   unit: string | null;
   routed_to: string | null;
-}
-
-// ─── Topic Parser ─────────────────────────────────────────────────────────────
-
-interface ParsedTopic {
-  machine: string;
-  workOrder: string | null;
-  toolId: string | null;
-  category: string;
-  variable: string;
-}
-
-function parseTopic(topic: string): ParsedTopic | null {
-  const parts = topic.split('/');
-  if (parts.length < 6 || parts[0] !== 'Factory') return null;
-
-  return {
-    machine: parts[1],
-    workOrder: parts[2] === '---' ? null : parts[2],
-    toolId: parts[3] === '---' ? null : parts[3],
-    category: parts[4],
-    variable: parts.slice(5).join('/'),
-  };
 }
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
@@ -157,12 +135,16 @@ function checkBackpressure(): void {
   if (!paused && fill >= BACKPRESSURE_HIGH) {
     paused = true;
     stats.pauses++;
-    // Unsubscribe to stop receiving messages
-    client.unsubscribe('Factory/#');
+    // Unsubscribe all active subscriptions to stop receiving messages
+    for (const sub of getActiveSubscriptions()) {
+      client.unsubscribe(sub);
+    }
     console.warn(`[subscriber] BACKPRESSURE: paused at ${fill.toFixed(0)}% buffer fill`);
   } else if (paused && fill <= BACKPRESSURE_LOW) {
     paused = false;
-    client.subscribe('Factory/#', { qos: 1 });
+    for (const sub of getActiveSubscriptions()) {
+      client.subscribe(sub, { qos: 1 });
+    }
     console.log(`[subscriber] BACKPRESSURE: resumed at ${fill.toFixed(0)}% buffer fill`);
   }
 }
@@ -230,10 +212,13 @@ export async function start(): Promise<void> {
 
   client.on('connect', () => {
     console.log('[subscriber] MQTT connected');
-    client!.subscribe('Factory/#', { qos: 1 }, (err) => {
-      if (err) console.error(`[subscriber] Subscribe error: ${err.message}`);
-      else console.log('[subscriber] Subscribed to Factory/# (QoS 1)');
-    });
+    const subs = getActiveSubscriptions();
+    for (const sub of subs) {
+      client!.subscribe(sub, { qos: 1 }, (err) => {
+        if (err) console.error(`[subscriber] Subscribe error for ${sub}: ${err.message}`);
+        else console.log(`[subscriber] Subscribed to ${sub} (QoS 1)`);
+      });
+    }
   });
 
   client.on('message', onMessage);

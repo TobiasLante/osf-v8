@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-uns-stream
+  namespace: osf-v9
+  labels:
+    app: osf-uns-stream
+    version: v9
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-uns-stream
+  template:
+    metadata:
+      labels:
+        app: osf-uns-stream
+        version: v9
+    spec:
+      containers:
+        - name: uns-stream
+          image: 192.168.178.150:32000/osf-uns-stream:v9
+          ports:
+            - containerPort: 8033
+          envFrom:
+            - configMapRef:
+                name: osf-config
+            - secretRef:
+                name: osf-secrets
+          env:
+            - name: PORT
+              value: "8033"
+            - name: HISTORIAN_URL
+              value: "http://osf-historian:8030"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8033
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8033
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-uns-stream
+  namespace: osf-v9
+  labels:
+    app: osf-uns-stream
+spec:
+  selector:
+    app: osf-uns-stream
+  ports:
+    - port: 8033
+      targetPort: 8033
+      protocol: TCP

@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-kg-agent
+  namespace: osf-v9
+  labels:
+    app: osf-kg-agent
+    version: v9
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-kg-agent
+  template:
+    metadata:
+      labels:
+        app: osf-kg-agent
+        version: v9
+    spec:
+      containers:
+        - name: kg-agent
+          image: 192.168.178.150:32000/osf-kg-agent:v9
+          ports:
+            - containerPort: 8032
+          envFrom:
+            - configMapRef:
+                name: osf-config
+            - secretRef:
+                name: osf-secrets
+          env:
+            - name: PORT
+              value: "8032"
+            - name: HISTORIAN_URL
+              value: "http://osf-historian:8030"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8032
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8032
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-kg-agent
+  namespace: osf-v9
+  labels:
+    app: osf-kg-agent
+spec:
+  selector:
+    app: osf-kg-agent
+  ports:
+    - port: 8032
+      targetPort: 8032
+      protocol: TCP

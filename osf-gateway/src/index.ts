@@ -12,7 +12,6 @@ import { logger, logSecurity } from './logger';
 import { runRegistry } from './flows/run-registry';
 import authRoutes from './auth/routes';
 import chatRoutes from './chat/routes';
-import mcpProxy from './mcp/proxy';
 import agentRoutes from './agents/routes';
 import challengeRoutes from './challenges/routes';
 import chainRoutes from './chains/routes';
@@ -25,17 +24,53 @@ import { initNodeRedProxy } from './nodered/proxy';
 import { NrPodManager } from './nodered/pod-manager';
 import internalApiRoutes from './nodered/internal-api';
 import { getLlmStatus } from './chat/llm-client';
-import unsRoutes from './uns/stream';
 import { requireAuth } from './auth/middleware';
-import { startKgAgent, stopKgAgent } from './kg-agent/index';
 import { validateEncryptionKey } from './auth/crypto';
 import { registry, httpRequestsTotal } from './metrics';
 import { recordRequest, getSnapshot } from './internal-metrics';
 import { createVersionedRouter } from './api-version';
 
+// ─── Service Registry (v9 microservices) ────────────────────────────────
+const KG_AGENT_URL = process.env.KG_AGENT_URL || 'http://osf-kg-agent:8032';
+const UNS_STREAM_URL = process.env.UNS_STREAM_URL || 'http://osf-uns-stream:8033';
+const MCP_PROXY_URL = process.env.MCP_PROXY_URL || 'http://osf-mcp-proxy:8034';
+
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
 let nrPodManager: NrPodManager;
+
+// ─── MCP Proxy → osf-mcp-proxy service (v9) ─────────────────────────────
+function createMcpProxy(): express.Router {
+  const mcpRouter = express.Router();
+  mcpRouter.all('*', async (req, res) => {
+    try {
+      const target = `${MCP_PROXY_URL}/mcp${req.url === '/' ? '' : req.url}`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
+
+      const resp = await fetch(target, {
+        method: req.method,
+        headers,
+        ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body: JSON.stringify(req.body) } : {}),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      res.status(resp.status);
+      const data = await resp.text();
+      const ct = resp.headers.get('content-type');
+      if (ct) res.setHeader('Content-Type', ct);
+      res.send(data);
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'MCP proxy error');
+      res.status(502).json({
+        jsonrpc: '2.0',
+        id: req.body?.id || null,
+        error: { code: -32000, message: 'MCP proxy service unavailable' },
+      });
+    }
+  });
+  return mcpRouter;
+}
 
 // Track active SSE responses for graceful shutdown
 const activeSseResponses = new Set<express.Response>();
@@ -604,15 +639,67 @@ async function main() {
     }
   });
 
-  // UNS live stream (MQTT → SSE)
-  app.use('/uns', unsRoutes);
+  // UNS live stream → proxy to osf-uns-stream service (v9)
+  app.use('/uns', async (req, res) => {
+    try {
+      const target = `${UNS_STREAM_URL}${req.url}`;
+      const headers: Record<string, string> = {};
+      if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
+      if (req.headers.accept) headers['Accept'] = req.headers.accept as string;
+
+      const upstream = await fetch(target, {
+        method: req.method,
+        headers,
+        signal: AbortSignal.timeout(300_000), // 5min for SSE
+      });
+
+      // SSE pass-through
+      const ct = upstream.headers.get('content-type') || '';
+      if (ct.includes('text/event-stream')) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        const origin = req.headers.origin;
+        if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.flushHeaders();
+        let aborted = false;
+        req.on('close', () => { aborted = true; });
+        const reader = (upstream.body as any).getReader();
+        const decoder = new TextDecoder();
+        try {
+          while (!aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(decoder.decode(value, { stream: true }));
+          }
+        } catch { /* connection closed */ }
+        reader.cancel().catch(() => {});
+        if (!aborted) res.end();
+        return;
+      }
+
+      res.status(upstream.status);
+      for (const [key, value] of upstream.headers) {
+        if (!['transfer-encoding', 'content-encoding', 'connection'].includes(key.toLowerCase())) {
+          res.setHeader(key, value);
+        }
+      }
+      const body = await upstream.text();
+      res.send(body);
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'UNS proxy error');
+      res.status(502).json({ error: 'UNS stream service unavailable' });
+    }
+  });
 
   // Internal API for NR pods (authenticated via pod secret, no user auth)
   app.use('/internal', internalApiRoutes);
 
   // Routes
   // /api/* aliases (chat-ui JS calls /api/mcp, /api/chat/*, /api/agents/*, etc.)
-  app.use('/api/mcp', mcpProxy);
+  app.use('/api/mcp', createMcpProxy());
   app.use('/api/chat', chatRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/agents', agentRoutes);
@@ -623,7 +710,7 @@ async function main() {
   });
   app.use('/auth', authRoutes);
   app.use('/chat', chatRoutes);
-  app.use('/mcp', mcpProxy);
+  app.use('/mcp', createMcpProxy());
   app.use('/agents', agentRoutes);
   app.use('/challenges', challengeRoutes);
   app.use('/chains', chainRoutes);
@@ -637,7 +724,7 @@ async function main() {
   app.use('/v1', createVersionedRouter([
     { path: '/auth',        handler: authRoutes },
     { path: '/chat',        handler: chatRoutes },
-    { path: '/mcp',         handler: mcpProxy },
+    { path: '/mcp',         handler: createMcpProxy() },
     { path: '/agents',      handler: agentRoutes },
     { path: '/challenges',  handler: challengeRoutes },
     { path: '/chains',      handler: chainRoutes },
@@ -682,11 +769,6 @@ async function main() {
     res.status(500).json({ error: 'Internal server error' });
   });
 
-  // Start KG Agent (v9: auto-discovery from MQTT → Apache AGE)
-  startKgAgent().catch(err => {
-    logger.error({ err: err.message }, 'KG Agent startup failed (non-fatal)');
-  });
-
   httpServer.listen(PORT, '0.0.0.0', () => {
     logger.info({ port: PORT }, 'osf-gateway started');
   });
@@ -716,9 +798,6 @@ async function gracefulShutdown(signal: string) {
       logger.error({ err: err.message }, 'NR Pod Manager shutdown error');
     });
   }
-
-  // Stop KG Agent
-  stopKgAgent();
 
   // 4. Stop accepting new HTTP connections
   httpServer?.close();

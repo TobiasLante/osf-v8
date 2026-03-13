@@ -216,7 +216,7 @@ export function DeepAnalysisTeaser() {
         </div>
       )}
 
-      {/* Full-screen V7 Chat UI overlay */}
+      {/* Full-screen Analysis Console overlay */}
       {showChat && (
         <div className="fixed inset-0 z-50 bg-black">
           <button
@@ -229,7 +229,7 @@ export function DeepAnalysisTeaser() {
             Back to OSF
           </button>
           <iframe
-            src="/deep-analysis.html"
+            src="https://osf-api.zeroguess.ai/demo-ui/analysis.html"
             className="w-full h-full border-0"
             allow="clipboard-write"
           />

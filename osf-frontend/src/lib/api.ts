@@ -42,11 +42,6 @@ export async function apiFetch<T = any>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  // Offline detection
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    throw new ApiError(0, 'Keine Internetverbindung');
-  }
-
   const token = typeof window !== 'undefined' ? localStorage.getItem(LS_TOKEN) : null;
 
   const headers: Record<string, string> = {
@@ -63,7 +58,8 @@ export async function apiFetch<T = any>(
     headers,
   });
 
-  // On 401, try to refresh the token once, then retry (all callers share one promise)
+  // On 401, try to refresh the token once, then retry
+  // Uses a shared promise so concurrent 401s only trigger one refresh
   if (res.status === 401 && token) {
     if (!refreshPromise) {
       refreshPromise = tryRefreshToken().finally(() => { refreshPromise = null; });
@@ -73,7 +69,10 @@ export async function apiFetch<T = any>(
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;
       const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
-      if (retry.ok) return retry.json();
+      if (retry.ok) {
+        if (retry.status === 204) return undefined as T;
+        return retry.json();
+      }
     }
 
     // Refresh failed or retry failed — force logout
@@ -86,6 +85,7 @@ export async function apiFetch<T = any>(
     throw new ApiError(res.status, body.error || res.statusText);
   }
 
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 

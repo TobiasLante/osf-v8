@@ -1,12 +1,19 @@
-// KG Agent — Auto-discovery of machines and sensors from MQTT UNS
-// Subscribes to Factory/#, creates KG vertices/edges via Cypher on Apache AGE
-
+import 'dotenv/config';
+import express from 'express';
 import mqtt from 'mqtt';
 import pg from 'pg';
-import { logger } from '../logger';
+import pino from 'pino';
 
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  ...(process.env.NODE_ENV !== 'production' ? { transport: { target: 'pino-pretty' } } : {}),
+});
+
+const PORT = parseInt(process.env.PORT || '8032', 10);
 const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const FLUSH_INTERVAL_MS = 15_000;
+const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://localhost:8030';
+const PROFILE_RELOAD_MS = 30_000;
 
 // KG database (erpdb with Apache AGE)
 const kgPool = new pg.Pool({
@@ -72,7 +79,7 @@ async function batchExecCypher(queries: string[]): Promise<{ success: number; fa
     } catch (err: any) {
       failed++;
       if (!err.message?.includes('already exists')) {
-        logger.warn({ err: err.message, cypher: q.slice(0, 100) }, 'KG Agent: Cypher failed');
+        logger.warn({ err: err.message, cypher: q.slice(0, 100) }, 'Cypher failed');
       }
     }
   }
@@ -95,7 +102,7 @@ async function checkKgAvailable(): Promise<boolean> {
   }
 }
 
-// ─── Topic Profile Parsing (loaded from Historian API) ─────────────────────
+// ─── Topic Profile Parsing ─────────────────────────────────────────────
 
 interface TopicProfile {
   id: number;
@@ -112,10 +119,6 @@ interface TopicProfile {
   priority: number;
 }
 
-const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://localhost:8030';
-const PROFILE_RELOAD_MS = 30_000;
-
-// Builtin fallback — identical to Factory profile
 const BUILTIN_PROFILES: TopicProfile[] = [{
   id: -1, name: 'Factory (default)', prefix: 'Factory', subscription: 'Factory/#',
   seg_machine: 1, seg_work_order: 2, seg_tool_id: 3, seg_category: 4,
@@ -123,7 +126,6 @@ const BUILTIN_PROFILES: TopicProfile[] = [{
 }];
 
 let activeProfiles: TopicProfile[] = [...BUILTIN_PROFILES];
-let profileReloadTimer: NodeJS.Timeout | null = null;
 
 async function loadProfilesFromHistorian(): Promise<void> {
   try {
@@ -136,11 +138,11 @@ async function loadProfilesFromHistorian(): Promise<void> {
         .sort((a, b) => b.priority - a.priority);
     }
   } catch {
-    // Silently keep current profiles (builtin fallback on first failure)
+    // Silently keep current profiles
   }
 }
 
-function getKgActiveSubscriptions(): string[] {
+function getActiveSubscriptions(): string[] {
   return [...new Set(activeProfiles.filter(p => p.enabled).map(p => p.subscription))];
 }
 
@@ -190,26 +192,23 @@ function onMessage(topic: string, payload: Buffer): void {
     else if (typeof raw === 'string') value = raw;
     unit = json.Unit || json.unit || null;
   } catch {
-    return; // Skip non-JSON
+    return;
   }
 
   const sensorId = `${parsed.machine}/${parsed.variable}`;
   const now = new Date().toISOString();
 
-  // Track new machines
   if (!knownMachines.has(parsed.machine)) {
     knownMachines.add(parsed.machine);
     stats.discovered++;
-    logger.info({ machine: parsed.machine }, 'KG Agent: new machine discovered');
+    logger.info({ machine: parsed.machine }, 'New machine discovered');
   }
 
-  // Track new sensors
   if (!knownSensors.has(sensorId)) {
     knownSensors.add(sensorId);
     stats.discovered++;
   }
 
-  // Buffer value update
   pendingUpdates.set(sensorId, {
     lastValue: value,
     unit,
@@ -228,14 +227,12 @@ async function flush(): Promise<void> {
     const [machine, ...varParts] = sensorId.split('/');
     const variable = varParts.join('/');
 
-    // MERGE Machine
     queries.push(
       `MERGE (m:Machine {id: '${escapeStr(machine)}'})
        SET m.last_seen = '${now}', m.source = 'uns-discovery'
        RETURN m`
     );
 
-    // MERGE Sensor
     queries.push(
       `MERGE (s:Sensor {id: '${escapeStr(sensorId)}'})
        SET s.name = '${escapeStr(variable)}',
@@ -248,7 +245,6 @@ async function flush(): Promise<void> {
        RETURN s`
     );
 
-    // MERGE Edge: Machine -[:HAS_SENSOR]-> Sensor
     queries.push(
       `MATCH (m:Machine {id: '${escapeStr(machine)}'})
        MATCH (s:Sensor {id: '${escapeStr(sensorId)}'})
@@ -266,15 +262,44 @@ async function flush(): Promise<void> {
   }
 }
 
-export async function startKgAgent(): Promise<void> {
-  logger.info('KG Agent: starting...');
+// ─── HTTP Server ───────────────────────────────────────────────────────
+
+const app = express();
+
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'osf-kg-agent',
+    mqttConnected: mqttClient?.connected ?? false,
+    kgAvailable,
+    machines: knownMachines.size,
+    sensors: knownSensors.size,
+  });
+});
+
+app.get('/stats', (_req, res) => {
+  res.json({
+    ...stats,
+    machines: knownMachines.size,
+    sensors: knownSensors.size,
+    kgAvailable,
+    flushIntervalMs: FLUSH_INTERVAL_MS,
+    pendingUpdates: pendingUpdates.size,
+    activeProfiles: activeProfiles.length,
+  });
+});
+
+// ─── Main ──────────────────────────────────────────────────────────────
+
+async function main() {
+  logger.info('KG Agent starting...');
 
   // Check KG availability
   kgAvailable = await checkKgAvailable();
   if (!kgAvailable) {
-    logger.warn('KG Agent: Apache AGE not available, will retry periodically');
+    logger.warn('Apache AGE not available, will retry periodically');
   } else {
-    logger.info('KG Agent: Apache AGE connected');
+    logger.info('Apache AGE connected');
   }
 
   // Periodically check KG availability
@@ -284,7 +309,7 @@ export async function startKgAgent(): Promise<void> {
 
   // Load topic profiles from Historian API
   await loadProfilesFromHistorian();
-  profileReloadTimer = setInterval(loadProfilesFromHistorian, PROFILE_RELOAD_MS);
+  setInterval(loadProfilesFromHistorian, PROFILE_RELOAD_MS);
 
   // Connect MQTT
   mqttClient = mqtt.connect(MQTT_BROKER, {
@@ -295,8 +320,8 @@ export async function startKgAgent(): Promise<void> {
   });
 
   mqttClient.on('connect', () => {
-    logger.info('KG Agent: MQTT connected');
-    const subs = getKgActiveSubscriptions();
+    logger.info('MQTT connected');
+    const subs = getActiveSubscriptions();
     for (const sub of subs) {
       mqttClient!.subscribe(sub, { qos: 0 });
     }
@@ -305,7 +330,7 @@ export async function startKgAgent(): Promise<void> {
   mqttClient.on('message', onMessage);
 
   mqttClient.on('error', (err) => {
-    logger.error({ err: err.message }, 'KG Agent: MQTT error');
+    logger.error({ err: err.message }, 'MQTT error');
   });
 
   // Start flush timer
@@ -318,25 +343,27 @@ export async function startKgAgent(): Promise<void> {
     }
   }, 60_000);
 
-  logger.info('KG Agent: ready');
+  // Start HTTP server
+  app.listen(PORT, '0.0.0.0', () => {
+    logger.info({ port: PORT }, 'KG Agent HTTP server started');
+  });
 }
 
-export function getKgAgentStats(): { discovered: number; updates: number; errors: number; machines: number; sensors: number; kgAvailable: boolean; flushIntervalMs: number } {
-  return {
-    ...stats,
-    machines: knownMachines.size,
-    sensors: knownSensors.size,
-    kgAvailable,
-    flushIntervalMs: FLUSH_INTERVAL_MS,
-  };
-}
+main().catch((err) => {
+  logger.fatal({ err: err.message }, 'Fatal startup error');
+  process.exit(1);
+});
 
-export function stopKgAgent(): void {
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down...');
   if (flushTimer) clearInterval(flushTimer);
-  if (profileReloadTimer) clearInterval(profileReloadTimer);
-  if (mqttClient) {
-    mqttClient.end(true);
-    mqttClient = null;
-  }
-  logger.info('KG Agent: stopped');
-}
+  if (mqttClient) mqttClient.end(true);
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT received, shutting down...');
+  if (flushTimer) clearInterval(flushTimer);
+  if (mqttClient) mqttClient.end(true);
+  process.exit(0);
+});

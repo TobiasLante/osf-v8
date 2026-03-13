@@ -123,6 +123,7 @@ export default function DashboardPage() {
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [deployedAgents, setDeployedAgents] = useState<DeployedAgent[]>([]);
   const [challengeProgress, setChallengeProgress] = useState<ChallengeProgress | null>(null);
+  const [fetchErrors, setFetchErrors] = useState(0);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -132,35 +133,38 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user) {
+      setFetchErrors(0);
+      const onErr = () => setFetchErrors(prev => prev + 1);
+
       apiFetch<{ sessions: Session[] }>("/chat/sessions")
         .then(({ sessions }) => setSessions(sessions.slice(0, 5)))
-        .catch(() => {});
+        .catch(onErr);
       apiFetch<{ flows: Flow[] }>("/flows/api/mine")
         .then(({ flows }) => setFlows(flows.slice(0, 5)))
-        .catch(() => {});
+        .catch(onErr);
       // LLM status (public, no auth)
       fetch(`${API_BASE}/llm/status`)
         .then(r => r.json())
         .then(data => setLlmStatus(data))
-        .catch(() => setLlmStatus({ online: false, message: 'Status unavailable' }));
+        .catch(() => { setLlmStatus({ online: false, message: 'Status unavailable' }); onErr(); });
       // Token usage
       apiFetch<TokenUsage>("/auth/usage")
         .then(data => setTokenUsage(data))
-        .catch(() => {});
+        .catch(onErr);
       // Deployed agents
       apiFetch<{ deployed: DeployedAgent[] }>("/marketplace/deployed")
         .then(data => setDeployedAgents(data.deployed))
-        .catch(() => {});
+        .catch(onErr);
       // Challenge progress
       apiFetch<ChallengeProgress>("/challenges/my-progress")
         .then(data => setChallengeProgress(data))
-        .catch(() => {});
+        .catch(onErr);
       // Chains
       apiFetch<{ chains: Chain[] }>("/chains")
         .then(({ chains }) => setChains(chains.slice(0, 3)))
-        .catch(() => {});
+        .catch(onErr);
     }
-  }, [user]);
+  }, [user?.id]);
 
   if (authLoading || !user) {
     return (
@@ -175,6 +179,13 @@ export default function DashboardPage() {
       <BackgroundOrbs />
       <section className="pt-32 pb-20 px-6">
         <div className="mx-auto max-w-5xl">
+          {/* Gateway warning */}
+          {fetchErrors >= 5 && (
+            <div className="mb-6 p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5 text-yellow-300 text-sm">
+              Could not load dashboard data. Gateway may be unavailable.
+            </div>
+          )}
+
           {/* Welcome */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold">

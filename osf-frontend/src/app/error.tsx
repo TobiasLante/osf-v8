@@ -22,14 +22,9 @@ export default function Error({
           </svg>
         </div>
         <h2 className="text-xl font-bold text-text mb-2">Something went wrong</h2>
-        <p className="text-text-muted text-sm mb-4">
+        <p className="text-text-muted text-sm mb-6">
           {error.message || 'An unexpected error occurred.'}
         </p>
-        {error.digest && (
-          <p className="text-text-muted text-xs mb-6 font-mono opacity-60">
-            Error ID: {error.digest}
-          </p>
-        )}
         <div className="flex gap-3 justify-center">
           <button
             onClick={reset}

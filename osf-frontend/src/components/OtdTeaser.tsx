@@ -192,7 +192,7 @@ export function OtdTeaser() {
                   )}
                   {!running && completed && (
                     <span className="text-xs text-text-dim">
-                      {mode === 'live' ? 'Live analysis complete' : 'Recorded analysis from factory at 192.168.178.150'}
+                      {mode === 'live' ? 'Live analysis complete' : 'Recorded analysis from factory simulation'}
                     </span>
                   )}
                 </div>

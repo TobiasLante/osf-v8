@@ -27,6 +27,12 @@ export function Hero() {
             Try the Playground &rarr;
           </a>
           <a
+            href="/i3x"
+            className="px-8 py-4 rounded-md border border-accent/30 bg-accent/5 text-accent text-sm font-medium hover:bg-accent/10 hover:-translate-y-0.5 transition-all"
+          >
+            i3X &amp; Architecture &rarr;
+          </a>
+          <a
             href="/challenges"
             className="px-8 py-4 rounded-md border border-border bg-bg-surface text-text-muted text-sm hover:border-accent/25 hover:text-text hover:-translate-y-0.5 transition-all"
           >

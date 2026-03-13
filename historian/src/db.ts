@@ -97,8 +97,31 @@ export async function initSchema(): Promise<void> {
       )
     `);
 
-    // Seed default routes
+    // Topic profiles table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${HISTORIAN_SCHEMA}.topic_profiles (
+        id               SERIAL PRIMARY KEY,
+        name             TEXT NOT NULL,
+        prefix           TEXT NOT NULL UNIQUE,
+        subscription     TEXT NOT NULL,
+        seg_machine      INT,
+        seg_work_order   INT,
+        seg_tool_id      INT,
+        seg_category     INT,
+        seg_variable_start INT NOT NULL,
+        null_marker      TEXT DEFAULT '---',
+        is_builtin       BOOLEAN DEFAULT false,
+        enabled          BOOLEAN DEFAULT true,
+        priority         INT DEFAULT 0,
+        example_topic    TEXT,
+        created_at       TIMESTAMPTZ DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // Seed default routes + profiles
     await seedDefaultRoutes(client);
+    await seedDefaultProfiles(client);
 
     console.log('[db] Schema initialized (v2)');
   } finally {
@@ -523,10 +546,156 @@ export async function listTables(): Promise<{ table_name: string; row_estimate: 
     FROM pg_tables t
     JOIN pg_class c ON c.relname = t.tablename AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1)
     WHERE t.schemaname = $1
-      AND t.tablename NOT IN ('category_routes', 'retention_policies', 'dead_letters')
+      AND t.tablename NOT IN ('category_routes', 'retention_policies', 'dead_letters', 'topic_profiles')
     ORDER BY t.tablename
   `, [HISTORIAN_SCHEMA]);
   return result.rows;
+}
+
+// ─── Topic Profiles ──────────────────────────────────────────────────────────
+
+export interface TopicProfile {
+  id: number;
+  name: string;
+  prefix: string;
+  subscription: string;
+  seg_machine: number | null;
+  seg_work_order: number | null;
+  seg_tool_id: number | null;
+  seg_category: number | null;
+  seg_variable_start: number;
+  null_marker: string | null;
+  is_builtin: boolean;
+  enabled: boolean;
+  priority: number;
+  example_topic: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+async function seedDefaultProfiles(client: pg.PoolClient): Promise<void> {
+  const defaults = [
+    {
+      name: 'Factory (default)',
+      prefix: 'Factory',
+      subscription: 'Factory/#',
+      seg_machine: 1,
+      seg_work_order: 2,
+      seg_tool_id: 3,
+      seg_category: 4,
+      seg_variable_start: 5,
+      null_marker: '---',
+      is_builtin: true,
+      priority: 100,
+      example_topic: 'Factory/BZ-1/FA-FFS-000000/T01/BDE/Act_Qty_Good',
+    },
+    {
+      name: 'ISA-95',
+      prefix: 'Enterprise',
+      subscription: 'Enterprise/#',
+      seg_machine: 4,
+      seg_work_order: null,
+      seg_tool_id: null,
+      seg_category: 5,
+      seg_variable_start: 6,
+      null_marker: '---',
+      is_builtin: true,
+      priority: 50,
+      example_topic: 'Enterprise/Site/Area/Line/CNC-01/BDE/Spindle_RPM',
+    },
+  ];
+
+  for (const p of defaults) {
+    await client.query(`
+      INSERT INTO ${HISTORIAN_SCHEMA}.topic_profiles
+        (name, prefix, subscription, seg_machine, seg_work_order, seg_tool_id, seg_category, seg_variable_start, null_marker, is_builtin, priority, example_topic)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (prefix) DO NOTHING
+    `, [p.name, p.prefix, p.subscription, p.seg_machine, p.seg_work_order, p.seg_tool_id, p.seg_category, p.seg_variable_start, p.null_marker, p.is_builtin, p.priority, p.example_topic]);
+  }
+}
+
+export async function getTopicProfiles(): Promise<TopicProfile[]> {
+  const result = await pool.query(
+    `SELECT * FROM ${HISTORIAN_SCHEMA}.topic_profiles ORDER BY priority DESC`
+  );
+  return result.rows;
+}
+
+export async function createTopicProfile(profile: {
+  name: string;
+  prefix: string;
+  subscription: string;
+  seg_machine: number | null;
+  seg_work_order: number | null;
+  seg_tool_id: number | null;
+  seg_category: number | null;
+  seg_variable_start: number;
+  null_marker: string | null;
+  priority: number;
+  example_topic: string | null;
+}): Promise<TopicProfile> {
+  const result = await pool.query(
+    `INSERT INTO ${HISTORIAN_SCHEMA}.topic_profiles
+       (name, prefix, subscription, seg_machine, seg_work_order, seg_tool_id, seg_category, seg_variable_start, null_marker, priority, example_topic)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    [profile.name, profile.prefix, profile.subscription, profile.seg_machine, profile.seg_work_order, profile.seg_tool_id, profile.seg_category, profile.seg_variable_start, profile.null_marker, profile.priority, profile.example_topic]
+  );
+  return result.rows[0];
+}
+
+export async function updateTopicProfile(id: number, updates: Partial<Omit<TopicProfile, 'id' | 'is_builtin' | 'created_at' | 'updated_at'>>): Promise<TopicProfile | null> {
+  const sets: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  const fields: Array<[string, keyof typeof updates]> = [
+    ['name', 'name'],
+    ['prefix', 'prefix'],
+    ['subscription', 'subscription'],
+    ['seg_machine', 'seg_machine'],
+    ['seg_work_order', 'seg_work_order'],
+    ['seg_tool_id', 'seg_tool_id'],
+    ['seg_category', 'seg_category'],
+    ['seg_variable_start', 'seg_variable_start'],
+    ['null_marker', 'null_marker'],
+    ['enabled', 'enabled'],
+    ['priority', 'priority'],
+    ['example_topic', 'example_topic'],
+  ];
+
+  for (const [col, key] of fields) {
+    if (updates[key] !== undefined) {
+      sets.push(`${col} = $${idx++}`);
+      values.push(updates[key]);
+    }
+  }
+
+  if (sets.length === 0) return null;
+
+  sets.push(`updated_at = NOW()`);
+  values.push(id);
+
+  const result = await pool.query(
+    `UPDATE ${HISTORIAN_SCHEMA}.topic_profiles SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+    values
+  );
+  return result.rows[0] || null;
+}
+
+export async function deleteTopicProfile(id: number): Promise<boolean> {
+  // Protect builtins
+  const check = await pool.query(
+    `SELECT is_builtin FROM ${HISTORIAN_SCHEMA}.topic_profiles WHERE id = $1`,
+    [id]
+  );
+  if (check.rows[0]?.is_builtin) return false;
+
+  const result = await pool.query(
+    `DELETE FROM ${HISTORIAN_SCHEMA}.topic_profiles WHERE id = $1 AND is_builtin = false`,
+    [id]
+  );
+  return (result.rowCount || 0) > 0;
 }
 
 // ─── Query Helper ─────────────────────────────────────────────────────────────

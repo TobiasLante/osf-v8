@@ -9,6 +9,7 @@ import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 const navLinks = [
   { href: "/features", label: "Features" },
   { href: "/explore", label: "Explore" },
+  { href: "/i3x", label: "i3X" },
   { href: "/agents", label: "Agents" },
   { href: "/challenges", label: "Challenges" },
   { href: "/use-cases", label: "Use Cases" },
@@ -17,10 +18,11 @@ const navLinks = [
   { href: "/news", label: "News" },
 ];
 
-const userLinks = [
+const userLinks: { href: string; label: string; roles?: string[] }[] = [
   { href: "/chains", label: "Chains" },
   { href: "/flows", label: "Flows" },
   { href: "/chat", label: "Chat" },
+  { href: "/demo-chat/chat", label: "Demo Chat", roles: ["demo", "admin"] },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/settings", label: "Settings" },
 ];
@@ -48,8 +50,8 @@ export function Header() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [menuOpen]);
 
-  // Hide header on full-screen pages
-  if (pathname === "/flows/editor" || pathname.startsWith("/demo-chat") || pathname === "/chat") return null;
+  // Hide header on full-screen pages like the flow editor
+  if (pathname === "/flows/editor") return null;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-bg/80 backdrop-blur-xl">
@@ -159,7 +161,7 @@ export function Header() {
                 <p className="text-[10px] font-mono text-text-dim uppercase tracking-wider mb-2 mt-4 sm:mt-0">
                   Workspace
                 </p>
-                {userLinks.map((link) => (
+                {userLinks.filter((link) => !link.roles || link.roles.includes(user.role)).map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
@@ -172,18 +174,6 @@ export function Header() {
                     {link.label}
                   </Link>
                 ))}
-                {(user.role === "demo" || user.role === "admin") && (
-                  <Link
-                    href="/demo-chat/chat"
-                    className={`block py-1.5 text-sm transition-colors ${
-                      pathname.startsWith("/demo-chat")
-                        ? "text-accent"
-                        : "text-text-muted hover:text-accent"
-                    }`}
-                  >
-                    Demo Chat
-                  </Link>
-                )}
                 {user.role === "admin" && (
                   <Link
                     href="/admin"
