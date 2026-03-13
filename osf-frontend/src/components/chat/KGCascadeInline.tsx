@@ -1,6 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  forceSimulation,
+  forceLink,
+  forceManyBody,
+  forceCenter,
+  forceCollide,
+  type SimulationNodeDatum,
+  type SimulationLinkDatum,
+} from "d3-force";
+import { zoom as d3Zoom, zoomIdentity } from "d3-zoom";
+import { select } from "d3-selection";
+import { drag as d3Drag } from "d3-drag";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -23,288 +35,421 @@ export interface KGCascadeInlineProps {
   status: "traversing" | "done";
 }
 
-/* ─── Color map (same as i3x page) ───────────────────────────────────── */
+/* ─── Color map ──────────────────────────────────────────────────────── */
 
 const TYPE_COLORS: Record<string, string> = {
   Machine: "#ff9500",
+  Sensor: "#f59e0b",
   Article: "#3b82f6",
   Order: "#10b981",
   Customer: "#06b6d4",
   Tool: "#eab308",
   Alternative: "#22c55e",
+  Process: "#a855f7",
+  Material: "#ec4899",
 };
 
 function nodeColor(type: string): string {
   return TYPE_COLORS[type] || "#8b5cf6";
 }
 
-/* ─── Auto-layout: BFS from center → radial rings ────────────────────── */
+/* ─── Simulation types ───────────────────────────────────────────────── */
 
-interface LayoutNode {
+interface SimNode extends SimulationNodeDatum {
   id: string;
   label: string;
   type: string;
-  x: number;
-  y: number;
   color: string;
-  delay: number;
+  radius: number;
 }
 
-interface LayoutEdge {
-  from: string;
-  to: string;
+interface SimLink extends SimulationLinkDatum<SimNode> {
   label: string;
-  delay: number;
   dashed: boolean;
-}
-
-function computeLayout(
-  nodes: KGNode[],
-  edges: KGEdge[],
-  centerId?: string
-): { layoutNodes: LayoutNode[]; layoutEdges: LayoutEdge[]; viewBox: string } {
-  if (nodes.length === 0) {
-    return { layoutNodes: [], layoutEdges: [], viewBox: "0 0 800 320" };
-  }
-
-  // Build adjacency (undirected for BFS)
-  const adj = new Map<string, string[]>();
-  for (const n of nodes) adj.set(n.id, []);
-  for (const e of edges) {
-    adj.get(e.from)?.push(e.to);
-    adj.get(e.to)?.push(e.from);
-  }
-
-  // BFS from center
-  const center = centerId && adj.has(centerId) ? centerId : nodes[0].id;
-  const depth = new Map<string, number>();
-  const queue = [center];
-  depth.set(center, 0);
-
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    const d = depth.get(cur)!;
-    for (const nb of adj.get(cur) || []) {
-      if (!depth.has(nb)) {
-        depth.set(nb, d + 1);
-        queue.push(nb);
-      }
-    }
-  }
-
-  // Assign depth to any unreachable nodes
-  for (const n of nodes) {
-    if (!depth.has(n.id)) depth.set(n.id, 999);
-  }
-
-  // Group by depth
-  const rings = new Map<number, KGNode[]>();
-  for (const n of nodes) {
-    const d = depth.get(n.id)!;
-    if (!rings.has(d)) rings.set(d, []);
-    rings.get(d)!.push(n);
-  }
-
-  const CX = 400;
-  const CY = 50;
-  const RING_SPACING = 100;
-
-  const layoutNodes: LayoutNode[] = [];
-
-  for (const [d, nodesInRing] of rings) {
-    if (d === 0) {
-      // Center node
-      for (const n of nodesInRing) {
-        layoutNodes.push({
-          id: n.id,
-          label: n.label,
-          type: n.type,
-          x: CX,
-          y: CY,
-          color: nodeColor(n.type),
-          delay: 0,
-        });
-      }
-    } else {
-      const count = nodesInRing.length;
-      // Spread across a horizontal arc below center
-      const radius = d * RING_SPACING;
-      const startAngle = Math.PI * 0.2; // ~35 degrees from top
-      const endAngle = Math.PI * 0.8; // ~145 degrees from top
-      nodesInRing.forEach((n, i) => {
-        const angle =
-          count === 1
-            ? (startAngle + endAngle) / 2
-            : startAngle + ((endAngle - startAngle) * i) / (count - 1);
-        layoutNodes.push({
-          id: n.id,
-          label: n.label,
-          type: n.type,
-          x: CX + radius * Math.cos(angle - Math.PI / 2),
-          y: CY + radius * Math.sin(angle - Math.PI / 2) + radius * 0.3,
-          color: nodeColor(n.type),
-          delay: d * 400,
-        });
-      });
-    }
-  }
-
-  // Build delay map for edges
-  const nodeDelayMap = new Map<string, number>();
-  for (const ln of layoutNodes) nodeDelayMap.set(ln.id, ln.delay);
-
-  const layoutEdges: LayoutEdge[] = edges.map((e) => {
-    const srcDelay = nodeDelayMap.get(e.from) ?? 0;
-    const isAlternative = e.label === "ALTERNATIVE" || e.label === "CAN_REPLACE";
-    return {
-      from: e.from,
-      to: e.to,
-      label: e.label,
-      delay: srcDelay + 100,
-      dashed: isAlternative,
-    };
-  });
-
-  // Compute viewBox
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const n of layoutNodes) {
-    minX = Math.min(minX, n.x - 40);
-    maxX = Math.max(maxX, n.x + 40);
-    minY = Math.min(minY, n.y - 40);
-    maxY = Math.max(maxY, n.y + 40);
-  }
-  const pad = 30;
-  const vbX = minX - pad;
-  const vbY = minY - pad;
-  const vbW = maxX - minX + pad * 2;
-  const vbH = maxY - minY + pad * 2;
-  const viewBox = `${Math.round(vbX)} ${Math.round(vbY)} ${Math.round(vbW)} ${Math.round(vbH)}`;
-
-  return { layoutNodes, layoutEdges, viewBox };
 }
 
 /* ─── Component ──────────────────────────────────────────────────────── */
 
-export function KGCascadeInline({ nodes, edges, centerEntityId, status }: KGCascadeInlineProps) {
-  const [time, setTime] = useState(0);
-  const animRef = useRef<number | null>(null);
-  const startRef = useRef(0);
+export function KGCascadeInline({
+  nodes,
+  edges,
+  centerEntityId,
+  status,
+}: KGCascadeInlineProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const gRef = useRef<SVGGElement>(null);
+  const simRef = useRef<ReturnType<typeof forceSimulation<SimNode>> | null>(null);
+  const [selectedNode, setSelectedNode] = useState<SimNode | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string>("All");
+  const [, forceRender] = useState(0);
 
-  const { layoutNodes, layoutEdges, viewBox } = computeLayout(nodes, edges, centerEntityId);
+  // Collect unique types for filter buttons
+  const nodeTypes = ["All", ...Array.from(new Set(nodes.map((n) => n.type))).sort()];
 
-  // Auto-start animation on mount
-  useEffect(() => {
-    startRef.current = performance.now();
-    function tick() {
-      const elapsed = performance.now() - startRef.current;
-      setTime(elapsed);
-      if (elapsed < 4000) {
-        animRef.current = requestAnimationFrame(tick);
-      }
-    }
-    animRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-    };
-  }, []);
-
-  const getNodePos = useCallback(
-    (id: string) => {
-      const n = layoutNodes.find((n) => n.id === id);
-      return n ? { x: n.x, y: n.y } : { x: 0, y: 0 };
-    },
-    [layoutNodes]
+  // Filter nodes and edges
+  const filteredNodes =
+    activeFilter === "All"
+      ? nodes
+      : nodes.filter((n) => n.type === activeFilter);
+  const filteredIds = new Set(filteredNodes.map((n) => n.id));
+  const filteredEdges = edges.filter(
+    (e) => filteredIds.has(e.from) && filteredIds.has(e.to)
   );
 
-  if (layoutNodes.length === 0) return null;
+  // Build simulation data
+  const buildSimData = useCallback(() => {
+    const simNodes: SimNode[] = filteredNodes.map((n) => {
+      const isCenter = n.id === centerEntityId;
+      return {
+        id: n.id,
+        label: n.label,
+        type: n.type,
+        color: nodeColor(n.type),
+        radius: isCenter ? 28 : 20,
+        ...(isCenter ? { fx: 0, fy: 0 } : {}),
+      };
+    });
+
+    const nodeMap = new Map(simNodes.map((n) => [n.id, n]));
+    const simLinks: SimLink[] = filteredEdges
+      .filter((e) => nodeMap.has(e.from) && nodeMap.has(e.to))
+      .map((e) => ({
+        source: e.from,
+        target: e.to,
+        label: e.label,
+        dashed:
+          e.label === "ALTERNATIVE" ||
+          e.label === "CAN_REPLACE" ||
+          e.label === "SIMILAR_TO",
+      }));
+
+    return { simNodes, simLinks };
+  }, [filteredNodes, filteredEdges, centerEntityId]);
+
+  // Setup force simulation + zoom + drag
+  useEffect(() => {
+    const svg = svgRef.current;
+    const g = gRef.current;
+    if (!svg || !g || filteredNodes.length === 0) return;
+
+    const { simNodes, simLinks } = buildSimData();
+    const W = svg.clientWidth || 800;
+    const H = svg.clientHeight || 500;
+
+    // Force simulation
+    const sim = forceSimulation<SimNode>(simNodes)
+      .force(
+        "link",
+        forceLink<SimNode, SimLink>(simLinks)
+          .id((d) => d.id)
+          .distance(80)
+      )
+      .force("charge", forceManyBody().strength(-200))
+      .force("center", forceCenter(0, 0))
+      .force("collide", forceCollide<SimNode>().radius((d) => d.radius + 8))
+      .alphaDecay(0.02);
+
+    simRef.current = sim;
+
+    // D3 zoom
+    const zoomBehavior = d3Zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.2, 5])
+      .on("zoom", (event) => {
+        select(g).attr("transform", event.transform.toString());
+      });
+
+    const svgSel = select(svg);
+    svgSel.call(zoomBehavior);
+
+    // Initial zoom to fit
+    const initialScale = Math.min(W, H) / 400;
+    svgSel.call(
+      zoomBehavior.transform,
+      zoomIdentity.translate(W / 2, H / 2).scale(initialScale)
+    );
+
+    // D3 drag
+    const dragBehavior = d3Drag<SVGGElement, SimNode>()
+      .on("start", (event, d) => {
+        if (!event.active) sim.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on("drag", (event, d) => {
+        d.fx = event.x;
+        d.fy = event.y;
+      })
+      .on("end", (event, d) => {
+        if (!event.active) sim.alphaTarget(0);
+        // Keep center node pinned, release others
+        if (d.id !== centerEntityId) {
+          d.fx = null;
+          d.fy = null;
+        }
+      });
+
+    // Bindnodes
+    const nodeGroups = select(g)
+      .selectAll<SVGGElement, SimNode>("g.kg-node")
+      .data(simNodes, (d) => d.id);
+
+    nodeGroups.exit().remove();
+
+    const enter = nodeGroups
+      .enter()
+      .append("g")
+      .attr("class", "kg-node")
+      .style("cursor", "grab");
+
+    // Node circle
+    enter
+      .append("circle")
+      .attr("r", (d) => d.radius)
+      .attr("fill", (d) => `${d.color}20`)
+      .attr("stroke", (d) => d.color)
+      .attr("stroke-width", 2);
+
+    // Node label
+    enter
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", -4)
+      .attr("font-size", "9px")
+      .attr("font-weight", "600")
+      .attr("fill", (d) => d.color)
+      .text((d) => d.label);
+
+    // Node type
+    enter
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", 10)
+      .attr("font-size", "7px")
+      .attr("fill", "var(--text-dim)")
+      .text((d) => d.type);
+
+    const merged = enter.merge(nodeGroups);
+    merged.call(dragBehavior);
+
+    // Click handler
+    merged.on("click", (_event, d) => {
+      setSelectedNode((prev) => (prev?.id === d.id ? null : d));
+    });
+
+    // Bind links
+    const linkGroups = select(g)
+      .selectAll<SVGLineElement, SimLink>("line.kg-link")
+      .data(simLinks, (d) => `${(d.source as SimNode).id || d.source}-${(d.target as SimNode).id || d.target}`);
+
+    linkGroups.exit().remove();
+
+    const linkEnter = linkGroups
+      .enter()
+      .append("line")
+      .attr("class", "kg-link")
+      .attr("stroke", (d) => (d.dashed ? "#22c55e" : "var(--text-dim)"))
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", (d) => (d.dashed ? "6 4" : "none"))
+      .attr("opacity", 0.4);
+
+    const mergedLinks = linkEnter.merge(linkGroups);
+
+    // Edge labels
+    const labelGroups = select(g)
+      .selectAll<SVGTextElement, SimLink>("text.kg-edge-label")
+      .data(simLinks, (d) => `label-${(d.source as SimNode).id || d.source}-${(d.target as SimNode).id || d.target}`);
+
+    labelGroups.exit().remove();
+
+    const labelEnter = labelGroups
+      .enter()
+      .append("text")
+      .attr("class", "kg-edge-label")
+      .attr("text-anchor", "middle")
+      .attr("font-size", "6px")
+      .attr("fill", "var(--text-dim)")
+      .attr("opacity", 0.5)
+      .text((d) => d.label);
+
+    const mergedLabels = labelEnter.merge(labelGroups);
+
+    // Tick
+    sim.on("tick", () => {
+      mergedLinks
+        .attr("x1", (d) => (d.source as SimNode).x!)
+        .attr("y1", (d) => (d.source as SimNode).y!)
+        .attr("x2", (d) => (d.target as SimNode).x!)
+        .attr("y2", (d) => (d.target as SimNode).y!);
+
+      mergedLabels
+        .attr("x", (d) => ((d.source as SimNode).x! + (d.target as SimNode).x!) / 2)
+        .attr("y", (d) => ((d.source as SimNode).y! + (d.target as SimNode).y!) / 2 - 6);
+
+      merged.attr("transform", (d) => `translate(${d.x}, ${d.y})`);
+
+      forceRender((c) => c + 1);
+    });
+
+    return () => {
+      sim.stop();
+      // Clean up D3 elements
+      select(g).selectAll("g.kg-node").remove();
+      select(g).selectAll("line.kg-link").remove();
+      select(g).selectAll("text.kg-edge-label").remove();
+      svgSel.on(".zoom", null);
+    };
+  }, [filteredNodes, filteredEdges, centerEntityId, buildSimData]);
+
+  // Find connected edges and nodes for selected node detail panel
+  const selectedEdges = selectedNode
+    ? edges.filter(
+        (e) => e.from === selectedNode.id || e.to === selectedNode.id
+      )
+    : [];
+
+  const connectedNodes = selectedNode
+    ? selectedEdges.map((e) => {
+        const otherId =
+          e.from === selectedNode.id ? e.to : e.from;
+        const other = nodes.find((n) => n.id === otherId);
+        return { edge: e, node: other };
+      })
+    : [];
+
+  if (nodes.length === 0) return null;
 
   return (
-    <div className="my-2 rounded-md border border-border bg-bg-surface overflow-hidden" style={{ maxHeight: 320 }}>
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-bg-surface-2">
-        <span className={`w-2 h-2 rounded-full ${status === "traversing" ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
+    <div className="my-2 rounded-md border border-border bg-bg-surface overflow-hidden">
+      {/* Header + Filters */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-bg-surface-2">
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${
+            status === "traversing"
+              ? "bg-amber-400 animate-pulse"
+              : "bg-emerald-400"
+          }`}
+        />
         <span className="text-[11px] font-medium text-text-muted">
-          Knowledge Graph — {layoutNodes.length} nodes, {layoutEdges.length} edges
+          Knowledge Graph — {filteredNodes.length} nodes, {filteredEdges.length}{" "}
+          edges
+        </span>
+        <div className="flex-1" />
+        {/* Filter buttons */}
+        {nodeTypes.length > 2 &&
+          nodeTypes.map((t) => (
+            <button
+              key={t}
+              onClick={() => {
+                setActiveFilter(t);
+                setSelectedNode(null);
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                activeFilter === t
+                  ? "bg-accent text-bg"
+                  : "border border-border/50 text-text-dim hover:text-text hover:border-accent/30"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        {/* Zoom hint */}
+        <span className="text-[9px] text-text-dim hidden sm:inline">
+          scroll=zoom, drag=move
         </span>
       </div>
 
-      {/* SVG Canvas */}
-      <svg viewBox={viewBox} className="w-full h-auto" style={{ maxHeight: 280 }}>
-        {/* Edges */}
-        {layoutEdges.map((edge) => {
-          const from = getNodePos(edge.from);
-          const to = getNodePos(edge.to);
-          const visible = time >= edge.delay;
-          const progress = Math.min(1, Math.max(0, (time - edge.delay) / 300));
-          const midX = (from.x + to.x) / 2;
-          const midY = (from.y + to.y) / 2;
+      {/* Canvas */}
+      <div className="relative" style={{ height: 400 }}>
+        <svg
+          ref={svgRef}
+          className="w-full h-full"
+          style={{ background: "var(--bg)" }}
+        >
+          <g ref={gRef} />
+        </svg>
 
-          return (
-            <g key={`${edge.from}-${edge.to}`}>
-              <line
-                x1={from.x}
-                y1={from.y}
-                x2={from.x + (to.x - from.x) * progress}
-                y2={from.y + (to.y - from.y) * progress}
-                stroke={edge.dashed ? "#22c55e" : "var(--text-dim)"}
-                strokeWidth={1.5}
-                strokeDasharray={edge.dashed ? "6 4" : "none"}
-                opacity={visible ? 0.6 : 0}
+        {/* Detail panel (click on node) */}
+        {selectedNode && (
+          <div className="absolute top-2 right-2 w-64 rounded-md border border-border bg-bg-surface/95 backdrop-blur-sm shadow-lg overflow-hidden z-10">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+              <span
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{ backgroundColor: selectedNode.color }}
               />
-              {progress >= 1 && (
-                <text
-                  x={midX}
-                  y={midY - 6}
-                  textAnchor="middle"
-                  className="text-[7px] fill-[var(--text-dim)]"
-                  opacity={0.5}
-                >
-                  {edge.label}
-                </text>
+              <span className="text-sm font-semibold text-text truncate">
+                {selectedNode.label}
+              </span>
+              <span className="text-[10px] text-text-dim ml-auto">
+                {selectedNode.type}
+              </span>
+              <button
+                onClick={() => setSelectedNode(null)}
+                className="text-text-dim hover:text-text ml-1 text-xs"
+              >
+                &#x2715;
+              </button>
+            </div>
+            <div className="px-3 py-2 max-h-48 overflow-auto">
+              <div className="text-[10px] text-text-dim uppercase tracking-wider mb-1">
+                Connections ({connectedNodes.length})
+              </div>
+              {connectedNodes.length === 0 ? (
+                <div className="text-xs text-text-dim py-2">
+                  No connections
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {connectedNodes.map(({ edge, node }, i) => {
+                    const isOutgoing = edge.from === selectedNode.id;
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-1.5 text-xs py-0.5 cursor-pointer hover:bg-bg-surface-2 rounded px-1 -mx-1"
+                        onClick={() => {
+                          if (node) {
+                            const simNode = {
+                              ...node,
+                              color: nodeColor(node.type),
+                              radius: 20,
+                            } as SimNode;
+                            setSelectedNode(simNode);
+                          }
+                        }}
+                      >
+                        <span className="text-[10px] text-text-dim">
+                          {isOutgoing ? "\u2192" : "\u2190"}
+                        </span>
+                        <span
+                          className="text-[9px] font-mono px-1 rounded"
+                          style={{
+                            color: edge.label === "ALTERNATIVE" || edge.label === "CAN_REPLACE"
+                              ? "#22c55e"
+                              : "var(--text-muted)",
+                            backgroundColor: "var(--bg-surface-2)",
+                          }}
+                        >
+                          {edge.label}
+                        </span>
+                        <span
+                          className="font-medium truncate"
+                          style={{
+                            color: node ? nodeColor(node.type) : "var(--text)",
+                          }}
+                        >
+                          {node?.label || "?"}
+                        </span>
+                        <span className="text-[9px] text-text-dim ml-auto shrink-0">
+                          {node?.type}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
-            </g>
-          );
-        })}
-
-        {/* Nodes */}
-        {layoutNodes.map((node) => {
-          const visible = time >= node.delay;
-          const scale = visible ? Math.min(1, (time - node.delay) / 200) : 0;
-          const isCenter = node.id === centerEntityId;
-          const isAlt = node.type === "Alternative";
-
-          return (
-            <g
-              key={node.id}
-              transform={`translate(${node.x}, ${node.y}) scale(${scale})`}
-              style={{ transformOrigin: `${node.x}px ${node.y}px` }}
-            >
-              {/* Glow for center */}
-              {visible && isCenter && (
-                <circle r={30} fill={node.color} opacity={0.1}>
-                  <animate attributeName="r" values="30;36;30" dur="2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.1;0.2;0.1" dur="2s" repeatCount="indefinite" />
-                </circle>
-              )}
-              {/* Circle */}
-              <circle
-                r={isCenter ? 26 : 22}
-                fill={`${node.color}20`}
-                stroke={node.color}
-                strokeWidth={isAlt ? 1.5 : 2}
-                strokeDasharray={isAlt ? "4 3" : "none"}
-              />
-              {/* Label */}
-              <text textAnchor="middle" dy={-3} className="text-[8px] font-semibold" fill={node.color}>
-                {node.label}
-              </text>
-              <text textAnchor="middle" dy={9} className="text-[7px]" fill="var(--text-dim)">
-                {node.type}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
