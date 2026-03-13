@@ -240,10 +240,11 @@ router.post('/run/:id', requireAuth, async (req: Request, res: Response) => {
 
   // Extract options from request body
   const body = req.body || {};
-  const userMessage = body.userMessage;
+  const userMessage = body.userMessage || body.question;
   const params = body.params || {};
-  const options = (userMessage || Object.keys(params).length > 0)
-    ? { userMessage, params }
+  const llmProvider = body.llmProvider as string | undefined;
+  const options = (userMessage || Object.keys(params).length > 0 || llmProvider)
+    ? { userMessage, params, llmProvider }
     : undefined;
 
   if (agent.type === 'strategic') {

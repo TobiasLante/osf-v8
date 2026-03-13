@@ -13,6 +13,7 @@ import { pool } from '../db/pool';
 import { Response } from 'express';
 import { logger } from '../logger';
 import { loadPrompt } from '../prompt-loader';
+import { config as appConfig } from '../config';
 import {
   safeParse,
   SpecialistReportSchema, FALLBACK_SPECIALIST_REPORT,
@@ -1483,10 +1484,22 @@ export async function runDiscussionAgent(
 
   try {
     // Resolve LLM configs — premium for moderator, free for specialists
-    const [premiumLlmConfig, freeLlmConfig] = await Promise.all([
+    let [premiumLlmConfig, freeLlmConfig] = await Promise.all([
       getLlmConfig(userId, 'premium'),
       getLlmConfig(userId, 'free'),
     ]);
+
+    // Override with Anthropic Haiku if requested
+    if (options?.llmProvider === 'haiku' && appConfig.llm.anthropicApiKey) {
+      const haikuConfig: LlmConfig = {
+        baseUrl: appConfig.llm.anthropicUrl,
+        model: appConfig.llm.anthropicModel,
+        apiKey: appConfig.llm.anthropicApiKey,
+      };
+      premiumLlmConfig = haikuConfig;
+      freeLlmConfig = haikuConfig;
+      logger.info({ model: haikuConfig.model }, 'LLM override: using Anthropic Haiku');
+    }
 
     // Parse params
     const params = options?.params || {};
@@ -1859,10 +1872,12 @@ export async function runDynamicDiscussion(
 
   // ── Phase 2: Moderator Discussion ──
   logger.info({ reportCount: reports.size, specialistNames: Array.from(reports.keys()) }, 'Moderator phase: starting discussion rounds');
+  emitSSE(res, { type: 'heartbeat' }); // immediate heartbeat to keep connection alive
+  emitSSE(res, { type: 'moderator_start', reportCount: reports.size });
   const phaseHeartbeat2 = setInterval(() => {
     if (signal?.aborted || res.writableEnded) { clearInterval(phaseHeartbeat2); return; }
     emitSSE(res, { type: 'heartbeat' });
-  }, 15000);
+  }, 8000); // 8s — tighter than CF tunnel idle timeout
 
   let readyForSynthesis = false;
   let transcript = '';

@@ -26,6 +26,10 @@ export const config = {
     urlPremium: str('LLM_URL_PREMIUM', 'http://192.168.178.120:5001'),
     modelFree: str('LLM_MODEL_FREE', 'qwen2.5-14b-instruct'),
     modelPremium: str('LLM_MODEL_PREMIUM', 'qwen2.5-32b-instruct'),
+    // Anthropic API (Haiku) — used when llmProvider=haiku is passed
+    anthropicApiKey: str('ANTHROPIC_API_KEY', ''),
+    anthropicModel: str('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001'),
+    anthropicUrl: str('ANTHROPIC_URL', 'https://api.anthropic.com/v1'),
     maxConcurrency: int('LLM_MAX_CONCURRENCY', 4),
     maxQueueDepth: int('LLM_MAX_QUEUE_DEPTH', 10),
     semaphoreTimeoutMs: int('LLM_SEMAPHORE_TIMEOUT_MS', 180_000),
@@ -35,7 +39,7 @@ export const config = {
   },
   pipeline: {
     timeoutMs: int('PIPELINE_TIMEOUT_MS', 900_000),
-    heartbeatIntervalMs: int('HEARTBEAT_INTERVAL_MS', 15_000),
+    heartbeatIntervalMs: int('HEARTBEAT_INTERVAL_MS', 8_000),
     maxToolLoopIterations: int('MAX_TOOL_LOOP_ITERATIONS', 8),
     maxDiscussionToolLoopIterations: int('MAX_DISCUSSION_TOOL_LOOP_ITERATIONS', 10),
   },

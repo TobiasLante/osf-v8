@@ -332,20 +332,52 @@ export async function callLlm(
   await sem.acquire(appConfig.llm.semaphoreTimeoutMs, signal);
 
   try {
-    const body: any = {
-      model: config.model,
-      messages,
-      temperature: 0.3,
-      max_tokens: 4096,
-    };
-    if (hasTools) {
-      body.tools = tools;
-      body.tool_choice = 'auto';
-    }
+    const isAnthropic = config.baseUrl.includes('anthropic.com');
 
+    // Build request body + headers depending on provider
+    let requestBody: string;
+    let requestUrl: string;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (config.apiKey) {
-      headers['Authorization'] = `Bearer ${config.apiKey}`;
+
+    if (isAnthropic) {
+      // Anthropic Messages API format
+      headers['x-api-key'] = config.apiKey || '';
+      headers['anthropic-version'] = '2023-06-01';
+      const systemMsg = messages.find(m => m.role === 'system');
+      const nonSystemMsgs = messages.filter(m => m.role !== 'system');
+      const anthropicBody: any = {
+        model: config.model,
+        max_tokens: 4096,
+        temperature: 0.3,
+        messages: nonSystemMsgs.map(m => ({ role: m.role, content: m.content })),
+      };
+      if (systemMsg) anthropicBody.system = systemMsg.content;
+      if (hasTools) {
+        anthropicBody.tools = tools!.map((t: any) => ({
+          name: t.function?.name || t.name,
+          description: t.function?.description || t.description || '',
+          input_schema: t.function?.parameters || t.parameters || {},
+        }));
+      }
+      requestBody = JSON.stringify(anthropicBody);
+      requestUrl = `${config.baseUrl}/messages`;
+    } else {
+      // OpenAI-compatible format
+      const body: any = {
+        model: config.model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 4096,
+      };
+      if (hasTools) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+      }
+      if (config.apiKey) {
+        headers['Authorization'] = `Bearer ${config.apiKey}`;
+      }
+      requestBody = JSON.stringify(body);
+      requestUrl = `${config.baseUrl}/v1/chat/completions`;
     }
 
     // Combine caller signal with per-request timeout (5min)
@@ -358,10 +390,10 @@ export async function callLlm(
 
     let resp: globalThis.Response;
     try {
-      resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+      resp = await fetch(requestUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body),
+        body: requestBody,
         signal: controller.signal,
       });
     } catch (fetchErr) {
@@ -380,19 +412,40 @@ export async function callLlm(
 
     cb.recordSuccess();
     const data: any = await resp.json();
-    const choice = data.choices?.[0];
 
-    // Token estimation
-    const inputTokens = estimateTokens(JSON.stringify(messages));
-    const outputTokens = estimateTokens(choice?.message?.content || '');
-    const tokensUsed = inputTokens + outputTokens;
+    let result: LlmResponse;
 
-    const result: LlmResponse = {
-      content: choice?.message?.content || null,
-      tool_calls: choice?.message?.tool_calls || [],
-      finish_reason: choice?.finish_reason || null,
-      tokensUsed,
-    };
+    if (isAnthropic) {
+      // Anthropic Messages API response format
+      const textBlocks = (data.content || []).filter((b: any) => b.type === 'text');
+      const toolBlocks = (data.content || []).filter((b: any) => b.type === 'tool_use');
+      const content = textBlocks.map((b: any) => b.text).join('') || null;
+      const tool_calls: ToolCall[] = toolBlocks.map((b: any, i: number) => ({
+        index: i,
+        id: b.id,
+        type: 'function' as const,
+        function: { name: b.name, arguments: JSON.stringify(b.input || {}) },
+      }));
+      const tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+      result = {
+        content,
+        tool_calls,
+        finish_reason: data.stop_reason === 'end_turn' ? 'stop' : data.stop_reason || null,
+        tokensUsed,
+      };
+    } else {
+      // OpenAI-compatible response
+      const choice = data.choices?.[0];
+      const inputTokens = estimateTokens(JSON.stringify(messages));
+      const outputTokens = estimateTokens(choice?.message?.content || '');
+      const tokensUsed = inputTokens + outputTokens;
+      result = {
+        content: choice?.message?.content || null,
+        tool_calls: choice?.message?.tool_calls || [],
+        finish_reason: choice?.finish_reason || null,
+        tokensUsed,
+      };
+    }
 
     // ─── Cache store (only for non-tool calls) ────────────────────────────
     if (!hasTools && cacheKey) {
@@ -407,10 +460,10 @@ export async function callLlm(
     // ─── Quota deduction ──────────────────────────────────────────────────
     if (userId) {
       try {
-        await checkAndDeductQuota(userId, tokensUsed);
+        await checkAndDeductQuota(userId, result.tokensUsed || 0);
       } catch (err) {
         // Log but don't fail the request — quota exceeded will block next call
-        logger.warn({ userId, tokensUsed, err: (err as Error).message }, 'Quota deduction issue');
+        logger.warn({ userId, tokensUsed: result.tokensUsed, err: (err as Error).message }, 'Quota deduction issue');
       }
     }
 

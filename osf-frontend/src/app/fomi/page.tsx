@@ -444,6 +444,9 @@ export default function FomiPage() {
   const sourceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const [kgPopup, setKgPopup] = useState(false);
 
+  /* ── LLM provider toggle (click version badge) ──────────────────── */
+  const [llmProvider, setLlmProvider] = useState<"local" | "haiku">("local");
+
   /* ── Specialist tracking (via useV7Events) ──────────────────────── */
   const [expandedSpec, setExpandedSpec] = useState<string | null>(null);
 
@@ -655,6 +658,7 @@ export default function FomiPage() {
         ? playFallbackEvents(fbDisc)
         : streamSSEWithRetry("/agents/run/impact-analysis", {
             question: messages[0]?.content || "What happens if SGM-004 goes down right now?",
+            ...(llmProvider === "haiku" && { llmProvider: "haiku" }),
           });
 
       for await (const event of source) {
@@ -701,6 +705,14 @@ export default function FomiPage() {
             </div>
             <span className="text-lg font-bold tracking-tight">OpenShopFloor</span>
           </div>
+          <button
+            onClick={() => setLlmProvider(p => p === "local" ? "haiku" : "local")}
+            className="text-[10px] font-mono text-white/30 bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-0.5 hover:bg-white/[0.08] transition-colors cursor-pointer flex items-center gap-1"
+            title={`LLM: ${llmProvider}`}
+          >
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+            {llmProvider === "haiku" && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />}
+          </button>
           <span className="text-sm text-white/40">|</span>
           <span className="text-sm text-white/60 font-medium">FoMI 2026 Live Demo</span>
           {/* Fallback indicator — subtle, only visible to presenter */}

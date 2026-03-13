@@ -9,6 +9,7 @@ import { config } from '../config';
 export interface RunAgentOptions {
   userMessage?: string;
   params?: Record<string, unknown>;
+  llmProvider?: string;
 }
 
 export async function runAgent(
