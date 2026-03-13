@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 interface AdminUser {
   id: string;
@@ -38,28 +39,7 @@ interface BannerState {
   active: boolean;
 }
 
-interface ActivityData {
-  user_id: string;
-  user_email: string;
-  user_name: string | null;
-  period: string;
-  total_minutes: number;
-  session_count: number;
-}
-
-interface ActivityTotals {
-  period: string;
-  total_minutes: number;
-  active_users: number;
-}
-
-interface ActivityResponse {
-  granularity: "daily" | "weekly" | "monthly";
-  data: ActivityData[];
-  totals: ActivityTotals[];
-}
-
-type Tab = "health" | "monitoring" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity" | "services" | "historian" | "governance";
+type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods" | "roles" | "categories" | "mcp" | "audit";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -85,7 +65,7 @@ export default function AdminPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-text">Admin Panel</h1>
         <a
-          href="/"
+          href={process.env.NEXT_PUBLIC_UMAMI_URL || "https://osf-api.zeroguess.ai/umami"}
           target="_blank"
           rel="noopener noreferrer"
           className="px-4 py-2 text-xs font-medium rounded-md border border-border bg-bg-surface text-text-muted hover:text-text hover:border-accent/25 transition-colors"
@@ -95,7 +75,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "monitoring", "historian", "services", "governance", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods", "roles", "categories", "mcp", "audit"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,214 +85,24 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "monitoring" ? "Monitoring" : t === "historian" ? "Historian" : t === "services" ? "Services" : t === "governance" ? "Governance" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {t === "health" ? "Health" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : t === "nrpods" ? "NR Pods" : t === "roles" ? "Roles" : t === "categories" ? "Categories" : t === "mcp" ? "MCP Servers" : "Audit"}
           </button>
         ))}
       </div>
 
-      {tab === "health" && <HealthTab onNavigate={setTab} />}
-      {tab === "monitoring" && <MonitoringTab />}
-      {tab === "historian" && <HistorianTab />}
-      {tab === "services" && <ServicesTab />}
-      {tab === "governance" && <GovernanceTab />}
-      {tab === "users" && <UsersTab />}
-      {tab === "stats" && <StatsTab />}
-      {tab === "activity" && <ActivityTab />}
-      {tab === "news" && <NewsTab />}
-      {tab === "banner" && <BannerTab />}
-      {tab === "infra" && <InfraTab />}
-      {tab === "nrpods" && <NrPodsTab />}
+      {tab === "health" && <ErrorBoundary name="health"><HealthTab onNavigate={setTab} /></ErrorBoundary>}
+      {tab === "users" && <ErrorBoundary name="users"><UsersTab /></ErrorBoundary>}
+      {tab === "stats" && <ErrorBoundary name="stats"><StatsTab /></ErrorBoundary>}
+      {tab === "activity" && <ErrorBoundary name="activity"><ActivityTab /></ErrorBoundary>}
+      {tab === "news" && <ErrorBoundary name="news"><NewsTab /></ErrorBoundary>}
+      {tab === "banner" && <ErrorBoundary name="banner"><BannerTab /></ErrorBoundary>}
+      {tab === "infra" && <ErrorBoundary name="infra"><InfraTab /></ErrorBoundary>}
+      {tab === "nrpods" && <ErrorBoundary name="nrpods"><NrPodsTab /></ErrorBoundary>}
+      {tab === "roles" && <ErrorBoundary name="roles"><RolesTab /></ErrorBoundary>}
+      {tab === "categories" && <ErrorBoundary name="categories"><CategoriesTab /></ErrorBoundary>}
+      {tab === "mcp" && <ErrorBoundary name="mcp"><McpServersTab /></ErrorBoundary>}
+      {tab === "audit" && <ErrorBoundary name="audit"><AuditTab /></ErrorBoundary>}
     </main>
-  );
-}
-
-// ─── Monitoring Tab ─────────────────────────────────────────────────────────
-
-interface MonSnapshot {
-  uptime: number;
-  memory: { rss: number; heapUsed: number; heapTotal: number };
-  eventLoopLag: number;
-  db: { totalCount: number; idleCount: number; waitingCount: number };
-  requests: { perMin: number; errorRate: number; history: { ts: number; requests: number; errors: number }[] };
-  llm: { callsPerMin: number; avgLatencyMs: number; history: { ts: number; calls: number; avgMs: number }[] };
-  tools: { callsPerMin: number; errorRate: number; history: { ts: number; calls: number; errors: number }[] };
-  mcpServers: { name: string; url: string; status: "online" | "degraded" | "offline"; lastCheck: number; toolCount: number }[];
-}
-
-/** Tiny inline SVG sparkline */
-function Sparkline({ data, color = "#6366f1", height = 32, width = 120 }: { data: number[]; color?: string; height?: number; width?: number }) {
-  if (data.length < 2) return <div style={{ width, height }} className="bg-bg-base rounded" />;
-  const max = Math.max(...data, 1);
-  const step = width / (data.length - 1);
-  const points = data.map((v, i) => `${i * step},${height - (v / max) * (height - 4) - 2}`).join(" ");
-  return (
-    <svg width={width} height={height} className="inline-block">
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
-    </svg>
-  );
-}
-
-function MonitoringTab() {
-  const [data, setData] = useState<MonSnapshot | null>(null);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const snap = await apiFetch<MonSnapshot>("/admin/dashboard/snapshot");
-      setData(snap);
-      setError("");
-    } catch (e: any) {
-      setError(e.message || "Fehler beim Laden");
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const iv = setInterval(load, 15_000);
-    return () => clearInterval(iv);
-  }, [load]);
-
-  if (error && !data) return <div className="text-red-400 text-sm p-4">{error}</div>;
-  if (!data) return <div className="text-text-muted text-sm p-4">Laden...</div>;
-
-  const heapPct = data.memory.heapTotal > 0 ? Math.round((data.memory.heapUsed / data.memory.heapTotal) * 100) : 0;
-  const lagColor = data.eventLoopLag <= 5 ? "text-green-400" : data.eventLoopLag <= 50 ? "text-yellow-400" : "text-red-400";
-
-  return (
-    <div className="space-y-6">
-      {/* Top KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="text-xs text-text-muted mb-1">Uptime</div>
-          <div className="text-lg font-bold text-text">{formatUptime(data.uptime)}</div>
-        </div>
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="text-xs text-text-muted mb-1">Event Loop Lag</div>
-          <div className={`text-lg font-bold ${lagColor}`}>{data.eventLoopLag}ms</div>
-        </div>
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="text-xs text-text-muted mb-1">Heap</div>
-          <div className="text-lg font-bold text-text">{heapPct}%</div>
-          <div className="text-xs text-text-muted">{formatBytes(data.memory.heapUsed)} / {formatBytes(data.memory.heapTotal)}</div>
-        </div>
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="text-xs text-text-muted mb-1">RSS</div>
-          <div className="text-lg font-bold text-text">{formatBytes(data.memory.rss)}</div>
-        </div>
-      </div>
-
-      {/* Memory Bar */}
-      <div className="bg-bg-surface border border-border rounded-lg p-4">
-        <div className="text-xs text-text-muted mb-2">Heap Usage</div>
-        <div className="w-full bg-bg-base rounded-full h-3 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${heapPct > 85 ? "bg-red-500" : heapPct > 60 ? "bg-yellow-500" : "bg-green-500"}`}
-            style={{ width: `${heapPct}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Throughput Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Requests */}
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <div className="text-xs text-text-muted">HTTP Requests/min</div>
-              <div className="text-2xl font-bold text-text">{data.requests.perMin}</div>
-            </div>
-            <Sparkline data={data.requests.history.map(h => h.requests)} color="#6366f1" />
-          </div>
-          <div className="text-xs">
-            <span className="text-text-muted">Fehlerrate: </span>
-            <span className={data.requests.errorRate > 0.05 ? "text-red-400" : "text-green-400"}>
-              {(data.requests.errorRate * 100).toFixed(1)}%
-            </span>
-          </div>
-          {data.requests.history.length > 0 && (
-            <Sparkline data={data.requests.history.map(h => h.errors)} color="#ef4444" height={20} />
-          )}
-        </div>
-
-        {/* LLM */}
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <div className="text-xs text-text-muted">LLM Calls/min</div>
-              <div className="text-2xl font-bold text-text">{data.llm.callsPerMin}</div>
-            </div>
-            <Sparkline data={data.llm.history.map(h => h.calls)} color="#f59e0b" />
-          </div>
-          <div className="text-xs">
-            <span className="text-text-muted">Avg Latenz: </span>
-            <span className={data.llm.avgLatencyMs > 10000 ? "text-red-400" : data.llm.avgLatencyMs > 5000 ? "text-yellow-400" : "text-green-400"}>
-              {data.llm.avgLatencyMs > 1000 ? `${(data.llm.avgLatencyMs / 1000).toFixed(1)}s` : `${data.llm.avgLatencyMs}ms`}
-            </span>
-          </div>
-          {data.llm.history.length > 0 && (
-            <Sparkline data={data.llm.history.map(h => h.avgMs)} color="#f59e0b" height={20} />
-          )}
-        </div>
-
-        {/* Tools */}
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <div className="text-xs text-text-muted">Tool Calls/min</div>
-              <div className="text-2xl font-bold text-text">{data.tools.callsPerMin}</div>
-            </div>
-            <Sparkline data={data.tools.history.map(h => h.calls)} color="#10b981" />
-          </div>
-          <div className="text-xs">
-            <span className="text-text-muted">Fehlerrate: </span>
-            <span className={data.tools.errorRate > 0.1 ? "text-red-400" : "text-green-400"}>
-              {(data.tools.errorRate * 100).toFixed(1)}%
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* DB Pool */}
-      <div className="bg-bg-surface border border-border rounded-lg p-4">
-        <div className="text-xs text-text-muted mb-3">DB Connection Pool</div>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <div className="text-xl font-bold text-text">{data.db.totalCount}</div>
-            <div className="text-xs text-text-muted">Total</div>
-          </div>
-          <div>
-            <div className="text-xl font-bold text-green-400">{data.db.idleCount}</div>
-            <div className="text-xs text-text-muted">Idle</div>
-          </div>
-          <div>
-            <div className={`text-xl font-bold ${data.db.waitingCount > 0 ? "text-yellow-400" : "text-text"}`}>{data.db.waitingCount}</div>
-            <div className="text-xs text-text-muted">Wartend</div>
-          </div>
-        </div>
-      </div>
-
-      {/* MCP Servers */}
-      {data.mcpServers.length > 0 && (
-        <div className="bg-bg-surface border border-border rounded-lg p-4">
-          <div className="text-xs text-text-muted mb-3">MCP Server Status</div>
-          <div className="space-y-2">
-            {data.mcpServers.map((s) => (
-              <div key={s.name} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${s.status === "online" ? "bg-green-400" : s.status === "degraded" ? "bg-yellow-400" : "bg-red-400"}`} />
-                  <span className="font-medium text-text">{s.name}</span>
-                  <span className="text-xs text-text-muted font-mono">{s.url}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-text-muted">
-                  <span>{s.toolCount} Tools</span>
-                  <span>{new Date(s.lastCheck).toLocaleTimeString("de-DE")}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -323,22 +113,6 @@ interface HealthComponent {
   [key: string]: any;
 }
 
-interface FactoryService {
-  name: string;
-  ok: boolean;
-  latencyMs: number;
-  leader: boolean | null;
-  ready: boolean;
-  podId?: string | null;
-}
-
-interface DbCheck {
-  name: string;
-  ok: boolean;
-  latencyMs: number;
-  error?: string;
-}
-
 interface HealthData {
   overall: "healthy" | "degraded" | "critical";
   components: {
@@ -347,9 +121,9 @@ interface HealthData {
     llm: HealthComponent;
     nodered: HealthComponent;
     mcp: HealthComponent & { services: { name: string; ok: boolean; latencyMs: number }[] };
-    factory: HealthComponent & { services: FactoryService[] };
-    databases: HealthComponent & { checks: DbCheck[] };
-    mqtt: HealthComponent & { reachable: boolean };
+    factory: HealthComponent & { services: any[] };
+    databases: HealthComponent & { checks: any[] };
+    mqtt: HealthComponent;
     cloudflare: HealthComponent;
   };
   alerts: { severity: "warning" | "critical"; component: string; message: string }[];
@@ -388,37 +162,90 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
 
   const overall = STATUS_CONFIG[data.overall];
 
-  const components: { key: string; label: string; status: "healthy" | "degraded" | "critical"; metrics: string; navigateTo?: Tab }[] = [
+  interface ServiceDetail { name: string; ok: boolean; latencyMs?: number; error?: string; badge?: string }
+  type HealthTile = { key: string; label: string; status: "healthy" | "degraded" | "critical"; metrics: string; services?: ServiceDetail[]; navigateTo?: Tab };
+
+  const nr = data.components.nodered;
+  const llm = data.components.llm;
+  const mcp = data.components.mcp;
+  const factory = data.components.factory;
+  const dbs = data.components.databases;
+
+  const components: HealthTile[] = [
     {
       key: "gateway", label: "Gateway", status: data.components.gateway.status,
       metrics: `${formatUptime(data.components.gateway.uptimeSeconds)} uptime, ${data.components.gateway.memoryMb} MB RAM`,
+      navigateTo: "infra",
     },
     {
-      key: "database", label: "Gateway DB", status: data.components.database.status,
+      key: "database", label: "OSF Database", status: data.components.database.status,
       metrics: `${data.components.database.connectionsUsed}/${data.components.database.connectionsMax} conns, ${data.components.database.latencyMs}ms`,
+      navigateTo: "infra",
     },
     {
-      key: "llm", label: "LLM", status: data.components.llm.status,
-      metrics: data.components.llm.online
-        ? `Online, ${data.components.llm.activeRequests} active, ${data.components.llm.queuedRequests} queued`
+      key: "llm", label: "LLM Servers", status: llm.status,
+      metrics: llm.online
+        ? `Online, ${llm.activeRequests} active, ${llm.queuedRequests} queued`
         : "Offline",
+      services: [
+        { name: "Premium (5001)", ok: llm.online, badge: llm.online ? "online" : "offline" },
+        { name: "Free (5002)", ok: llm.online, badge: llm.online ? "online" : "offline" },
+      ],
+      navigateTo: "infra",
     },
     {
-      key: "nodered", label: "Node-RED Pods", status: data.components.nodered.status,
-      metrics: `${data.components.nodered.warm} warm, ${data.components.nodered.assigned} assigned`,
+      key: "nodered", label: "Node-RED Pool", status: nr.status,
+      metrics: `${nr.warm} warm, ${nr.assigned} assigned, ${nr.starting} starting`,
+      services: [
+        { name: "Warm Pods", ok: nr.warm >= nr.targetSize, badge: `${nr.warm}/${nr.targetSize}` },
+        { name: "Assigned Pods", ok: true, badge: `${nr.assigned}` },
+        { name: "Starting Pods", ok: true, badge: `${nr.starting}` },
+        { name: "Pool Healthy", ok: nr.poolHealthy, badge: nr.poolHealthy ? "yes" : "no" },
+      ],
       navigateTo: "nrpods",
     },
     {
-      key: "mcp", label: "MCP Tools", status: data.components.mcp.status,
-      metrics: `${data.components.mcp.services.filter((s: any) => s.ok).length}/${data.components.mcp.services.length} online`,
+      key: "mcp", label: "MCP Services", status: mcp.status,
+      metrics: `${mcp.services.filter((s: any) => s.ok).length}/${mcp.services.length} online`,
+      services: mcp.services.map((s: any) => ({ name: s.name, ok: s.ok, latencyMs: s.latencyMs })),
+      navigateTo: "infra",
     },
     {
-      key: "mqtt", label: "MQTT Broker", status: data.components.mqtt.status,
-      metrics: data.components.mqtt.reachable ? "Connected" : "Unreachable",
+      key: "factory", label: "Factory Simulator", status: factory.status,
+      metrics: `${factory.services.filter((s: any) => s.ok).length}/${factory.services.length} services online`,
+      services: factory.services.map((s: any) => ({
+        name: s.name,
+        ok: s.ok,
+        latencyMs: s.latencyMs,
+        badge: s.ok ? (s.leader ? "leader" : s.ready === false ? "backup" : "ok") : "down",
+      })),
+      navigateTo: "infra",
+    },
+    {
+      key: "databases", label: "Databases", status: dbs?.status || "healthy",
+      metrics: dbs?.checks ? `${dbs.checks.filter((c: any) => c.ok).length}/${dbs.checks.length} healthy` : "OK",
+      services: dbs?.checks?.map((c: any) => ({ name: c.name, ok: c.ok, latencyMs: c.latencyMs, error: c.error })),
+      navigateTo: "infra",
+    },
+    {
+      key: "mqtt", label: "MQTT Broker", status: data.components.mqtt?.status || "healthy",
+      metrics: data.components.mqtt?.reachable ? "Connected" : "Disconnected",
+      services: [{ name: "EMQX (31883)", ok: !!data.components.mqtt?.reachable }],
+    },
+    {
+      key: "email", label: "Email (Resend)", status: (data.components as any).email?.status || "critical",
+      metrics: (data.components as any).email?.configured
+        ? ((data.components as any).email?.reachable ? "Configured & Reachable" : "Configured, API unreachable")
+        : "Not configured",
+      services: [
+        { name: "API Key", ok: !!(data.components as any).email?.configured, badge: (data.components as any).email?.configured ? "set" : "missing" },
+        { name: "Resend API", ok: !!(data.components as any).email?.reachable, badge: (data.components as any).email?.reachable ? "online" : "offline" },
+      ],
     },
     {
       key: "cloudflare", label: "Cloudflare", status: data.components.cloudflare.status,
       metrics: data.components.cloudflare.reachable ? "Reachable" : "Unreachable",
+      services: [{ name: "CF Tunnel", ok: !!data.components.cloudflare.reachable }],
     },
   ];
 
@@ -437,78 +264,57 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
         </div>
       </div>
 
-      {/* Platform Services Grid */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Platform</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {components.map((c) => {
-            const cfg = STATUS_CONFIG[c.status];
-            return (
-              <button
-                key={c.key}
-                onClick={() => c.navigateTo && onNavigate(c.navigateTo)}
-                className={`text-left rounded-lg border border-border/50 bg-bg-surface p-3 transition-colors ${
-                  c.navigateTo ? "hover:border-accent/25 cursor-pointer" : "cursor-default"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${c.status !== "healthy" ? "animate-pulse" : ""}`} />
-                  <span className="text-sm font-medium text-text">{c.label}</span>
-                </div>
-                <p className="text-xs text-text-muted font-mono pl-4">{c.metrics}</p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Factory Services */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Factory Services</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {data.components.factory.services.map((svc) => {
-            const status = !svc.ok ? "critical" : svc.leader === false ? "degraded" : "healthy";
-            const cfg = STATUS_CONFIG[status];
-            return (
-              <div key={svc.name} className="rounded-lg border border-border/50 bg-bg-surface p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${status !== "healthy" ? "animate-pulse" : ""}`} />
-                  <span className="text-sm font-medium text-text">{svc.name}</span>
-                  {svc.leader === true && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">LEADER</span>
-                  )}
-                  {svc.leader === false && svc.ok && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 font-medium">STANDBY</span>
-                  )}
-                </div>
-                <p className="text-xs text-text-muted font-mono pl-4">
-                  {!svc.ok ? "Offline" : `${svc.latencyMs}ms`}
-                </p>
+      {/* Component Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {components.map((c) => {
+          const cfg = STATUS_CONFIG[c.status];
+          return (
+            <button
+              key={c.key}
+              onClick={() => c.navigateTo && onNavigate(c.navigateTo)}
+              className={`text-left rounded-lg border border-border/50 bg-bg-surface p-4 transition-colors ${
+                c.navigateTo ? "hover:border-accent/25 cursor-pointer" : "cursor-default"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                <span className="text-sm font-medium text-text">{c.label}</span>
+                <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
+                  {c.status}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Databases */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Databases</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {data.components.databases.checks.map((db) => {
-            const cfg = STATUS_CONFIG[db.ok ? "healthy" : "critical"];
-            return (
-              <div key={db.name} className="rounded-lg border border-border/50 bg-bg-surface p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${!db.ok ? "animate-pulse" : ""}`} />
-                  <span className="text-xs font-medium text-text truncate">{db.name}</span>
+              <p className="text-xs text-text-muted font-mono">{c.metrics}</p>
+              {c.services && c.services.length > 0 && (
+                <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
+                  {c.services.map((s) => (
+                    <div key={s.name} className="flex items-center gap-2 text-xs">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.ok ? "bg-green-400" : "bg-red-400"}`} />
+                      <span className={s.ok ? "text-text-muted" : "text-red-400 font-medium"}>{s.name}</span>
+                      <span className="ml-auto flex items-center gap-2">
+                        {s.badge && (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            s.badge === "leader" ? "bg-blue-500/20 text-blue-400" :
+                            s.badge === "backup" ? "bg-yellow-500/20 text-yellow-400" :
+                            s.badge === "down" ? "bg-red-500/20 text-red-400" :
+                            s.badge === "online" ? "bg-green-500/20 text-green-400" :
+                            s.badge === "offline" ? "bg-red-500/20 text-red-400" :
+                            "bg-white/5 text-text-muted"
+                          }`}>{s.badge}</span>
+                        )}
+                        {s.latencyMs != null && (
+                          <span className="text-text-muted font-mono">{s.latencyMs}ms</span>
+                        )}
+                        {s.error && !s.latencyMs && (
+                          <span className="text-red-400 truncate max-w-[120px]" title={s.error}>{s.error}</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-text-muted font-mono pl-4">
-                  {db.ok ? `${db.latencyMs}ms` : "Offline"}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Active Alerts */}
@@ -543,15 +349,9 @@ function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 // ─── Users Tab ──────────────────────────────────────────────────────────────
@@ -639,7 +439,6 @@ function UsersTab() {
               <th className="py-2 pr-4">Email</th>
               <th className="py-2 pr-4">Name</th>
               <th className="py-2 pr-4">Role</th>
-              <th className="py-2 pr-4">Fabrik-Rollen</th>
               <th className="py-2 pr-4">Tier</th>
               <th className="py-2 pr-4">Verified</th>
               <th className="py-2 pr-4">Locked</th>
@@ -659,12 +458,8 @@ function UsersTab() {
                     className="bg-bg border border-border rounded px-2 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
                   >
                     <option value="user">user</option>
-                    <option value="demo">demo</option>
                     <option value="admin">admin</option>
                   </select>
-                </td>
-                <td className="py-2 pr-4">
-                  <UserRolesSelect userId={u.id} />
                 </td>
                 <td className="py-2 pr-4 text-text-muted">
                   <select
@@ -855,6 +650,115 @@ function CreateUserModal({
   );
 }
 
+// ─── Activity Tab ───────────────────────────────────────────────────────────
+
+interface ActivityRow {
+  user_id: string;
+  user_email: string;
+  user_name: string | null;
+  period: string;
+  session_count: number;
+  total_minutes: number;
+}
+
+interface ActivityTotal {
+  period: string;
+  total_minutes: number;
+  active_users: number;
+}
+
+function ActivityTab() {
+  const [data, setData] = useState<ActivityRow[]>([]);
+  const [totals, setTotals] = useState<ActivityTotal[]>([]);
+  const [granularity, setGranularity] = useState("daily");
+  const [error, setError] = useState("");
+  const [from, setFrom] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      const d = await apiFetch<{ granularity: string; data: ActivityRow[]; totals: ActivityTotal[] }>(`/admin/activity?from=${from}&to=${to}`);
+      setData(d.data);
+      setTotals(d.totals);
+      setGranularity(d.granularity);
+      setError("");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [from, to]);
+
+  useEffect(() => { fetchActivity(); }, [fetchActivity]);
+
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-4 items-center">
+        <label className="text-xs text-text-muted">From</label>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+          className="bg-bg-surface border border-border rounded px-2 py-1 text-sm text-text" />
+        <label className="text-xs text-text-muted">To</label>
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+          className="bg-bg-surface border border-border rounded px-2 py-1 text-sm text-text" />
+        <span className="text-xs text-text-dim">Granularity: {granularity}</span>
+      </div>
+
+      {/* Totals */}
+      {totals.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-bg-surface text-text-muted text-xs">
+              <th className="text-left px-4 py-2">Period</th>
+              <th className="text-right px-4 py-2">Active Users</th>
+              <th className="text-right px-4 py-2">Total Minutes</th>
+            </tr></thead>
+            <tbody>
+              {totals.map((t, i) => (
+                <tr key={i} className="border-t border-border">
+                  <td className="px-4 py-2 text-text">{t.period}</td>
+                  <td className="px-4 py-2 text-right text-text">{t.active_users}</td>
+                  <td className="px-4 py-2 text-right text-text">{t.total_minutes} min</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Per-user detail */}
+      {data.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-bg-surface text-text-muted text-xs">
+              <th className="text-left px-4 py-2">User</th>
+              <th className="text-left px-4 py-2">Period</th>
+              <th className="text-right px-4 py-2">Events</th>
+              <th className="text-right px-4 py-2">Minutes</th>
+            </tr></thead>
+            <tbody>
+              {data.map((r, i) => (
+                <tr key={i} className="border-t border-border">
+                  <td className="px-4 py-2">
+                    <div className="text-text text-xs">{r.user_name || r.user_email}</div>
+                    <div className="text-text-dim text-[10px]">{r.user_email}</div>
+                  </td>
+                  <td className="px-4 py-2 text-text-muted text-xs">{r.period}</td>
+                  <td className="px-4 py-2 text-right text-text">{r.session_count}</td>
+                  <td className="px-4 py-2 text-right text-text">{r.total_minutes} min</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {data.length === 0 && !error && (
+        <div className="text-text-muted text-sm text-center py-8">No activity data for this period.</div>
+      )}
+    </div>
+  );
+}
+
 // ─── Stats Tab ──────────────────────────────────────────────────────────────
 
 function StatsTab() {
@@ -911,241 +815,6 @@ function StatCard({ label, value }: { label: string; value: number }) {
     <div className="bg-surface border border-border rounded-lg p-4">
       <div className="text-2xl font-bold text-text">{value}</div>
       <div className="text-sm text-text-muted">{label}</div>
-    </div>
-  );
-}
-
-// ─── Activity Tab ──────────────────────────────────────────────────────────
-
-function ActivityTab() {
-  const [data, setData] = useState<ActivityResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [preset, setPreset] = useState<"7d" | "30d" | "3mo" | "1y" | "custom">("7d");
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().slice(0, 10);
-  });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
-
-  const applyPreset = useCallback((p: "7d" | "30d" | "3mo" | "1y") => {
-    setPreset(p);
-    const now = new Date();
-    const to = now.toISOString().slice(0, 10);
-    let from: string;
-    if (p === "7d") {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      from = d.toISOString().slice(0, 10);
-    } else if (p === "30d") {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      from = d.toISOString().slice(0, 10);
-    } else if (p === "3mo") {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 3);
-      from = d.toISOString().slice(0, 10);
-    } else {
-      const d = new Date();
-      d.setFullYear(d.getFullYear() - 1);
-      from = d.toISOString().slice(0, 10);
-    }
-    setFromDate(from);
-    setToDate(to);
-  }, []);
-
-  const fetchActivity = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const json = await apiFetch(`/admin/activity?from=${fromDate}&to=${toDate}`);
-      setData(json);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [fromDate, toDate]);
-
-  useEffect(() => {
-    fetchActivity();
-  }, [fetchActivity]);
-
-  // Aggregate per-user totals across all periods
-  const userTotals = data
-    ? Object.values(
-        data.data.reduce(
-          (acc, row) => {
-            if (!acc[row.user_id]) {
-              acc[row.user_id] = {
-                user_id: row.user_id,
-                user_email: row.user_email,
-                user_name: row.user_name,
-                total_minutes: 0,
-                session_count: 0,
-              };
-            }
-            acc[row.user_id].total_minutes += row.total_minutes;
-            acc[row.user_id].session_count += row.session_count;
-            return acc;
-          },
-          {} as Record<string, { user_id: string; user_email: string; user_name: string | null; total_minutes: number; session_count: number }>
-        )
-      ).sort((a, b) => b.total_minutes - a.total_minutes)
-    : [];
-
-  const totalMinutes = userTotals.reduce((s, u) => s + u.total_minutes, 0);
-  const totalSessions = userTotals.reduce((s, u) => s + u.session_count, 0);
-  const maxMinutes = userTotals.length > 0 ? userTotals[0].total_minutes : 1;
-
-  function fmtTime(mins: number): string {
-    const h = Math.floor(mins / 60);
-    const m = Math.round(mins % 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Date range controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        {(["7d", "30d", "3mo", "1y"] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => applyPreset(p)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
-              preset === p
-                ? "bg-accent/10 border-accent text-accent"
-                : "border-border text-text-muted hover:text-text hover:border-accent/25"
-            }`}
-          >
-            {p}
-          </button>
-        ))}
-        <div className="flex items-center gap-2 ml-2">
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => { setPreset("custom"); setFromDate(e.target.value); }}
-            className="px-2 py-1 text-xs bg-bg-surface border border-border rounded text-text"
-          />
-          <span className="text-text-muted text-xs">to</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => { setPreset("custom"); setToDate(e.target.value); }}
-            className="px-2 py-1 text-xs bg-bg-surface border border-border rounded text-text"
-          />
-        </div>
-        {data && (
-          <span className="ml-auto px-2 py-1 text-xs rounded bg-accent/10 text-accent font-medium">
-            {data.granularity.charAt(0).toUpperCase() + data.granularity.slice(1)}
-          </span>
-        )}
-      </div>
-
-      {error && <p className="text-red-400 text-sm">{error}</p>}
-      {loading && <p className="text-text-muted text-sm">Loading activity data...</p>}
-
-      {data && !loading && (
-        <>
-          {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <div className="text-text-muted text-xs mb-1">Total Time</div>
-              <div className="text-xl font-bold text-text">{fmtTime(totalMinutes)}</div>
-            </div>
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <div className="text-text-muted text-xs mb-1">Active Users</div>
-              <div className="text-xl font-bold text-text">{userTotals.length}</div>
-            </div>
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <div className="text-text-muted text-xs mb-1">Avg Session</div>
-              <div className="text-xl font-bold text-text">
-                {totalSessions > 0 ? fmtTime(totalMinutes / totalSessions) : "—"}
-              </div>
-            </div>
-          </div>
-
-          {/* Per-period totals bar chart */}
-          {data.totals.length > 0 && (
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <h3 className="text-sm font-medium text-text-muted mb-3">Activity Over Time</h3>
-              <div className="space-y-1">
-                {data.totals
-                  .slice()
-                  .sort((a, b) => a.period.localeCompare(b.period))
-                  .map((t, i) => {
-                    const maxTotalMin = Math.max(...data.totals.map((x) => x.total_minutes), 1);
-                    const pct = (t.total_minutes / maxTotalMin) * 100;
-                    return (
-                      <div key={i} className="flex items-center gap-3 text-xs">
-                        <span className="text-text-muted w-24 shrink-0">
-                          {new Date(t.period).toLocaleDateString()}
-                        </span>
-                        <div className="flex-1 h-5 bg-bg rounded-sm overflow-hidden">
-                          <div
-                            className="h-full bg-accent/30 rounded-sm"
-                            style={{ width: `${Math.max(pct, 2)}%` }}
-                          />
-                        </div>
-                        <span className="text-text w-16 text-right">{fmtTime(t.total_minutes)}</span>
-                        <span className="text-text-dim w-20 text-right">{t.active_users} user{t.active_users !== 1 ? "s" : ""}</span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {/* Per-user table */}
-          <div className="bg-bg-surface border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-text-muted">
-                  <th className="px-4 py-2 font-medium">User</th>
-                  <th className="px-4 py-2 font-medium text-right">Total Time</th>
-                  <th className="px-4 py-2 font-medium text-right">Sessions</th>
-                  <th className="px-4 py-2 font-medium text-right">Avg Session</th>
-                  <th className="px-4 py-2 font-medium" style={{ width: "30%" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {userTotals.map((u) => (
-                  <tr key={u.user_id} className="border-b border-border/50 hover:bg-bg/50">
-                    <td className="px-4 py-2">
-                      <div className="text-text text-sm">{u.user_name || u.user_email}</div>
-                      {u.user_name && (
-                        <div className="text-text-dim text-xs">{u.user_email}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right text-text">{fmtTime(u.total_minutes)}</td>
-                    <td className="px-4 py-2 text-right text-text">{u.session_count}</td>
-                    <td className="px-4 py-2 text-right text-text">
-                      {u.session_count > 0 ? fmtTime(u.total_minutes / u.session_count) : "—"}
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="h-3 bg-bg rounded-sm overflow-hidden">
-                        <div
-                          className="h-full bg-accent/40 rounded-sm"
-                          style={{ width: `${(u.total_minutes / maxMinutes) * 100}%` }}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {userTotals.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-text-dim text-sm">
-                      No activity data for this period
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -2352,401 +2021,140 @@ function valueColor(value: number | null | undefined, warn: number, danger: numb
   return "text-green-400";
 }
 
-// ─── Historian Tab ──────────────────────────────────────────────────────────
+// ─── v9: Factory Roles Tab ──────────────────────────────────────────────────
 
-interface HistorianStats {
-  status: string;
-  version: string;
-  mqtt: { connected: boolean; paused: boolean; received: number; routed: number; unrouted: number; pauses: number };
-  flush: { bufferSize: number; inserted: number; errors: number; msgPerSec: number };
-  perTable: { table: string; bufferSize: number; inserted: number; errors: number; flushes: number; lastFlushMs: number; deadLettered: number }[];
-  legacy: { bufferSize: number; inserted: number; errors: number; flushes: number };
-  explorer: { size: number };
+interface FactoryRole {
+  id: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+  user_count: string;
+  categories: string[];
+  created_at: string;
 }
 
-interface HistorianRoute {
-  id: number;
-  category: string;
-  target_table: string;
-  flush_interval_s: number;
-  enabled: boolean;
-}
-
-interface RetentionPolicy {
-  target_table: string;
-  retention_days: number;
-  downsampling_interval: string | null;
-  downsampling_retention_days: number | null;
-}
-
-interface ExplorerMsg {
-  ts: string;
-  topic: string;
-  machine: string;
-  category: string;
-  variable: string;
-  value: number | null;
-  value_text: string | null;
-  unit: string | null;
-  routed_to: string | null;
-}
-
-type HistorianView = "status" | "routes" | "retention" | "explorer";
-
-function HistorianTab() {
-  const [view, setView] = useState<HistorianView>("status");
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2 mb-4">
-        {(["status", "routes", "retention", "explorer"] as HistorianView[]).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              view === v ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text hover:bg-bg-surface"
-            }`}
-          >
-            {v === "status" ? "Live Status" : v === "routes" ? "Routen" : v === "retention" ? "Verdichtung" : "Explorer"}
-          </button>
-        ))}
-      </div>
-
-      {view === "status" && <HistorianStatusView />}
-      {view === "routes" && <HistorianRoutesView />}
-      {view === "retention" && <HistorianRetentionView />}
-      {view === "explorer" && <HistorianExplorerView />}
-    </div>
-  );
-}
-
-function HistorianStatusView() {
-  const [data, setData] = useState<HistorianStats | null>(null);
-  const [error, setError] = useState("");
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const d = await apiFetch<HistorianStats>("/admin/historian/health");
-      setData(d);
-      setError("");
-    } catch {
-      setError("Historian nicht erreichbar");
-    }
-  }, []);
+function RolesTab() {
+  const [roles, setRoles] = useState<FactoryRole[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editCats, setEditCats] = useState<string[]>([]);
+  const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    fetchStats();
-    const iv = setInterval(fetchStats, 3000);
-    return () => clearInterval(iv);
-  }, [fetchStats]);
-
-  if (error) return <div className="text-red-400 text-sm">{error}</div>;
-  if (!data) return <div className="text-text-muted animate-pulse text-sm">Loading...</div>;
-
-  const bufferPct = Math.min(100, (data.flush.bufferSize / 50000) * 100);
-
-  return (
-    <div className="space-y-4">
-      {/* Top Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-bg-surface border border-border rounded-md p-3">
-          <div className="text-xs text-text-muted mb-1">MQTT</div>
-          <div className={`text-lg font-bold ${data.mqtt.connected ? "text-green-400" : "text-red-400"}`}>
-            {data.mqtt.connected ? "Connected" : "Disconnected"}
-          </div>
-          {data.mqtt.paused && <div className="text-xs text-yellow-400 mt-1">BACKPRESSURE</div>}
-        </div>
-        <div className="bg-bg-surface border border-border rounded-md p-3">
-          <div className="text-xs text-text-muted mb-1">msg/sec</div>
-          <div className="text-lg font-bold text-text">{data.flush.msgPerSec}</div>
-        </div>
-        <div className="bg-bg-surface border border-border rounded-md p-3">
-          <div className="text-xs text-text-muted mb-1">Inserted</div>
-          <div className="text-lg font-bold text-text">{data.flush.inserted.toLocaleString()}</div>
-        </div>
-        <div className="bg-bg-surface border border-border rounded-md p-3">
-          <div className="text-xs text-text-muted mb-1">Errors</div>
-          <div className={`text-lg font-bold ${data.flush.errors > 0 ? "text-red-400" : "text-green-400"}`}>
-            {data.flush.errors}
-          </div>
-        </div>
-      </div>
-
-      {/* Buffer Fill */}
-      <div className="bg-bg-surface border border-border rounded-md p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-text-muted">Buffer ({data.flush.bufferSize.toLocaleString()} rows)</span>
-          <span className={`text-xs font-medium ${bufferPct >= 80 ? "text-red-400" : bufferPct >= 50 ? "text-yellow-400" : "text-green-400"}`}>
-            {bufferPct.toFixed(0)}%
-          </span>
-        </div>
-        <ProgressBar value={bufferPct} />
-      </div>
-
-      {/* MQTT Stats */}
-      <div className="bg-bg-surface border border-border rounded-md p-3">
-        <div className="text-xs text-text-muted mb-2">MQTT Stats</div>
-        <div className="grid grid-cols-4 gap-3 text-xs">
-          <div><span className="text-text-muted">Received:</span> <span className="text-text">{data.mqtt.received.toLocaleString()}</span></div>
-          <div><span className="text-text-muted">Routed:</span> <span className="text-text">{data.mqtt.routed.toLocaleString()}</span></div>
-          <div><span className="text-text-muted">Unrouted:</span> <span className="text-text">{data.mqtt.unrouted.toLocaleString()}</span></div>
-          <div><span className="text-text-muted">Pauses:</span> <span className="text-text">{data.mqtt.pauses}</span></div>
-        </div>
-      </div>
-
-      {/* Per-Table Cards */}
-      <div className="text-xs text-text-muted mb-1">Per-Table Status</div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {data.perTable.map((t) => (
-          <div key={t.table} className="bg-bg-surface border border-border rounded-md p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-text">{t.table}</span>
-              <span className="text-xs text-text-muted">{t.lastFlushMs}ms</span>
-            </div>
-            <div className="grid grid-cols-2 gap-1 text-xs">
-              <div><span className="text-text-muted">Buffer:</span> <span className="text-text">{t.bufferSize}</span></div>
-              <div><span className="text-text-muted">Inserted:</span> <span className="text-text">{t.inserted.toLocaleString()}</span></div>
-              <div><span className="text-text-muted">Errors:</span> <span className={t.errors > 0 ? "text-red-400" : "text-text"}>{t.errors}</span></div>
-              <div><span className="text-text-muted">Dead:</span> <span className={t.deadLettered > 0 ? "text-red-400" : "text-text"}>{t.deadLettered}</span></div>
-            </div>
-          </div>
-        ))}
-        {/* Legacy */}
-        <div className="bg-bg-surface border border-border rounded-md p-3 opacity-60">
-          <div className="text-sm font-medium text-text mb-2">uns_history (legacy)</div>
-          <div className="grid grid-cols-2 gap-1 text-xs">
-            <div><span className="text-text-muted">Buffer:</span> <span className="text-text">{data.legacy.bufferSize}</span></div>
-            <div><span className="text-text-muted">Inserted:</span> <span className="text-text">{data.legacy.inserted.toLocaleString()}</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HistorianRoutesView() {
-  const [routes, setRoutes] = useState<HistorianRoute[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newCat, setNewCat] = useState("");
-  const [newTable, setNewTable] = useState("");
-  const [newFlush, setNewFlush] = useState("5");
-
-  const fetchRoutes = useCallback(async () => {
-    try {
-      const data = await apiFetch<{ routes: HistorianRoute[] }>("/admin/historian/routes");
-      setRoutes(data.routes);
-    } catch {
-      setRoutes([]);
-    } finally {
-      setLoading(false);
-    }
+    Promise.all([
+      apiFetch<{ roles: FactoryRole[] }>("/admin/roles"),
+      apiFetch<{ categories: { id: string; name: string }[] }>("/admin/tool-categories"),
+    ])
+      .then(([r, c]) => {
+        setRoles(r.roles);
+        setAllCategories(c.categories);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { fetchRoutes(); }, [fetchRoutes]);
-
-  const addRoute = async () => {
-    if (!newCat.trim() || !newTable.trim()) return;
+  const savePermissions = async (roleId: string) => {
     try {
-      await apiFetch("/admin/historian/routes", {
-        method: "POST",
-        body: JSON.stringify({
-          category: newCat.trim(),
-          target_table: newTable.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
-          flush_interval_s: parseInt(newFlush) || 5,
-        }),
+      await apiFetch(`/admin/roles/${roleId}/permissions`, {
+        method: "PUT",
+        body: JSON.stringify({ categories: editCats }),
       });
-      setNewCat(""); setNewTable(""); setShowAdd(false);
-      fetchRoutes();
+      setRoles((prev) =>
+        prev.map((r) => (r.id === roleId ? { ...r, categories: editCats } : r))
+      );
+      setEditId(null);
     } catch (err: any) {
-      alert(err.message || "Failed to add route");
+      alert(err.message || "Failed to save");
     }
   };
 
-  const toggleRoute = async (id: number, enabled: boolean) => {
-    try {
-      await apiFetch(`/admin/historian/routes/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ enabled: !enabled }),
-      });
-      fetchRoutes();
-    } catch {}
-  };
-
-  const removeRoute = async (id: number, category: string) => {
-    if (!confirm(`Route "${category}" loeschen?`)) return;
-    try {
-      await apiFetch(`/admin/historian/routes/${id}`, { method: "DELETE" });
-      fetchRoutes();
-    } catch {}
-  };
-
-  if (loading) return <div className="text-text-muted animate-pulse text-sm">Loading routes...</div>;
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading roles...</div>;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-text-muted">{routes.length} Routen konfiguriert</p>
-        <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
-          + Neue Route
-        </button>
+        <h2 className="text-lg font-semibold text-text">Factory Roles ({roles.length})</h2>
       </div>
-
-      {showAdd && (
-        <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-text-muted mb-1">Kategorie</label>
-              <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="z.B. Vibration" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
+      <div className="grid gap-3">
+        {roles.map((role) => (
+          <div key={role.id} className="p-4 rounded-md border border-border bg-bg-surface">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h3 className="font-semibold text-text">{role.name}</h3>
+                <p className="text-xs text-text-muted">{role.description}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-text-dim">{role.user_count} users</span>
+                {role.is_system && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">system</span>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-text-muted mb-1">Zieltabelle</label>
-              <input value={newTable} onChange={(e) => setNewTable(e.target.value)} placeholder="z.B. vibration" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-            </div>
-            <div>
-              <label className="block text-xs text-text-muted mb-1">Flush (s)</label>
-              <input type="number" value={newFlush} onChange={(e) => setNewFlush(e.target.value)} min="1" max="60" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={addRoute} disabled={!newCat.trim() || !newTable.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">Erstellen</button>
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Abbrechen</button>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-bg-surface border border-border rounded-md overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-text-muted text-xs">
-              <th className="text-left p-3">Kategorie</th>
-              <th className="text-left p-3">Zieltabelle</th>
-              <th className="text-left p-3">Flush</th>
-              <th className="text-left p-3">Status</th>
-              <th className="text-right p-3">Aktionen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {routes.map((r) => (
-              <tr key={r.id} className="border-b border-border/50 last:border-0">
-                <td className="p-3 text-text font-medium">{r.category === "*" ? "* (Fallback)" : r.category}</td>
-                <td className="p-3 text-text-muted font-mono text-xs">{r.target_table}</td>
-                <td className="p-3 text-text-muted">{r.flush_interval_s}s</td>
-                <td className="p-3">
-                  <button onClick={() => toggleRoute(r.id, r.enabled)} className={`px-2 py-0.5 text-xs rounded ${r.enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
-                    {r.enabled ? "Aktiv" : "Deaktiviert"}
+            {editId === role.id ? (
+              <div className="mt-3 space-y-2">
+                <div className="text-xs text-text-muted mb-1">Allowed Categories:</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {allCategories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() =>
+                        setEditCats((prev) =>
+                          prev.includes(cat.id)
+                            ? prev.filter((c) => c !== cat.id)
+                            : [...prev, cat.id]
+                        )
+                      }
+                      className={`px-2 py-1 rounded text-xs transition-all ${
+                        editCats.includes(cat.id)
+                          ? "bg-accent text-bg"
+                          : "border border-border text-text-dim hover:border-accent/30"
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => savePermissions(role.id)}
+                    className="px-3 py-1.5 rounded text-xs bg-accent text-bg font-medium hover:bg-accent-hover"
+                  >
+                    Save
                   </button>
-                </td>
-                <td className="p-3 text-right">
-                  <button onClick={() => removeRoute(r.id, r.category)} className="text-xs text-red-400 hover:text-red-300 transition-colors">Loeschen</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function HistorianRetentionView() {
-  const [policies, setPolicies] = useState<RetentionPolicy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<string | null>(null);
-
-  const fetchPolicies = useCallback(async () => {
-    try {
-      const data = await apiFetch<{ policies: RetentionPolicy[] }>("/admin/historian/retention");
-      setPolicies(data.policies);
-    } catch {
-      setPolicies([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchPolicies(); }, [fetchPolicies]);
-
-  const updatePolicy = async (table: string, retDays: number, dsInterval: string | null, dsRetDays: number | null) => {
-    setSaving(table);
-    try {
-      await apiFetch(`/admin/historian/retention/${table}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          retention_days: retDays,
-          downsampling_interval: dsInterval,
-          downsampling_retention_days: dsRetDays,
-        }),
-      });
-      fetchPolicies();
-    } catch (err: any) {
-      alert(err.message || "Failed to update");
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  if (loading) return <div className="text-text-muted animate-pulse text-sm">Loading retention policies...</div>;
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-text-muted">Rohdaten-Retention und Verdichtung pro Tabelle konfigurieren.</p>
-
-      <div className="space-y-3">
-        {policies.map((p) => (
-          <div key={p.target_table} className="bg-bg-surface border border-border rounded-md p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-text font-mono">{p.target_table}</span>
-              {saving === p.target_table && <span className="text-xs text-accent animate-pulse">Speichern...</span>}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs text-text-muted mb-1">Rohdaten (Tage)</label>
-                <input
-                  type="number"
-                  defaultValue={p.retention_days}
-                  min={1}
-                  max={3650}
-                  className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
-                  onBlur={(e) => {
-                    const v = parseInt(e.target.value);
-                    if (v && v !== p.retention_days) updatePolicy(p.target_table, v, p.downsampling_interval, p.downsampling_retention_days);
-                  }}
-                />
+                  <button
+                    onClick={() => setEditId(null)}
+                    className="px-3 py-1.5 rounded text-xs text-text-muted hover:text-text"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-text-muted mb-1">Verdichtung</label>
-                <select
-                  defaultValue={p.downsampling_interval || ""}
-                  className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text"
-                  onChange={(e) => {
-                    const v = e.target.value || null;
-                    updatePolicy(p.target_table, p.retention_days, v, v ? (p.downsampling_retention_days || 180) : null);
+            ) : (
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex flex-wrap gap-1">
+                  {role.categories.map((cat) => (
+                    <span
+                      key={cat}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-bg-surface-2 text-text-muted"
+                    >
+                      {cat}
+                    </span>
+                  ))}
+                  {role.categories.length === 0 && (
+                    <span className="text-[10px] text-text-dim">No categories assigned</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setEditId(role.id);
+                    setEditCats(role.categories);
                   }}
+                  className="ml-auto text-xs text-accent hover:text-accent-hover"
                 >
-                  <option value="">Keine</option>
-                  <option value="1 minute">1 Minute</option>
-                  <option value="5 minutes">5 Minuten</option>
-                  <option value="15 minutes">15 Minuten</option>
-                  <option value="1 hour">1 Stunde</option>
-                </select>
+                  Edit
+                </button>
               </div>
-              <div>
-                <label className="block text-xs text-text-muted mb-1">Verdichtung Retention (Tage)</label>
-                <input
-                  type="number"
-                  defaultValue={p.downsampling_retention_days || ""}
-                  min={1}
-                  max={3650}
-                  disabled={!p.downsampling_interval}
-                  className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text disabled:opacity-40"
-                  onBlur={(e) => {
-                    const v = parseInt(e.target.value);
-                    if (v && v !== p.downsampling_retention_days) updatePolicy(p.target_table, p.retention_days, p.downsampling_interval, v);
-                  }}
-                />
-              </div>
-            </div>
+            )}
           </div>
         ))}
       </div>
@@ -2754,101 +2162,77 @@ function HistorianRetentionView() {
   );
 }
 
-function HistorianExplorerView() {
-  const [messages, setMessages] = useState<ExplorerMsg[]>([]);
-  const [filterMachine, setFilterMachine] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterVariable, setFilterVariable] = useState("");
-  const [paused, setPaused] = useState(false);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const listRef = useRef<HTMLDivElement>(null);
+// ─── v9: Tool Categories Tab ────────────────────────────────────────────────
 
-  const fetchMessages = useCallback(async () => {
-    if (paused) return;
-    try {
-      const params = new URLSearchParams();
-      if (filterMachine) params.set("machine", filterMachine);
-      if (filterCategory) params.set("category", filterCategory);
-      if (filterVariable) params.set("variable", filterVariable);
-      const data = await apiFetch<{ messages: ExplorerMsg[] }>(`/admin/historian/explorer?${params}`);
-      setMessages(data.messages.slice(0, 200));
-    } catch {
-      setMessages([]);
-    }
-  }, [paused, filterMachine, filterCategory, filterVariable]);
+interface ToolCategory {
+  id: string;
+  name: string;
+  description: string;
+  sensitivity: string;
+  tool_count: string;
+  created_at: string;
+}
+
+function CategoriesTab() {
+  const [categories, setCategories] = useState<ToolCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [classifications, setClassifications] = useState<any[]>([]);
 
   useEffect(() => {
-    fetchMessages();
-    const iv = setInterval(fetchMessages, 2000);
-    return () => clearInterval(iv);
-  }, [fetchMessages]);
+    Promise.all([
+      apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
+      apiFetch<{ classifications: any[] }>("/admin/tool-classifications").catch(() => ({ classifications: [] })),
+    ])
+      .then(([c, cl]) => {
+        setCategories(c.categories);
+        setClassifications(cl.classifications || []);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  useEffect(() => {
-    if (autoScroll && listRef.current) {
-      listRef.current.scrollTop = 0;
-    }
-  }, [messages, autoScroll]);
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading categories...</div>;
+
+  const sensColor: Record<string, string> = {
+    critical: "text-red-400 bg-red-400/10 border-red-400/20",
+    high: "text-orange-400 bg-orange-400/10 border-orange-400/20",
+    medium: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
+    low: "text-green-400 bg-green-400/10 border-green-400/20",
+  };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <input value={filterMachine} onChange={(e) => setFilterMachine(e.target.value)} placeholder="Machine" className="px-3 py-1.5 text-xs bg-bg-base border border-border rounded-md text-text w-28" />
-        <input value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} placeholder="Category" className="px-3 py-1.5 text-xs bg-bg-base border border-border rounded-md text-text w-28" />
-        <input value={filterVariable} onChange={(e) => setFilterVariable(e.target.value)} placeholder="Variable" className="px-3 py-1.5 text-xs bg-bg-base border border-border rounded-md text-text w-28" />
-        <button onClick={() => setPaused(!paused)} className={`px-3 py-1.5 text-xs rounded-md ${paused ? "bg-yellow-500/10 text-yellow-400" : "bg-green-500/10 text-green-400"}`}>
-          {paused ? "Paused" : "Live"}
-        </button>
-        <label className="flex items-center gap-1 text-xs text-text-muted">
-          <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
-          Auto-Scroll
-        </label>
-        <span className="text-xs text-text-muted ml-auto">{messages.length} messages</span>
-      </div>
-
-      <div ref={listRef} className="bg-bg-surface border border-border rounded-md overflow-auto max-h-[600px]">
-        <table className="w-full text-xs font-mono">
-          <thead className="sticky top-0 bg-bg-surface">
-            <tr className="text-text-muted border-b border-border">
-              <th className="text-left p-2">Time</th>
-              <th className="text-left p-2">Machine</th>
-              <th className="text-left p-2">Category</th>
-              <th className="text-left p-2">Variable</th>
-              <th className="text-right p-2">Value</th>
-              <th className="text-left p-2">Unit</th>
-              <th className="text-left p-2">Table</th>
-            </tr>
-          </thead>
-          <tbody>
-            {messages.map((m, i) => (
-              <tr key={i} className="border-b border-border/30 hover:bg-bg-base/50">
-                <td className="p-2 text-text-muted whitespace-nowrap">{new Date(m.ts).toLocaleTimeString("de-DE")}</td>
-                <td className="p-2 text-text">{m.machine}</td>
-                <td className="p-2 text-text-muted">{m.category}</td>
-                <td className="p-2 text-text">{m.variable}</td>
-                <td className="p-2 text-right text-accent">{m.value !== null ? m.value : m.value_text || "-"}</td>
-                <td className="p-2 text-text-muted">{m.unit || ""}</td>
-                <td className="p-2 text-text-muted">{m.routed_to || "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {messages.length === 0 && (
-          <div className="text-center py-8 text-text-muted text-sm">Keine Messages{paused ? " (paused)" : ""}</div>
-        )}
+    <div className="space-y-6">
+      <h2 className="text-lg font-semibold text-text">Tool Categories ({categories.length})</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {categories.map((cat) => {
+          const catTools = classifications.filter((c: any) => c.category_id === cat.id);
+          return (
+            <div key={cat.id} className="p-4 rounded-md border border-border bg-bg-surface">
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="font-semibold text-text text-sm">{cat.name}</h3>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    sensColor[cat.sensitivity] || "text-text-dim"
+                  }`}
+                >
+                  {cat.sensitivity}
+                </span>
+              </div>
+              <p className="text-xs text-text-muted mb-3">{cat.description}</p>
+              <div className="flex items-center justify-between text-xs text-text-dim">
+                <span>{cat.tool_count} tools classified</span>
+                {catTools.length > 0 && (
+                  <span>{catTools.filter((t: any) => t.status === "approved").length} approved</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// ─── Services Tab (replaces MCP Tab — MCP Servers + Background Agents) ──────
-
-interface McpServerTool {
-  name: string;
-  description: string;
-  category: string | null;
-  sensitivity: string | null;
-  governanceStatus: string;
-}
+// ─── v9: MCP Servers Tab ────────────────────────────────────────────────────
 
 interface McpServer {
   id: string;
@@ -2863,765 +2247,256 @@ interface McpServer {
   created_at: string;
 }
 
-interface AgentStatus {
-  name: string;
-  type: string;
-  status: string;
-  detail?: string;
-  tools?: number;
-  error?: string;
-}
+function McpServersTab() {
+  const [servers, setServers] = useState<McpServer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [discovering, setDiscovering] = useState<string | null>(null);
+  const [selectedServer, setSelectedServer] = useState<string | null>(null);
+  const [tools, setTools] = useState<any[]>([]);
 
-// ─── Governance Tab ──────────────────────────────────────────────────────────
-
-interface FactoryRole {
-  id: string;
-  name: string;
-  description: string | null;
-  is_system: boolean;
-  user_count: string;
-  categories: string[];
-}
-
-interface ToolClassification {
-  tool_name: string;
-  tool_description: string | null;
-  category_id: string | null;
-  category_name: string | null;
-  sensitivity: string;
-  status: string;
-  classified_by: string | null;
-  reviewed_by: string | null;
-  reviewed_at: string | null;
-  mcp_server_id: string | null;
-}
-
-interface ToolCategory {
-  id: string;
-  name: string;
-  description: string | null;
-  sensitivity: string;
-  tool_count: string;
-}
-
-interface AuditEntry {
-  id: number;
-  ts: string;
-  user_id: string;
-  user_email: string | null;
-  action: string;
-  tool_name: string | null;
-  tool_category: string | null;
-  source: string | null;
-  ip_address: string | null;
-  detail: string | null;
-}
-
-function GovernanceTab() {
-  const [subTab, setSubTab] = useState<"roles" | "tools" | "audit">("roles");
-  const [pendingCount, setPendingCount] = useState(0);
-
-  // Fetch pending count on mount
-  useEffect(() => {
-    apiFetch<{ pending_count: number }>("/admin/tool-classifications?status=pending")
-      .then((d) => setPendingCount(d.pending_count))
-      .catch(() => {});
-  }, [subTab]);
-
-  return (
-    <div>
-      <div className="flex gap-2 mb-4">
-        {(["roles", "tools", "audit"] as const).map((st) => (
-          <button
-            key={st}
-            onClick={() => setSubTab(st)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              subTab === st ? "bg-accent/10 text-accent border border-accent/30" : "text-text-muted hover:text-text border border-border"
-            }`}
-          >
-            {st === "roles" ? "Rollen" : st === "tools" ? (
-              <>Tools{pendingCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full text-[10px]">{pendingCount}</span>}</>
-            ) : "Audit Log"}
-          </button>
-        ))}
-      </div>
-      {subTab === "roles" && <GovernanceRolesView />}
-      {subTab === "tools" && <GovernanceToolsView onCountChange={setPendingCount} />}
-      {subTab === "audit" && <GovernanceAuditView />}
-    </div>
-  );
-}
-
-function GovernanceRolesView() {
-  const [roles, setRoles] = useState<FactoryRole[]>([]);
-  const [categories, setCategories] = useState<ToolCategory[]>([]);
-  const [editRole, setEditRole] = useState<string | null>(null);
-  const [editCats, setEditCats] = useState<string[]>([]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newId, setNewId] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const [r, c] = await Promise.all([
-        apiFetch<{ roles: FactoryRole[] }>("/admin/roles"),
-        apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
-      ]);
-      setRoles(r.roles);
-      setCategories(c.categories);
-    } catch {}
+  const loadServers = useCallback(() => {
+    apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers")
+      .then((d) => setServers(d.servers))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadServers(); }, [loadServers]);
 
-  const savePermissions = async (roleId: string) => {
+  const discover = async (id: string) => {
+    setDiscovering(id);
     try {
-      await apiFetch(`/admin/roles/${roleId}/permissions`, {
-        method: "PUT",
-        body: JSON.stringify({ categories: editCats }),
-      });
-      setEditRole(null);
-      load();
-    } catch {}
+      await apiFetch(`/admin/mcp-servers/${id}/discover`, { method: "POST" });
+      // Poll for completion
+      setTimeout(() => {
+        loadServers();
+        setDiscovering(null);
+      }, 3000);
+    } catch {
+      setDiscovering(null);
+    }
   };
 
-  const addRole = async () => {
+  const loadTools = async (id: string) => {
+    if (selectedServer === id) {
+      setSelectedServer(null);
+      return;
+    }
+    setSelectedServer(id);
     try {
-      await apiFetch("/admin/roles", {
-        method: "POST",
-        body: JSON.stringify({ id: newId, name: newName, description: newDesc }),
-      });
-      setShowAdd(false);
-      setNewId("");
-      setNewName("");
-      setNewDesc("");
-      load();
-    } catch {}
+      const data = await apiFetch<any>(`/admin/mcp-servers/${id}`);
+      setTools(data.tools || []);
+    } catch {
+      setTools([]);
+    }
   };
 
-  const deleteRole = async (id: string) => {
-    if (!confirm(`Rolle "${id}" wirklich loeschen?`)) return;
-    try {
-      await apiFetch(`/admin/roles/${id}`, { method: "DELETE" });
-      load();
-    } catch {}
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading MCP servers...</div>;
+
+  const statusColor: Record<string, string> = {
+    online: "bg-emerald-400",
+    pending: "bg-yellow-400",
+    error: "bg-red-400",
+    offline: "bg-red-400",
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center">
-        <h3 className="text-sm font-medium text-text">Fabrik-Rollen</h3>
-        <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
-          + Neue Rolle
-        </button>
-      </div>
-
-      {showAdd && (
-        <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-text-muted mb-1">ID</label>
-              <input value={newId} onChange={(e) => setNewId(e.target.value)} placeholder="z.B. team_lead" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-            </div>
-            <div>
-              <label className="block text-xs text-text-muted mb-1">Name</label>
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Teamleiter" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-            </div>
-            <div>
-              <label className="block text-xs text-text-muted mb-1">Beschreibung</label>
-              <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Optional" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={addRole} disabled={!newId.trim() || !newName.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">Erstellen</button>
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Abbrechen</button>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {roles.map((r) => (
-          <div key={r.id} className="bg-bg-surface border border-border rounded-md p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-medium text-text">{r.name}</span>
-                <span className="ml-2 text-xs text-text-muted">{r.id}</span>
-                {r.is_system && <span className="ml-2 px-1.5 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] rounded">System</span>}
-                <span className="ml-2 text-xs text-text-muted">{r.user_count} User</span>
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-text">MCP Servers ({servers.length})</h2>
+      <div className="space-y-3">
+        {servers.map((srv) => (
+          <div key={srv.id} className="rounded-md border border-border bg-bg-surface overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-center gap-3">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusColor[srv.status] || "bg-gray-400"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-text">{srv.name}</h3>
+                    <span className="text-[10px] text-text-dim font-mono truncate">{srv.url}</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-text-muted">
+                    <span>{srv.tool_count} tools</span>
+                    <span>Status: {srv.status}</span>
+                    {srv.health_check_at && (
+                      <span>Last check: {new Date(srv.health_check_at).toLocaleTimeString()}</span>
+                    )}
+                    {srv.error_message && (
+                      <span className="text-red-400">{srv.error_message}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => discover(srv.id)}
+                    disabled={discovering === srv.id}
+                    className="px-3 py-1.5 rounded text-xs bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 disabled:opacity-50"
+                  >
+                    {discovering === srv.id ? "Discovering..." : "Discover"}
+                  </button>
+                  <button
+                    onClick={() => loadTools(srv.id)}
+                    className="px-3 py-1.5 rounded text-xs border border-border text-text-muted hover:text-text hover:border-accent/30"
+                  >
+                    {selectedServer === srv.id ? "Hide Tools" : "Show Tools"}
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setEditRole(editRole === r.id ? null : r.id); setEditCats(r.categories || []); }}
-                  className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors"
-                >
-                  {editRole === r.id ? "Schliessen" : "Kategorien"}
-                </button>
-                {!r.is_system && (
-                  <button onClick={() => deleteRole(r.id)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors">Loeschen</button>
-                )}
-              </div>
-            </div>
-            {r.description && <p className="text-xs text-text-muted mt-1">{r.description}</p>}
-            <div className="flex flex-wrap gap-1 mt-2">
-              {(r.categories || []).map((c) => (
-                <span key={c} className="px-2 py-0.5 bg-accent/10 text-accent text-[10px] rounded">{c}</span>
-              ))}
-            </div>
-
-            {editRole === r.id && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-xs text-text-muted mb-2">Kategorien fuer diese Rolle:</p>
-                <div className="grid grid-cols-4 gap-2">
-                  {categories.map((cat) => (
-                    <label key={cat.id} className="flex items-center gap-1.5 text-xs text-text cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editCats.includes(cat.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) setEditCats([...editCats, cat.id]);
-                          else setEditCats(editCats.filter((c) => c !== cat.id));
-                        }}
-                        className="rounded border-border"
-                      />
-                      {cat.name}
-                      <span className={`text-[10px] ${cat.sensitivity === "critical" ? "text-red-400" : cat.sensitivity === "high" ? "text-orange-400" : cat.sensitivity === "medium" ? "text-yellow-400" : "text-green-400"}`}>
-                        ({cat.sensitivity})
-                      </span>
-                    </label>
+              {srv.categories.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {srv.categories.map((cat) => (
+                    <span key={cat} className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-bg-surface-2 text-text-muted">
+                      {cat}
+                    </span>
                   ))}
                 </div>
-                <button onClick={() => savePermissions(r.id)} className="mt-2 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 transition-colors">
-                  Speichern
-                </button>
+              )}
+            </div>
+            {selectedServer === srv.id && (
+              <div className="border-t border-border bg-bg-surface-2 p-4">
+                <div className="text-xs font-semibold text-text-muted mb-2">
+                  Discovered Tools ({tools.length})
+                </div>
+                {tools.length === 0 ? (
+                  <div className="text-xs text-text-dim">No tools discovered yet. Click Discover.</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {tools.map((tool: any, i: number) => {
+                      const fn = tool.function || tool;
+                      return (
+                        <div key={i} className="p-2 rounded border border-border bg-bg-surface text-xs">
+                          <div className="font-mono font-semibold text-accent">{fn.name || "?"}</div>
+                          <div className="text-text-muted mt-0.5 line-clamp-2">{fn.description || ""}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
         ))}
+        {servers.length === 0 && (
+          <div className="text-text-dim text-center py-8">No MCP servers registered</div>
+        )}
       </div>
     </div>
   );
 }
 
-function GovernanceToolsView({ onCountChange }: { onCountChange: (n: number) => void }) {
-  const [classifications, setClassifications] = useState<ToolClassification[]>([]);
-  const [categories, setCategories] = useState<ToolCategory[]>([]);
-  const [filter, setFilter] = useState<string>("");
+// ─── v9: Audit Export Tab ───────────────────────────────────────────────────
+
+function AuditTab() {
+  const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [toDate, setToDate] = useState(() => new Date().toISOString().split("T")[0]);
 
-  const load = useCallback(async () => {
+  const loadAudit = useCallback(() => {
     setLoading(true);
-    try {
-      const url = filter ? `/admin/tool-classifications?status=${filter}` : "/admin/tool-classifications";
-      const [d, c] = await Promise.all([
-        apiFetch<{ classifications: ToolClassification[]; pending_count: number }>(url),
-        apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
-      ]);
-      setClassifications(d.classifications);
-      setCategories(c.categories);
-      onCountChange(d.pending_count);
-    } catch {}
-    setLoading(false);
-  }, [filter, onCountChange]);
+    apiFetch<{ entries: any[]; total: number }>(`/admin/audit?from=${fromDate}&to=${toDate}&limit=50`)
+      .then((d) => {
+        setEntries(d.entries || []);
+        setTotal(d.total || 0);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [fromDate, toDate]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadAudit(); }, [loadAudit]);
 
-  const updateClassification = async (toolName: string, updates: Record<string, any>) => {
-    try {
-      await apiFetch(`/admin/tool-classifications/${encodeURIComponent(toolName)}`, {
-        method: "PUT",
-        body: JSON.stringify(updates),
-      });
-      load();
-    } catch {}
+  const downloadExport = (format: "csv" | "json") => {
+    const url = `${process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai"}/admin/audit/export?from=${fromDate}&to=${toDate}&format=${format}`;
+    const token = localStorage.getItem("token");
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `audit-export-${fromDate}_${toDate}.${format}`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => alert("Export failed"));
   };
-
-  const bulkApprove = async () => {
-    if (!confirm("Alle ausstehenden Tool-Klassifizierungen genehmigen?")) return;
-    try {
-      await apiFetch("/admin/tool-classifications/bulk-approve", { method: "POST" });
-      load();
-    } catch {}
-  };
-
-  const sensitivityColor = (s: string) =>
-    s === "critical" ? "text-red-400" : s === "high" ? "text-orange-400" : s === "medium" ? "text-yellow-400" : "text-green-400";
-
-  const statusColor = (s: string) =>
-    s === "approved" ? "bg-green-500/20 text-green-400" : s === "rejected" ? "bg-red-500/20 text-red-400" : "bg-yellow-500/20 text-yellow-400";
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex gap-2">
-          {["", "pending", "approved", "rejected"].map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-2 py-1 text-xs rounded ${filter === f ? "bg-accent/10 text-accent" : "text-text-muted hover:text-text"}`}
-            >
-              {f || "Alle"}
-            </button>
-          ))}
-        </div>
-        <button onClick={bulkApprove} className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
-          Alle Pending genehmigen
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold text-text">Audit Log</h2>
+        <div className="flex-1" />
+        <label className="text-xs text-text-muted">From</label>
+        <input
+          type="date"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          className="px-2 py-1 rounded text-xs border border-border bg-bg-surface text-text"
+        />
+        <label className="text-xs text-text-muted">To</label>
+        <input
+          type="date"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          className="px-2 py-1 rounded text-xs border border-border bg-bg-surface text-text"
+        />
+        <button
+          onClick={() => downloadExport("csv")}
+          className="px-3 py-1.5 rounded text-xs bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20"
+        >
+          Export CSV
+        </button>
+        <button
+          onClick={() => downloadExport("json")}
+          className="px-3 py-1.5 rounded text-xs border border-border text-text-muted hover:text-text hover:border-accent/30"
+        >
+          Export JSON
         </button>
       </div>
 
-      {loading ? (
-        <div className="text-center py-8 text-text-muted text-sm">Laden...</div>
-      ) : classifications.length === 0 ? (
-        <div className="text-center py-8 text-text-muted text-sm">Keine Tool-Klassifizierungen vorhanden. Tools werden bei MCP-Server-Discovery automatisch klassifiziert.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border text-left text-text-muted">
-                <th className="py-2 pr-3">Tool</th>
-                <th className="py-2 pr-3">Beschreibung</th>
-                <th className="py-2 pr-3">Kategorie</th>
-                <th className="py-2 pr-3">Sensitivity</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2">Aktionen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {classifications.map((tc) => (
-                <tr key={tc.tool_name} className="border-b border-border/30">
-                  <td className="py-2 pr-3 text-text font-mono">{tc.tool_name}</td>
-                  <td className="py-2 pr-3 text-text-muted max-w-[200px] truncate">{tc.tool_description || "—"}</td>
-                  <td className="py-2 pr-3">
-                    <select
-                      value={tc.category_id || ""}
-                      onChange={(e) => updateClassification(tc.tool_name, { category_id: e.target.value })}
-                      className="bg-bg border border-border rounded px-1.5 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
-                    >
-                      <option value="">—</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className={`py-2 pr-3 ${sensitivityColor(tc.sensitivity)}`}>{tc.sensitivity}</td>
-                  <td className="py-2 pr-3">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${statusColor(tc.status)}`}>{tc.status}</span>
-                  </td>
-                  <td className="py-2">
-                    <div className="flex gap-1">
-                      {tc.status !== "approved" && (
-                        <button onClick={() => updateClassification(tc.tool_name, { status: "approved" })} className="px-1.5 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10 rounded">Approve</button>
-                      )}
-                      {tc.status !== "rejected" && (
-                        <button onClick={() => updateClassification(tc.tool_name, { status: "rejected" })} className="px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-500/10 rounded">Reject</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GovernanceAuditView() {
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [actionFilter, setActionFilter] = useState("");
-  const [userFilter, setUserFilter] = useState("");
-  const [toolFilter, setToolFilter] = useState("");
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const params = new URLSearchParams({ limit: "100" });
-      if (actionFilter) params.set("action", actionFilter);
-      if (userFilter) params.set("user", userFilter);
-      if (toolFilter) params.set("tool", toolFilter);
-      const d = await apiFetch<{ entries: AuditEntry[]; total: number }>(`/admin/audit?${params}`);
-      setEntries(d.entries);
-      setTotal(d.total);
-    } catch {}
-    setLoading(false);
-  }, [actionFilter, userFilter, toolFilter]);
-
-  useEffect(() => { load(); }, [load]);
-
-  // Auto-refresh every 10s
-  useEffect(() => {
-    timerRef.current = setInterval(load, 10000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [load]);
-
-  const actionColor = (a: string) =>
-    a === "tool_denied" ? "text-red-400" : a === "tool_call" ? "text-green-400" : "text-blue-400";
-
-  return (
-    <div>
-      <div className="flex items-center gap-3 mb-3">
-        <select
-          value={actionFilter}
-          onChange={(e) => setActionFilter(e.target.value)}
-          className="bg-bg border border-border rounded px-2 py-1 text-xs text-text [&>option]:text-gray-900 [&>option]:bg-white"
-        >
-          <option value="">Alle Aktionen</option>
-          <option value="tool_call">tool_call</option>
-          <option value="tool_denied">tool_denied</option>
-          <option value="role_change">role_change</option>
-        </select>
-        <input
-          value={userFilter}
-          onChange={(e) => setUserFilter(e.target.value)}
-          placeholder="User suchen..."
-          className="px-2 py-1 text-xs bg-bg border border-border rounded text-text w-40"
-        />
-        <input
-          value={toolFilter}
-          onChange={(e) => setToolFilter(e.target.value)}
-          placeholder="Tool suchen..."
-          className="px-2 py-1 text-xs bg-bg border border-border rounded text-text w-40"
-        />
-        <span className="text-xs text-text-muted ml-auto">{total} Eintraege (auto-refresh 10s)</span>
-      </div>
+      <div className="text-xs text-text-dim">{total} total entries</div>
 
       {loading ? (
-        <div className="text-center py-8 text-text-muted text-sm">Laden...</div>
+        <div className="text-text-muted py-8 text-center">Loading...</div>
       ) : entries.length === 0 ? (
-        <div className="text-center py-8 text-text-muted text-sm">Noch keine Audit-Eintraege vorhanden.</div>
+        <div className="text-text-dim text-center py-8 border border-border rounded-md">
+          No audit entries in this date range
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-border text-left text-text-muted">
-                <th className="py-2 pr-3">Zeit</th>
-                <th className="py-2 pr-3">User</th>
-                <th className="py-2 pr-3">Aktion</th>
-                <th className="py-2 pr-3">Tool</th>
-                <th className="py-2 pr-3">Kategorie</th>
-                <th className="py-2 pr-3">Quelle</th>
-                <th className="py-2">Detail</th>
+              <tr className="border-b border-border text-text-muted">
+                <th className="text-left py-2 px-2">Time</th>
+                <th className="text-left py-2 px-2">User</th>
+                <th className="text-left py-2 px-2">Action</th>
+                <th className="text-left py-2 px-2">Tool</th>
+                <th className="text-left py-2 px-2">Detail</th>
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => (
-                <tr key={e.id} className="border-b border-border/30">
-                  <td className="py-1.5 pr-3 text-text-muted whitespace-nowrap">{new Date(e.ts).toLocaleString("de-DE")}</td>
-                  <td className="py-1.5 pr-3 text-text">{e.user_email || e.user_id.slice(0, 8)}</td>
-                  <td className={`py-1.5 pr-3 font-mono ${actionColor(e.action)}`}>{e.action}</td>
-                  <td className="py-1.5 pr-3 text-text font-mono">{e.tool_name || "—"}</td>
-                  <td className="py-1.5 pr-3 text-text-muted">{e.tool_category || "—"}</td>
-                  <td className="py-1.5 pr-3 text-text-muted">{e.source || "—"}</td>
-                  <td className="py-1.5 text-text-muted max-w-[200px] truncate">{e.detail || "—"}</td>
+              {entries.map((e: any, i: number) => (
+                <tr key={i} className="border-b border-border/50 hover:bg-bg-surface-2">
+                  <td className="py-1.5 px-2 text-text-dim whitespace-nowrap">
+                    {new Date(e.created_at || e.timestamp).toLocaleString()}
+                  </td>
+                  <td className="py-1.5 px-2 text-text-muted">{e.user_email || e.email || "-"}</td>
+                  <td className="py-1.5 px-2">
+                    <span className="px-1.5 py-0.5 rounded bg-bg-surface-2 text-text font-mono">
+                      {e.action}
+                    </span>
+                  </td>
+                  <td className="py-1.5 px-2 text-accent font-mono">{e.tool_name || "-"}</td>
+                  <td className="py-1.5 px-2 text-text-dim max-w-xs truncate">{e.detail || ""}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Users Tab: Factory Roles Multi-Select ───────────────────────────────────
-
-function UserRolesSelect({ userId }: { userId: string }) {
-  const [roles, setRoles] = useState<string[]>([]);
-  const [allRoles, setAllRoles] = useState<{ id: string; name: string }[]>([]);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    Promise.all([
-      apiFetch<{ roles: { role_id: string }[] }>(`/admin/users/${userId}/roles`),
-      apiFetch<{ roles: { id: string; name: string }[] }>("/admin/roles"),
-    ]).then(([ur, ar]) => {
-      setRoles(ur.roles.map((r) => r.role_id));
-      setAllRoles(ar.roles);
-    }).catch(() => {});
-  }, [userId]);
-
-  const save = async (newRoles: string[]) => {
-    setRoles(newRoles);
-    try {
-      await apiFetch(`/admin/users/${userId}/roles`, {
-        method: "PUT",
-        body: JSON.stringify({ roles: newRoles }),
-      });
-    } catch {}
-  };
-
-  const toggle = (roleId: string) => {
-    const updated = roles.includes(roleId) ? roles.filter((r) => r !== roleId) : [...roles, roleId];
-    save(updated);
-  };
-
-  if (allRoles.length === 0) return <span className="text-text-muted text-[10px]">...</span>;
-
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen(!open)} className="text-[10px] px-1.5 py-0.5 bg-bg border border-border rounded text-text-muted hover:text-text">
-        {roles.length === 0 ? "Keine Rollen" : roles.join(", ")}
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 bg-bg-surface border border-border rounded-md shadow-lg p-2 space-y-1 min-w-[160px]">
-          {allRoles.map((r) => (
-            <label key={r.id} className="flex items-center gap-1.5 text-[10px] text-text cursor-pointer">
-              <input
-                type="checkbox"
-                checked={roles.includes(r.id)}
-                onChange={() => toggle(r.id)}
-                className="rounded border-border"
-              />
-              {r.name}
-            </label>
-          ))}
-          <button onClick={() => setOpen(false)} className="text-[10px] text-text-muted hover:text-text mt-1">Schliessen</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ServicesTab() {
-  const [servers, setServers] = useState<McpServer[]>([]);
-  const [agents, setAgents] = useState<AgentStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newUrl, setNewUrl] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [expandedServer, setExpandedServer] = useState<string | null>(null);
-  const [serverTools, setServerTools] = useState<McpServerTool[]>([]);
-  const [loadingTools, setLoadingTools] = useState(false);
-
-  const fetchAll = useCallback(async () => {
-    try {
-      const [mcpData, agentData] = await Promise.all([
-        apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers").catch(() => ({ servers: [] as McpServer[] })),
-        apiFetch<{ agents: AgentStatus[] }>("/admin/agents/status").catch(() => ({ agents: [] as AgentStatus[] })),
-      ]);
-      setServers(mcpData.servers);
-      setAgents(agentData.agents);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  // Auto-derive name from URL
-  const handleUrlChange = (url: string) => {
-    setNewUrl(url);
-    if (!newName || newName === deriveNameFromUrl(newUrl)) {
-      setNewName(deriveNameFromUrl(url));
-    }
-  };
-
-  function deriveNameFromUrl(url: string): string {
-    try {
-      const u = new URL(url);
-      return u.hostname.split(".")[0].replace(/[^a-zA-Z0-9-]/g, "") || "";
-    } catch { return ""; }
-  }
-
-  const addServer = async () => {
-    if (!newUrl.trim()) return;
-    const name = newName.trim() || deriveNameFromUrl(newUrl.trim());
-    if (!name) return;
-    setAdding(true);
-    try {
-      const created = await apiFetch<{ id: string }>("/admin/mcp-servers", {
-        method: "POST",
-        body: JSON.stringify({ name, url: newUrl.trim() }),
-      });
-      setNewName(""); setNewUrl(""); setShowAdd(false);
-      // Poll until server transitions from pending
-      const serverId = created.id;
-      let polls = 0;
-      const pollInterval = setInterval(async () => {
-        polls++;
-        await fetchAll();
-        const updated = servers.find(s => s.id === serverId);
-        if ((updated && updated.status !== "pending") || polls >= 10) {
-          clearInterval(pollInterval);
-          if (serverId) setExpandedServer(serverId);
-        }
-      }, 2000);
-      setTimeout(fetchAll, 500);
-    } catch (err: any) {
-      alert(err.message || "Failed to add server");
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const toggleServerExpand = async (id: string) => {
-    if (expandedServer === id) {
-      setExpandedServer(null);
-      setServerTools([]);
-      return;
-    }
-    setExpandedServer(id);
-    setLoadingTools(true);
-    try {
-      const data = await apiFetch<{ tools: McpServerTool[] }>(`/admin/mcp-servers/${id}/tools`);
-      setServerTools(data.tools);
-    } catch {
-      setServerTools([]);
-    } finally {
-      setLoadingTools(false);
-    }
-  };
-
-  const deleteServer = async (id: string, name: string) => {
-    if (!confirm(`Delete MCP server "${name}"?`)) return;
-    try {
-      await apiFetch(`/admin/mcp-servers/${id}`, { method: "DELETE" });
-      fetchAll();
-    } catch {}
-  };
-
-  const rediscover = async (id: string) => {
-    try {
-      await apiFetch(`/admin/mcp-servers/${id}/discover`, { method: "POST" });
-      setTimeout(fetchAll, 2000);
-    } catch {}
-  };
-
-  const statusColor = (s: string) =>
-    s === "online" || s === "running" ? "bg-green-400"
-    : s === "error" || s === "stopped" ? "bg-red-400"
-    : s === "pending" ? "bg-yellow-400 animate-pulse"
-    : "bg-gray-500";
-
-  if (loading) return <div className="text-text-muted animate-pulse text-sm">Loading services...</div>;
-
-  return (
-    <div className="space-y-6">
-      {/* Background Agents Section */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Background Agents</h3>
-        {agents.length === 0 ? (
-          <div className="text-xs text-text-muted">No agents registered</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {agents.map((a) => (
-              <div key={a.name} className="bg-bg-surface border border-border rounded-md p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className={`w-2 h-2 rounded-full ${statusColor(a.status)}`} />
-                  <span className="text-sm font-medium text-text">{a.name}</span>
-                </div>
-                <div className="text-xs text-text-muted">
-                  {a.type} &mdash; {a.status}
-                  {a.tools !== undefined && ` &mdash; ${a.tools} tools`}
-                  {a.error && <span className="text-red-400 block mt-1">{a.error}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* MCP Servers Section */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-text">MCP Servers</h3>
-          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
-            + Add Server
-          </button>
-        </div>
-
-        {showAdd && (
-          <div className="bg-bg-surface border border-border rounded-md p-4 space-y-3 mb-3">
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-text-muted mb-1">Server URL</label>
-                <input value={newUrl} onChange={(e) => handleUrlChange(e.target.value)} placeholder="http://192.168.1.100:8020" className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-                <p className="text-xs text-text-muted mt-1">Basis-URL eines MCP-Servers. Tools werden automatisch erkannt und klassifiziert.</p>
-              </div>
-              <div>
-                <label className="block text-xs text-text-muted mb-1">Name <span className="opacity-50">(optional — wird aus URL abgeleitet)</span></label>
-                <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={deriveNameFromUrl(newUrl) || "e.g. factory-erp"} className="w-full px-3 py-1.5 text-sm bg-bg-base border border-border rounded-md text-text" />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={addServer} disabled={adding || !newUrl.trim()} className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/80 disabled:opacity-50 transition-colors">
-                {adding ? "Verbinde..." : "Verbinden & Tools erkennen"}
-              </button>
-              <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Abbrechen</button>
-            </div>
-          </div>
-        )}
-
-        {servers.length === 0 && !showAdd && (
-          <div className="text-center py-6 text-text-muted text-xs">No MCP servers registered.</div>
-        )}
-
-        <div className="space-y-2">
-          {servers.map((s) => (
-            <div key={s.id} className="bg-bg-surface border border-border rounded-md">
-              <div className="p-4 cursor-pointer" onClick={() => toggleServerExpand(s.id)}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
-                    <div>
-                      <span className="text-sm font-medium text-text">{s.name}</span>
-                      <span className="ml-2 text-xs text-text-muted">{s.url}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => rediscover(s.id)} className="px-2 py-1 text-xs text-text-muted hover:text-accent transition-colors" title="Re-discover tools">Refresh</button>
-                    <button onClick={() => deleteServer(s.id, s.name)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition-colors">Delete</button>
-                    <span className="text-text-muted text-xs ml-1">{expandedServer === s.id ? "▲" : "▼"}</span>
-                  </div>
-                </div>
-                <div className="mt-2 flex items-center gap-4 text-xs text-text-muted">
-                  <span>{s.tool_count} Tools</span>
-                  {s.categories.length > 0 && <span>{s.categories.join(", ")}</span>}
-                  <span className={s.status === "error" ? "text-red-400" : ""}>
-                    {s.status}{s.error_message && ` — ${s.error_message}`}
-                  </span>
-                  {s.health_check_at && <span>checked {new Date(s.health_check_at).toLocaleString("de-DE")}</span>}
-                </div>
-              </div>
-              {expandedServer === s.id && (
-                <div className="border-t border-border px-4 py-3">
-                  {loadingTools ? (
-                    <div className="text-xs text-text-muted animate-pulse">Lade Tools...</div>
-                  ) : serverTools.length === 0 ? (
-                    <div className="text-xs text-text-muted">Keine Tools gefunden.</div>
-                  ) : (
-                    <div className="space-y-1 max-h-64 overflow-y-auto">
-                      <div className="grid grid-cols-[1fr_100px_80px_80px] gap-2 text-xs font-medium text-text-muted mb-2">
-                        <span>Tool</span><span>Kategorie</span><span>Sensitivitaet</span><span>Status</span>
-                      </div>
-                      {serverTools.map((t) => (
-                        <div key={t.name} className="grid grid-cols-[1fr_100px_80px_80px] gap-2 text-xs">
-                          <div>
-                            <span className="text-text font-mono">{t.name}</span>
-                            {t.description && <span className="text-text-muted ml-2 hidden lg:inline">{t.description.slice(0, 60)}</span>}
-                          </div>
-                          <span className="text-text-muted">{t.category || "—"}</span>
-                          <span className="text-text-muted">{t.sensitivity || "—"}</span>
-                          <span className={
-                            t.governanceStatus === "approved" ? "text-green-400" :
-                            t.governanceStatus === "pending" ? "text-yellow-400" :
-                            t.governanceStatus === "rejected" ? "text-red-400" :
-                            "text-text-muted"
-                          }>{t.governanceStatus}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
