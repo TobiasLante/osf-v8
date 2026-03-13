@@ -23,6 +23,15 @@ export async function runAgent(
   const timeout = setTimeout(() => controller.abort(), 900_000); // 15min max
   res.on('close', () => controller.abort());
 
+  // Heartbeat to keep Cloudflare alive (CF drops idle SSE after ~100s)
+  const heartbeat = setInterval(() => {
+    if (controller.signal.aborted || res.writableEnded) {
+      clearInterval(heartbeat);
+      return;
+    }
+    try { res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`); } catch { /* closed */ }
+  }, config.pipeline.heartbeatIntervalMs);
+
   function safeWrite(res: Response, data: string): boolean {
     if (res.writableEnded) return false;
     try { res.write(data); return true; } catch { return false; }
@@ -168,5 +177,6 @@ export async function runAgent(
     if (!res.writableEnded) res.end();
   } finally {
     clearTimeout(timeout);
+    clearInterval(heartbeat);
   }
 }
