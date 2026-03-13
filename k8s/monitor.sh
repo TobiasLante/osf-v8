@@ -30,8 +30,8 @@ mkdir -p "$LOG_DIR"
 TIMESTAMP=$(date +%Y-%m-%d_%H%M)
 LOGFILE="$LOG_DIR/monitor-${TIMESTAMP}.log"
 
-# Email config
-RESEND_API_KEY="re_cjRt6FCT_LbzSHYLxpau4mmFCDNEy4vbe"
+# Email config (set RESEND_API_KEY in .env or environment)
+RESEND_API_KEY="${RESEND_API_KEY:-}"
 EMAIL_FROM="OpenShopFloor Monitor <noreply@zeroguess.ai>"
 
 # Fetch admin emails from osf DB (dynamic — never misses a new admin)
