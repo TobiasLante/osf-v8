@@ -550,8 +550,11 @@ export default function FomiPage() {
         case "specialists_batch_start":
         case "specialists_batch_complete":
         case "specialists_planned":
+          setV7Events((prev) => [...prev, event as V7Event]);
+          break;
+
         case "heartbeat":
-          break; // handled by useV7Events via v7Events
+          break;
 
         case "kg_traversal_start":
           setKgStatus("traversing");
