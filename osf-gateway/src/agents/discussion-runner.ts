@@ -257,8 +257,19 @@ function extractKgGraph(toolResults: Array<{ name: string; result: string }>, ce
       }
     }
 
-    // ── Strategy 3: Fallback — extract from common fields if no nodes array ──
-    if (!Array.isArray(data.nodes)) {
+    // ── Strategy 3: impactedEntities from kg_impact_analysis ──
+    for (const ie of safeArray(data.impactedEntities).slice(0, 50)) {
+      const aff = ie?.affected;
+      if (!aff) continue;
+      const id = aff.properties?.id || String(aff.id);
+      if (!id || nodesMap.has(id)) continue;
+      const type = (aff.label || 'unknown').toLowerCase();
+      nodesMap.set(id, { id, type, label: aff.properties?.name || aff.properties?.id || id, ring: 1 });
+      edges.push({ from: centerEntityId, to: id, label: ie.relationship || 'betrifft' });
+    }
+
+    // ── Strategy 4: Fallback — extract from common fields if no nodes array ──
+    if (!Array.isArray(data.nodes) && !data.impactedEntities) {
       for (const order of safeArray(data.affectedOrders || data.affected_orders).slice(0, 30)) {
         const id = order?.id || order?.orderId || String(order);
         if (!id || nodesMap.has(id)) continue;

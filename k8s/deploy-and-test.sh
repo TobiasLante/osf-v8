@@ -806,7 +806,7 @@ print(db)
   # T12: Gateway → Factory sim MCP connectivity (internal)
   log "T12: Gateway → Factory MCP internal connectivity..."
   local mcp_internal
-  mcp_internal=$(kubectl -n osf exec deploy/osf-gateway -- wget -qO- --timeout=10 "http://factory-v3-fertigung.factory.svc.cluster.local:8020/mcp" 2>/dev/null | head -c 100 || echo "UNREACHABLE")
+  mcp_internal=$(kubectl -n osf exec deploy/osf-gateway -- wget -qO- --timeout=10 "http://factory-v3-fertigung.factory.svc.cluster.local:8020/health" 2>/dev/null | head -c 100 || echo "UNREACHABLE")
   if [[ "$mcp_internal" != "UNREACHABLE" ]]; then
     ok "Gateway can reach factory MCP internally"
   else
