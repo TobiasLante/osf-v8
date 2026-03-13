@@ -568,8 +568,8 @@ export default function FomiPage() {
         case "kg_nodes_discovered": {
           const newN: KGNode[] = (event.nodes || []).map((n: any) => ({ id: n.id, label: n.label || n.id, type: n.type || "Entity" }));
           const newE: KGEdge[] = (event.edges || []).map((e: any) => ({ from: e.from || e.source, to: e.to || e.target, label: e.label || e.type || "" }));
-          setKgNodes((prev) => [...prev, ...newN]);
-          setKgEdges((prev) => [...prev, ...newE]);
+          setKgNodes((prev) => { const ids = new Set(prev.map(n => n.id)); return [...prev, ...newN.filter(n => !ids.has(n.id))]; });
+          setKgEdges((prev) => { const keys = new Set(prev.map(e => `${e.from}→${e.to}`)); return [...prev, ...newE.filter(e => !keys.has(`${e.from}→${e.to}`))]; });
           // Activate KG types based on discovered node types
           const discoveredTypes = new Set(newN.map((n) => n.type.toLowerCase()));
           discoveredTypes.forEach((dt) => setActiveKgTypes((prev) => new Set(prev).add(dt)));
@@ -1041,17 +1041,33 @@ export default function FomiPage() {
                         {expandedSpec === key && spec.report && (
                           <div className="px-3 pb-3 pt-1 border-t border-white/[0.04]">
                             <div className="text-xs text-white/60 space-y-2">
-                              {spec.report.title && <div className="font-semibold text-white/80">{spec.report.title}</div>}
+                              {/* Domain / title */}
+                              {(spec.report.domain || spec.report.title) && (
+                                <div className="font-semibold text-white/80">{spec.report.domain || spec.report.title}</div>
+                              )}
+                              {/* Key facts */}
+                              {spec.report.zahlenDatenFakten && <p>{spec.report.zahlenDatenFakten}</p>}
                               {spec.report.finding && <p>{spec.report.finding}</p>}
+                              {/* Critical findings */}
+                              {Array.isArray(spec.report.kritischeFindings) && spec.report.kritischeFindings.slice(0, 3).map((f: any, i: number) => (
+                                <div key={i} className="flex items-start gap-1.5">
+                                  <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                                    f.severity === "hoch" || f.severity === "critical" ? "bg-red-500/20 text-red-400" :
+                                    f.severity === "mittel" || f.severity === "high" ? "bg-amber-500/20 text-amber-400" :
+                                    "bg-blue-500/20 text-blue-400"
+                                  }`}>{f.severity}</span>
+                                  <span>{f.finding}</span>
+                                </div>
+                              ))}
+                              {/* Recommendations */}
+                              {Array.isArray(spec.report.empfehlungen) && spec.report.empfehlungen.slice(0, 2).map((r: any, i: number) => (
+                                <p key={i} className="text-emerald-400/80">
+                                  <span className="text-white/40">{r.priorität === "sofort" ? "NOW" : r.priorität === "heute" ? "TODAY" : "WEEK"}: </span>
+                                  {r.maßnahme}
+                                </p>
+                              ))}
                               {spec.report.recommendation && (
                                 <p className="text-emerald-400/80"><span className="text-white/40">Rec: </span>{spec.report.recommendation}</p>
-                              )}
-                              {spec.report.severity && (
-                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                  spec.report.severity === "critical" ? "bg-red-500/20 text-red-400" :
-                                  spec.report.severity === "high" ? "bg-amber-500/20 text-amber-400" :
-                                  "bg-blue-500/20 text-blue-400"
-                                }`}>{spec.report.severity}</span>
                               )}
                             </div>
                           </div>

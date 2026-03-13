@@ -1697,7 +1697,7 @@ Basierend auf der Tool-Referenz oben, bestimme welche Spezialisten benötigt wer
 ANTWORT-FORMAT: Reines JSON, KEIN Markdown.
 {
   "specialists": [
-    { "name": "slug-name", "domain": "DOMAIN_KEY", "displayName": "Anzeigename", "focus": "Worauf dieser Spezialist achten soll" }
+    { "name": "slug-name", "domain": "DOMAIN_KEY", "displayName": "English Display Name", "focus": "Worauf dieser Spezialist achten soll" }
   ],
   "relevantTools": ["tool_name_1", "tool_name_2"]
 }
@@ -1705,7 +1705,8 @@ ANTWORT-FORMAT: Reines JSON, KEIN Markdown.
 Regeln:
 - 3-5 Spezialisten, passend zur Frage
 - name: kurzer slug (z.B. "inventory-optimizer", "production-planner")
-- domain: Großbuchstaben-Key (z.B. "BESTANDSOPTIMIERUNG", "PRODUKTIONSPLANUNG")
+- domain: Großbuchstaben-Key (z.B. "INVENTORY_OPTIMIZATION", "PRODUCTION_PLANNING")
+- displayName: MUST be in English (e.g. "Production Planner", "Quality Assurance")
 - relevantTools: nur Tools aus der verfügbaren Liste die zur Frage passen
 - Sei kreativ mit den Spezialisten — sie müssen nicht die Standard-4 sein`;
 
