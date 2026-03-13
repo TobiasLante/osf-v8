@@ -474,9 +474,14 @@ async function runSpecialistsParallel(
   });
 
   const startTime = Date.now();
+  const PARALLEL = 2; // max 2 concurrent specialists — keeps LLM responsive
 
-  const results = await Promise.allSettled(
-    specialists.map(async (spec) => {
+  // Run specialists in batches of PARALLEL
+  const allResults: Array<PromiseSettledResult<{ name: string; report?: SpecialistReport; error?: string }>> = [];
+  for (let i = 0; i < specialists.length; i += PARALLEL) {
+    const batch = specialists.slice(i, i + PARALLEL);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (spec) => {
       const specStart = Date.now();
       emitSSE(res, {
         type: 'specialist_start',
@@ -515,10 +520,12 @@ async function runSpecialistsParallel(
         return { name: spec.name, error: err.message };
       }
     })
-  );
+    );
+    allResults.push(...batchResults);
+  }
 
   // Emit batch complete with compressed results for discussion thread
-  const specialistResults = results.map((r, i) => {
+  const specialistResults = allResults.map((r, i) => {
     const spec = specialists[i];
     if (r.status === 'fulfilled' && r.value.report) {
       const rpt = r.value.report as SpecialistReport;
@@ -1751,10 +1758,14 @@ export async function runDynamicDiscussion(
 
   // ── Phase 0b: KG traversal ──
   // Extract entity IDs from user message for KG tool parameterization
+  // Supports: SGM-004, CNC-001, DRH-002, FRS-003, BZ-1, Maschine 7533, plain 4-5 digit IDs
+  const prefixedMatch = userMessage.match(/\b(SGM|CNC|DRH|FRS|SGF|BZ|MTG)-?(\d{1,5})\b/i);
   const machineMatch = userMessage.match(/(?:Maschine|Machine|machine)\s*(\d{4,5})/i)
     || userMessage.match(/\b(\d{4,5})\b/); // fallback: any 4-5 digit number
-  const orderMatch = userMessage.match(/\b(FA\d{6,})\b/i);
-  const extractedMachineId = machineMatch?.[1];
+  const orderMatch = userMessage.match(/\b(FA-?\d{4,})\b/i);
+  const extractedMachineId = prefixedMatch
+    ? `${prefixedMatch[1].toUpperCase()}-${prefixedMatch[2].padStart(3, '0')}`
+    : machineMatch?.[1];
   const extractedEntityId = extractedMachineId || orderMatch?.[1];
 
   const params: Record<string, unknown> = {
@@ -1796,6 +1807,7 @@ export async function runDynamicDiscussion(
     : dl(language, 'Keine Fabrikdaten verfügbar.', 'No factory data available.');
 
   // ── Phase 1: Specialists (with dynamic list) ──
+  // Specialists use free tier (14B), moderator uses premium (32B)
   const reports = await runSpecialistsParallel(
     `${isEn ? 'USER QUESTION' : 'USER-FRAGE'}: ${userMessage}\n\n${kgContext}`,
     factoryContext,

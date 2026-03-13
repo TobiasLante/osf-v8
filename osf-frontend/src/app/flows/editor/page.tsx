@@ -26,9 +26,6 @@ export default function FlowEditorPage() {
   const [flowName, setFlowName] = useState('');
   const [flowDesc, setFlowDesc] = useState('');
   const [loadingTabs, setLoadingTabs] = useState(false);
-  const [idleWarning, setIdleWarning] = useState(false);
-  const [idleRemainingMs, setIdleRemainingMs] = useState(0);
-  const [extending, setExtending] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Read ?tab= query param to open a specific flow tab in Node-RED
@@ -96,45 +93,6 @@ export default function FlowEditorPage() {
       }
     })();
   }, [loading, token, tabParam]);
-
-  // Poll idle status every 15s when editor is ready
-  useEffect(() => {
-    if (!ready || !token) return;
-
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`${API_URL}/flows/editor/idle-status`, {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: 'include',
-        });
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (!data.active) return;
-        setIdleWarning(data.warning);
-        setIdleRemainingMs(data.remainingMs);
-      } catch {}
-    };
-
-    poll();
-    const interval = setInterval(poll, 15_000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [ready, token]);
-
-  const handleExtend = async () => {
-    setExtending(true);
-    try {
-      await fetch(`${API_URL}/flows/editor/keepalive`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        credentials: 'include',
-      });
-      setIdleWarning(false);
-      setIdleRemainingMs(30 * 60 * 1000);
-    } catch {} finally {
-      setExtending(false);
-    }
-  };
 
   const openSaveModal = async () => {
     setLoadingTabs(true);
@@ -217,31 +175,6 @@ export default function FlowEditorPage() {
           </button>
         </div>
       </div>
-
-      {/* Idle warning banner */}
-      {idleWarning && (
-        <div className={`px-4 py-2 flex items-center justify-between shrink-0 text-sm ${
-          idleRemainingMs <= 2 * 60 * 1000
-            ? 'bg-red-500/20 border-b border-red-500/40 text-red-300'
-            : 'bg-yellow-500/20 border-b border-yellow-500/40 text-yellow-300'
-        }`}>
-          <span>
-            {idleRemainingMs <= 2 * 60 * 1000 ? '⚠ ' : ''}
-            Session wird in{' '}
-            <strong>
-              {Math.floor(idleRemainingMs / 60000)}:{String(Math.floor((idleRemainingMs % 60000) / 1000)).padStart(2, '0')}
-            </strong>
-            {' '}wegen Inaktivität geschlossen. Deine Flows bleiben gespeichert.
-          </span>
-          <button
-            onClick={handleExtend}
-            disabled={extending}
-            className="ml-4 px-3 py-1 rounded-sm text-xs font-medium bg-white/20 hover:bg-white/30 transition-colors disabled:opacity-50"
-          >
-            {extending ? '...' : 'Verlängern'}
-          </button>
-        </div>
-      )}
 
       {/* Editor iframe */}
       {error ? (

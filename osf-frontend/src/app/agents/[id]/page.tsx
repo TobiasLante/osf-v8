@@ -5,7 +5,6 @@ export function generateStaticParams() {
   return [...agents.map((a) => ({ id: a.id })), { id: "placeholder" }];
 }
 
-export default async function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return <AgentDetailClient id={id} />;
+export default function AgentDetailPage({ params }: { params: { id: string } }) {
+  return <AgentDetailClient id={params.id} />;
 }

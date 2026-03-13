@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 interface AdminUser {
   id: string;
@@ -38,28 +39,7 @@ interface BannerState {
   active: boolean;
 }
 
-interface ActivityData {
-  user_id: string;
-  user_email: string;
-  user_name: string | null;
-  period: string;
-  total_minutes: number;
-  session_count: number;
-}
-
-interface ActivityTotals {
-  period: string;
-  total_minutes: number;
-  active_users: number;
-}
-
-interface ActivityResponse {
-  granularity: "daily" | "weekly" | "monthly";
-  data: ActivityData[];
-  totals: ActivityTotals[];
-}
-
-type Tab = "health" | "users" | "stats" | "news" | "banner" | "infra" | "nrpods" | "activity";
+type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -85,7 +65,7 @@ export default function AdminPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-text">Admin Panel</h1>
         <a
-          href="/"
+          href={process.env.NEXT_PUBLIC_UMAMI_URL || "https://osf-api.zeroguess.ai/umami"}
           target="_blank"
           rel="noopener noreferrer"
           className="px-4 py-2 text-xs font-medium rounded-md border border-border bg-bg-surface text-text-muted hover:text-text hover:border-accent/25 transition-colors"
@@ -110,14 +90,14 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {tab === "health" && <HealthTab onNavigate={setTab} />}
-      {tab === "users" && <UsersTab />}
-      {tab === "stats" && <StatsTab />}
-      {tab === "activity" && <ActivityTab />}
-      {tab === "news" && <NewsTab />}
-      {tab === "banner" && <BannerTab />}
-      {tab === "infra" && <InfraTab />}
-      {tab === "nrpods" && <NrPodsTab />}
+      {tab === "health" && <ErrorBoundary name="health"><HealthTab onNavigate={setTab} /></ErrorBoundary>}
+      {tab === "users" && <ErrorBoundary name="users"><UsersTab /></ErrorBoundary>}
+      {tab === "stats" && <ErrorBoundary name="stats"><StatsTab /></ErrorBoundary>}
+      {tab === "activity" && <ErrorBoundary name="activity"><ActivityTab /></ErrorBoundary>}
+      {tab === "news" && <ErrorBoundary name="news"><NewsTab /></ErrorBoundary>}
+      {tab === "banner" && <ErrorBoundary name="banner"><BannerTab /></ErrorBoundary>}
+      {tab === "infra" && <ErrorBoundary name="infra"><InfraTab /></ErrorBoundary>}
+      {tab === "nrpods" && <ErrorBoundary name="nrpods"><NrPodsTab /></ErrorBoundary>}
     </main>
   );
 }
@@ -129,22 +109,6 @@ interface HealthComponent {
   [key: string]: any;
 }
 
-interface FactoryService {
-  name: string;
-  ok: boolean;
-  latencyMs: number;
-  leader: boolean | null;
-  ready: boolean;
-  podId?: string | null;
-}
-
-interface DbCheck {
-  name: string;
-  ok: boolean;
-  latencyMs: number;
-  error?: string;
-}
-
 interface HealthData {
   overall: "healthy" | "degraded" | "critical";
   components: {
@@ -153,9 +117,9 @@ interface HealthData {
     llm: HealthComponent;
     nodered: HealthComponent;
     mcp: HealthComponent & { services: { name: string; ok: boolean; latencyMs: number }[] };
-    factory: HealthComponent & { services: FactoryService[] };
-    databases: HealthComponent & { checks: DbCheck[] };
-    mqtt: HealthComponent & { reachable: boolean };
+    factory: HealthComponent & { services: any[] };
+    databases: HealthComponent & { checks: any[] };
+    mqtt: HealthComponent;
     cloudflare: HealthComponent;
   };
   alerts: { severity: "warning" | "critical"; component: string; message: string }[];
@@ -194,37 +158,90 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
 
   const overall = STATUS_CONFIG[data.overall];
 
-  const components: { key: string; label: string; status: "healthy" | "degraded" | "critical"; metrics: string; navigateTo?: Tab }[] = [
+  interface ServiceDetail { name: string; ok: boolean; latencyMs?: number; error?: string; badge?: string }
+  type HealthTile = { key: string; label: string; status: "healthy" | "degraded" | "critical"; metrics: string; services?: ServiceDetail[]; navigateTo?: Tab };
+
+  const nr = data.components.nodered;
+  const llm = data.components.llm;
+  const mcp = data.components.mcp;
+  const factory = data.components.factory;
+  const dbs = data.components.databases;
+
+  const components: HealthTile[] = [
     {
       key: "gateway", label: "Gateway", status: data.components.gateway.status,
       metrics: `${formatUptime(data.components.gateway.uptimeSeconds)} uptime, ${data.components.gateway.memoryMb} MB RAM`,
+      navigateTo: "infra",
     },
     {
-      key: "database", label: "Gateway DB", status: data.components.database.status,
+      key: "database", label: "OSF Database", status: data.components.database.status,
       metrics: `${data.components.database.connectionsUsed}/${data.components.database.connectionsMax} conns, ${data.components.database.latencyMs}ms`,
+      navigateTo: "infra",
     },
     {
-      key: "llm", label: "LLM", status: data.components.llm.status,
-      metrics: data.components.llm.online
-        ? `Online, ${data.components.llm.activeRequests} active, ${data.components.llm.queuedRequests} queued`
+      key: "llm", label: "LLM Servers", status: llm.status,
+      metrics: llm.online
+        ? `Online, ${llm.activeRequests} active, ${llm.queuedRequests} queued`
         : "Offline",
+      services: [
+        { name: "Premium (5001)", ok: llm.online, badge: llm.online ? "online" : "offline" },
+        { name: "Free (5002)", ok: llm.online, badge: llm.online ? "online" : "offline" },
+      ],
+      navigateTo: "infra",
     },
     {
-      key: "nodered", label: "Node-RED Pods", status: data.components.nodered.status,
-      metrics: `${data.components.nodered.warm} warm, ${data.components.nodered.assigned} assigned`,
+      key: "nodered", label: "Node-RED Pool", status: nr.status,
+      metrics: `${nr.warm} warm, ${nr.assigned} assigned, ${nr.starting} starting`,
+      services: [
+        { name: "Warm Pods", ok: nr.warm >= nr.targetSize, badge: `${nr.warm}/${nr.targetSize}` },
+        { name: "Assigned Pods", ok: true, badge: `${nr.assigned}` },
+        { name: "Starting Pods", ok: true, badge: `${nr.starting}` },
+        { name: "Pool Healthy", ok: nr.poolHealthy, badge: nr.poolHealthy ? "yes" : "no" },
+      ],
       navigateTo: "nrpods",
     },
     {
-      key: "mcp", label: "MCP Tools", status: data.components.mcp.status,
-      metrics: `${data.components.mcp.services.filter((s: any) => s.ok).length}/${data.components.mcp.services.length} online`,
+      key: "mcp", label: "MCP Services", status: mcp.status,
+      metrics: `${mcp.services.filter((s: any) => s.ok).length}/${mcp.services.length} online`,
+      services: mcp.services.map((s: any) => ({ name: s.name, ok: s.ok, latencyMs: s.latencyMs })),
+      navigateTo: "infra",
     },
     {
-      key: "mqtt", label: "MQTT Broker", status: data.components.mqtt.status,
-      metrics: data.components.mqtt.reachable ? "Connected" : "Unreachable",
+      key: "factory", label: "Factory Simulator", status: factory.status,
+      metrics: `${factory.services.filter((s: any) => s.ok).length}/${factory.services.length} services online`,
+      services: factory.services.map((s: any) => ({
+        name: s.name,
+        ok: s.ok,
+        latencyMs: s.latencyMs,
+        badge: s.ok ? (s.leader ? "leader" : s.ready === false ? "backup" : "ok") : "down",
+      })),
+      navigateTo: "infra",
+    },
+    {
+      key: "databases", label: "Databases", status: dbs?.status || "healthy",
+      metrics: dbs?.checks ? `${dbs.checks.filter((c: any) => c.ok).length}/${dbs.checks.length} healthy` : "OK",
+      services: dbs?.checks?.map((c: any) => ({ name: c.name, ok: c.ok, latencyMs: c.latencyMs, error: c.error })),
+      navigateTo: "infra",
+    },
+    {
+      key: "mqtt", label: "MQTT Broker", status: data.components.mqtt?.status || "healthy",
+      metrics: data.components.mqtt?.reachable ? "Connected" : "Disconnected",
+      services: [{ name: "EMQX (31883)", ok: !!data.components.mqtt?.reachable }],
+    },
+    {
+      key: "email", label: "Email (Resend)", status: (data.components as any).email?.status || "critical",
+      metrics: (data.components as any).email?.configured
+        ? ((data.components as any).email?.reachable ? "Configured & Reachable" : "Configured, API unreachable")
+        : "Not configured",
+      services: [
+        { name: "API Key", ok: !!(data.components as any).email?.configured, badge: (data.components as any).email?.configured ? "set" : "missing" },
+        { name: "Resend API", ok: !!(data.components as any).email?.reachable, badge: (data.components as any).email?.reachable ? "online" : "offline" },
+      ],
     },
     {
       key: "cloudflare", label: "Cloudflare", status: data.components.cloudflare.status,
       metrics: data.components.cloudflare.reachable ? "Reachable" : "Unreachable",
+      services: [{ name: "CF Tunnel", ok: !!data.components.cloudflare.reachable }],
     },
   ];
 
@@ -243,78 +260,57 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
         </div>
       </div>
 
-      {/* Platform Services Grid */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Platform</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {components.map((c) => {
-            const cfg = STATUS_CONFIG[c.status];
-            return (
-              <button
-                key={c.key}
-                onClick={() => c.navigateTo && onNavigate(c.navigateTo)}
-                className={`text-left rounded-lg border border-border/50 bg-bg-surface p-3 transition-colors ${
-                  c.navigateTo ? "hover:border-accent/25 cursor-pointer" : "cursor-default"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${c.status !== "healthy" ? "animate-pulse" : ""}`} />
-                  <span className="text-sm font-medium text-text">{c.label}</span>
-                </div>
-                <p className="text-xs text-text-muted font-mono pl-4">{c.metrics}</p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Factory Services */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Factory Services</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {data.components.factory.services.map((svc) => {
-            const status = !svc.ok ? "critical" : svc.leader === false ? "degraded" : "healthy";
-            const cfg = STATUS_CONFIG[status];
-            return (
-              <div key={svc.name} className="rounded-lg border border-border/50 bg-bg-surface p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${status !== "healthy" ? "animate-pulse" : ""}`} />
-                  <span className="text-sm font-medium text-text">{svc.name}</span>
-                  {svc.leader === true && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">LEADER</span>
-                  )}
-                  {svc.leader === false && svc.ok && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 font-medium">STANDBY</span>
-                  )}
-                </div>
-                <p className="text-xs text-text-muted font-mono pl-4">
-                  {!svc.ok ? "Offline" : `${svc.latencyMs}ms`}
-                </p>
+      {/* Component Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {components.map((c) => {
+          const cfg = STATUS_CONFIG[c.status];
+          return (
+            <button
+              key={c.key}
+              onClick={() => c.navigateTo && onNavigate(c.navigateTo)}
+              className={`text-left rounded-lg border border-border/50 bg-bg-surface p-4 transition-colors ${
+                c.navigateTo ? "hover:border-accent/25 cursor-pointer" : "cursor-default"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                <span className="text-sm font-medium text-text">{c.label}</span>
+                <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
+                  {c.status}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Databases */}
-      <div>
-        <h3 className="text-sm font-medium text-text mb-3">Databases</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {data.components.databases.checks.map((db) => {
-            const cfg = STATUS_CONFIG[db.ok ? "healthy" : "critical"];
-            return (
-              <div key={db.name} className="rounded-lg border border-border/50 bg-bg-surface p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} ${!db.ok ? "animate-pulse" : ""}`} />
-                  <span className="text-xs font-medium text-text truncate">{db.name}</span>
+              <p className="text-xs text-text-muted font-mono">{c.metrics}</p>
+              {c.services && c.services.length > 0 && (
+                <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
+                  {c.services.map((s) => (
+                    <div key={s.name} className="flex items-center gap-2 text-xs">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.ok ? "bg-green-400" : "bg-red-400"}`} />
+                      <span className={s.ok ? "text-text-muted" : "text-red-400 font-medium"}>{s.name}</span>
+                      <span className="ml-auto flex items-center gap-2">
+                        {s.badge && (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            s.badge === "leader" ? "bg-blue-500/20 text-blue-400" :
+                            s.badge === "backup" ? "bg-yellow-500/20 text-yellow-400" :
+                            s.badge === "down" ? "bg-red-500/20 text-red-400" :
+                            s.badge === "online" ? "bg-green-500/20 text-green-400" :
+                            s.badge === "offline" ? "bg-red-500/20 text-red-400" :
+                            "bg-white/5 text-text-muted"
+                          }`}>{s.badge}</span>
+                        )}
+                        {s.latencyMs != null && (
+                          <span className="text-text-muted font-mono">{s.latencyMs}ms</span>
+                        )}
+                        {s.error && !s.latencyMs && (
+                          <span className="text-red-400 truncate max-w-[120px]" title={s.error}>{s.error}</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-text-muted font-mono pl-4">
-                  {db.ok ? `${db.latencyMs}ms` : "Offline"}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Active Alerts */}
@@ -458,7 +454,6 @@ function UsersTab() {
                     className="bg-bg border border-border rounded px-2 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
                   >
                     <option value="user">user</option>
-                    <option value="demo">demo</option>
                     <option value="admin">admin</option>
                   </select>
                 </td>
@@ -651,6 +646,115 @@ function CreateUserModal({
   );
 }
 
+// ─── Activity Tab ───────────────────────────────────────────────────────────
+
+interface ActivityRow {
+  user_id: string;
+  user_email: string;
+  user_name: string | null;
+  period: string;
+  session_count: number;
+  total_minutes: number;
+}
+
+interface ActivityTotal {
+  period: string;
+  total_minutes: number;
+  active_users: number;
+}
+
+function ActivityTab() {
+  const [data, setData] = useState<ActivityRow[]>([]);
+  const [totals, setTotals] = useState<ActivityTotal[]>([]);
+  const [granularity, setGranularity] = useState("daily");
+  const [error, setError] = useState("");
+  const [from, setFrom] = useState(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      const d = await apiFetch<{ granularity: string; data: ActivityRow[]; totals: ActivityTotal[] }>(`/admin/activity?from=${from}&to=${to}`);
+      setData(d.data);
+      setTotals(d.totals);
+      setGranularity(d.granularity);
+      setError("");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [from, to]);
+
+  useEffect(() => { fetchActivity(); }, [fetchActivity]);
+
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-4 items-center">
+        <label className="text-xs text-text-muted">From</label>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+          className="bg-bg-surface border border-border rounded px-2 py-1 text-sm text-text" />
+        <label className="text-xs text-text-muted">To</label>
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+          className="bg-bg-surface border border-border rounded px-2 py-1 text-sm text-text" />
+        <span className="text-xs text-text-dim">Granularity: {granularity}</span>
+      </div>
+
+      {/* Totals */}
+      {totals.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-bg-surface text-text-muted text-xs">
+              <th className="text-left px-4 py-2">Period</th>
+              <th className="text-right px-4 py-2">Active Users</th>
+              <th className="text-right px-4 py-2">Total Minutes</th>
+            </tr></thead>
+            <tbody>
+              {totals.map((t, i) => (
+                <tr key={i} className="border-t border-border">
+                  <td className="px-4 py-2 text-text">{t.period}</td>
+                  <td className="px-4 py-2 text-right text-text">{t.active_users}</td>
+                  <td className="px-4 py-2 text-right text-text">{t.total_minutes} min</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Per-user detail */}
+      {data.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-bg-surface text-text-muted text-xs">
+              <th className="text-left px-4 py-2">User</th>
+              <th className="text-left px-4 py-2">Period</th>
+              <th className="text-right px-4 py-2">Events</th>
+              <th className="text-right px-4 py-2">Minutes</th>
+            </tr></thead>
+            <tbody>
+              {data.map((r, i) => (
+                <tr key={i} className="border-t border-border">
+                  <td className="px-4 py-2">
+                    <div className="text-text text-xs">{r.user_name || r.user_email}</div>
+                    <div className="text-text-dim text-[10px]">{r.user_email}</div>
+                  </td>
+                  <td className="px-4 py-2 text-text-muted text-xs">{r.period}</td>
+                  <td className="px-4 py-2 text-right text-text">{r.session_count}</td>
+                  <td className="px-4 py-2 text-right text-text">{r.total_minutes} min</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {data.length === 0 && !error && (
+        <div className="text-text-muted text-sm text-center py-8">No activity data for this period.</div>
+      )}
+    </div>
+  );
+}
+
 // ─── Stats Tab ──────────────────────────────────────────────────────────────
 
 function StatsTab() {
@@ -707,241 +811,6 @@ function StatCard({ label, value }: { label: string; value: number }) {
     <div className="bg-surface border border-border rounded-lg p-4">
       <div className="text-2xl font-bold text-text">{value}</div>
       <div className="text-sm text-text-muted">{label}</div>
-    </div>
-  );
-}
-
-// ─── Activity Tab ──────────────────────────────────────────────────────────
-
-function ActivityTab() {
-  const [data, setData] = useState<ActivityResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [preset, setPreset] = useState<"7d" | "30d" | "3mo" | "1y" | "custom">("7d");
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().slice(0, 10);
-  });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
-
-  const applyPreset = useCallback((p: "7d" | "30d" | "3mo" | "1y") => {
-    setPreset(p);
-    const now = new Date();
-    const to = now.toISOString().slice(0, 10);
-    let from: string;
-    if (p === "7d") {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      from = d.toISOString().slice(0, 10);
-    } else if (p === "30d") {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      from = d.toISOString().slice(0, 10);
-    } else if (p === "3mo") {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 3);
-      from = d.toISOString().slice(0, 10);
-    } else {
-      const d = new Date();
-      d.setFullYear(d.getFullYear() - 1);
-      from = d.toISOString().slice(0, 10);
-    }
-    setFromDate(from);
-    setToDate(to);
-  }, []);
-
-  const fetchActivity = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const json = await apiFetch(`/admin/activity?from=${fromDate}&to=${toDate}`);
-      setData(json);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [fromDate, toDate]);
-
-  useEffect(() => {
-    fetchActivity();
-  }, [fetchActivity]);
-
-  // Aggregate per-user totals across all periods
-  const userTotals = data
-    ? Object.values(
-        data.data.reduce(
-          (acc, row) => {
-            if (!acc[row.user_id]) {
-              acc[row.user_id] = {
-                user_id: row.user_id,
-                user_email: row.user_email,
-                user_name: row.user_name,
-                total_minutes: 0,
-                session_count: 0,
-              };
-            }
-            acc[row.user_id].total_minutes += row.total_minutes;
-            acc[row.user_id].session_count += row.session_count;
-            return acc;
-          },
-          {} as Record<string, { user_id: string; user_email: string; user_name: string | null; total_minutes: number; session_count: number }>
-        )
-      ).sort((a, b) => b.total_minutes - a.total_minutes)
-    : [];
-
-  const totalMinutes = userTotals.reduce((s, u) => s + u.total_minutes, 0);
-  const totalSessions = userTotals.reduce((s, u) => s + u.session_count, 0);
-  const maxMinutes = userTotals.length > 0 ? userTotals[0].total_minutes : 1;
-
-  function fmtTime(mins: number): string {
-    const h = Math.floor(mins / 60);
-    const m = Math.round(mins % 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Date range controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        {(["7d", "30d", "3mo", "1y"] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => applyPreset(p)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
-              preset === p
-                ? "bg-accent/10 border-accent text-accent"
-                : "border-border text-text-muted hover:text-text hover:border-accent/25"
-            }`}
-          >
-            {p}
-          </button>
-        ))}
-        <div className="flex items-center gap-2 ml-2">
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => { setPreset("custom"); setFromDate(e.target.value); }}
-            className="px-2 py-1 text-xs bg-bg-surface border border-border rounded text-text"
-          />
-          <span className="text-text-muted text-xs">to</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => { setPreset("custom"); setToDate(e.target.value); }}
-            className="px-2 py-1 text-xs bg-bg-surface border border-border rounded text-text"
-          />
-        </div>
-        {data && (
-          <span className="ml-auto px-2 py-1 text-xs rounded bg-accent/10 text-accent font-medium">
-            {data.granularity.charAt(0).toUpperCase() + data.granularity.slice(1)}
-          </span>
-        )}
-      </div>
-
-      {error && <p className="text-red-400 text-sm">{error}</p>}
-      {loading && <p className="text-text-muted text-sm">Loading activity data...</p>}
-
-      {data && !loading && (
-        <>
-          {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <div className="text-text-muted text-xs mb-1">Total Time</div>
-              <div className="text-xl font-bold text-text">{fmtTime(totalMinutes)}</div>
-            </div>
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <div className="text-text-muted text-xs mb-1">Active Users</div>
-              <div className="text-xl font-bold text-text">{userTotals.length}</div>
-            </div>
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <div className="text-text-muted text-xs mb-1">Avg Session</div>
-              <div className="text-xl font-bold text-text">
-                {totalSessions > 0 ? fmtTime(totalMinutes / totalSessions) : "—"}
-              </div>
-            </div>
-          </div>
-
-          {/* Per-period totals bar chart */}
-          {data.totals.length > 0 && (
-            <div className="bg-bg-surface border border-border rounded-lg p-4">
-              <h3 className="text-sm font-medium text-text-muted mb-3">Activity Over Time</h3>
-              <div className="space-y-1">
-                {data.totals
-                  .slice()
-                  .sort((a, b) => a.period.localeCompare(b.period))
-                  .map((t, i) => {
-                    const maxTotalMin = Math.max(...data.totals.map((x) => x.total_minutes), 1);
-                    const pct = (t.total_minutes / maxTotalMin) * 100;
-                    return (
-                      <div key={i} className="flex items-center gap-3 text-xs">
-                        <span className="text-text-muted w-24 shrink-0">
-                          {new Date(t.period).toLocaleDateString()}
-                        </span>
-                        <div className="flex-1 h-5 bg-bg rounded-sm overflow-hidden">
-                          <div
-                            className="h-full bg-accent/30 rounded-sm"
-                            style={{ width: `${Math.max(pct, 2)}%` }}
-                          />
-                        </div>
-                        <span className="text-text w-16 text-right">{fmtTime(t.total_minutes)}</span>
-                        <span className="text-text-dim w-20 text-right">{t.active_users} user{t.active_users !== 1 ? "s" : ""}</span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {/* Per-user table */}
-          <div className="bg-bg-surface border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-text-muted">
-                  <th className="px-4 py-2 font-medium">User</th>
-                  <th className="px-4 py-2 font-medium text-right">Total Time</th>
-                  <th className="px-4 py-2 font-medium text-right">Sessions</th>
-                  <th className="px-4 py-2 font-medium text-right">Avg Session</th>
-                  <th className="px-4 py-2 font-medium" style={{ width: "30%" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {userTotals.map((u) => (
-                  <tr key={u.user_id} className="border-b border-border/50 hover:bg-bg/50">
-                    <td className="px-4 py-2">
-                      <div className="text-text text-sm">{u.user_name || u.user_email}</div>
-                      {u.user_name && (
-                        <div className="text-text-dim text-xs">{u.user_email}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right text-text">{fmtTime(u.total_minutes)}</td>
-                    <td className="px-4 py-2 text-right text-text">{u.session_count}</td>
-                    <td className="px-4 py-2 text-right text-text">
-                      {u.session_count > 0 ? fmtTime(u.total_minutes / u.session_count) : "—"}
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="h-3 bg-bg rounded-sm overflow-hidden">
-                        <div
-                          className="h-full bg-accent/40 rounded-sm"
-                          style={{ width: `${(u.total_minutes / maxMinutes) * 100}%` }}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {userTotals.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-text-dim text-sm">
-                      No activity data for this period
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </div>
   );
 }

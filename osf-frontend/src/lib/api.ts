@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
 
 async function tryRefreshToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
@@ -59,15 +59,20 @@ export async function apiFetch<T = any>(
   });
 
   // On 401, try to refresh the token once, then retry
-  if (res.status === 401 && token && !isRefreshing) {
-    isRefreshing = true;
-    const newToken = await tryRefreshToken();
-    isRefreshing = false;
+  // Uses a shared promise so concurrent 401s only trigger one refresh
+  if (res.status === 401 && token) {
+    if (!refreshPromise) {
+      refreshPromise = tryRefreshToken().finally(() => { refreshPromise = null; });
+    }
+    const newToken = await refreshPromise;
 
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;
       const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
-      if (retry.ok) return retry.json();
+      if (retry.ok) {
+        if (retry.status === 204) return undefined as T;
+        return retry.json();
+      }
     }
 
     // Refresh failed or retry failed — force logout
@@ -80,6 +85,7 @@ export async function apiFetch<T = any>(
     throw new ApiError(res.status, body.error || res.statusText);
   }
 
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 

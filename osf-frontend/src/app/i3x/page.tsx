@@ -368,6 +368,12 @@ export default function I3xPage() {
       {/* ── HERO + LIVE PULSE ─────────────────────────────────────── */}
       <section className="pt-28 pb-8 px-6">
         <div className="max-w-5xl mx-auto text-center">
+          <ScrollReveal>
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-accent/30 bg-accent/5 text-xs text-accent font-medium mb-6">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Live System &mdash; Running in Production
+            </div>
+          </ScrollReveal>
           <ScrollReveal delay={100}>
             <h1 className="text-4xl sm:text-5xl font-bold mb-6 leading-tight">
               From i3X Vision to{" "}
@@ -442,6 +448,11 @@ export default function I3xPage() {
                 </div>
               ))}
             </div>
+          </ScrollReveal>
+          <ScrollReveal delay={150}>
+            <p className="mt-6 text-center text-sm text-text-muted italic">
+              i3X is standard-first. We&apos;re implementation-first. Same destination &mdash; we just didn&apos;t wait.
+            </p>
           </ScrollReveal>
         </div>
       </section>
@@ -592,6 +603,11 @@ export default function I3xPage() {
                 </div>
               ))}
             </div>
+          </ScrollReveal>
+          <ScrollReveal delay={200}>
+            <p className="mt-4 text-center text-[11px] text-text-dim">
+              Includes SAP equivalents: CM01, CM21, VA05, MD04, MD07, MMBE, ME2M, QM02 &mdash; native MCP access, no SAP license required
+            </p>
           </ScrollReveal>
         </div>
       </section>
