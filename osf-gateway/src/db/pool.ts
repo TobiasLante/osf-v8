@@ -469,9 +469,10 @@ export async function initSchema(): Promise<void> {
     `);
 
     // Seed historian MCP server (v9: auto-register on startup)
+    const historianUrl = process.env.HISTORIAN_URL || 'http://localhost:8030';
     await migrate('mcp_servers: seed historian', `
       INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
-      VALUES ('history', 'http://localhost:8030', 'none', 'pending', 6, ARRAY['history'])
+      VALUES ('history', '${historianUrl}', 'none', 'pending', 6, ARRAY['history'])
       ON CONFLICT DO NOTHING;
     `);
 
