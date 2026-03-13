@@ -53,6 +53,7 @@ data:
 
   # LLM
   LLM_URL: "http://192.168.178.120:5001"
+  LLM_GOVERNANCE_URL: "http://192.168.178.120:5002"
   LLM_MODEL: "Qwen2.5-72B-Instruct.Q4_K_M.gguf"
   LLM_TIMEOUT: "60000"
 

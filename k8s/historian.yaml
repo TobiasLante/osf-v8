@@ -40,9 +40,15 @@ spec:
               name: osf-secrets
               key: FACTORY_DB_PASSWORD
         - name: HISTORIAN_DB_HOST
-          value: "192.168.178.150"
+          valueFrom:
+            configMapKeyRef:
+              name: osf-config
+              key: FACTORY_DB_HOST
         - name: HISTORIAN_DB_PORT
-          value: "30432"
+          valueFrom:
+            configMapKeyRef:
+              name: osf-config
+              key: FACTORY_DB_PORT
         - name: HISTORIAN_DB_NAME
           value: "bigdata_homelab"
         - name: HISTORIAN_DB_USER

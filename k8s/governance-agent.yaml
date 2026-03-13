@@ -26,11 +26,17 @@ spec:
         ports:
         - containerPort: 8031
           name: http
+        envFrom:
+        - configMapRef:
+            name: osf-config
         env:
         - name: GOVERNANCE_PORT
           value: "8031"
         - name: LLM_URL
-          value: "http://192.168.178.120:5002"
+          valueFrom:
+            configMapKeyRef:
+              name: osf-config
+              key: LLM_GOVERNANCE_URL
         - name: LLM_MODEL
           value: "qwen2.5-14b-instruct"
         resources:
