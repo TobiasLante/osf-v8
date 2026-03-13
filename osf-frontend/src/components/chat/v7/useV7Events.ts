@@ -36,20 +36,25 @@ export function useV7Events(events: V7Event[]): V7DerivedState {
     }
 
     if (ev.type === 'specialist_start') {
-      const key = ev.data?.name || ev.title || `specialist-${bubbleIdx}`;
-      specialists.set(key, { name: ev.data?.displayName || ev.title || key, status: 'running', report: null });
+      const key = ev.specialistName || ev.data?.name || ev.title || `specialist-${bubbleIdx}`;
+      const display = ev.specialistDisplayName || ev.data?.displayName || ev.title || key;
+      specialists.set(key, { name: display, status: 'running', report: null });
     }
     if (ev.type === 'specialist_complete') {
-      const key = ev.data?.name || ev.title || '';
+      const sResult = ev.specialistResult || ev.data;
+      const key = ev.specialistName || sResult?.name || ev.data?.name || ev.title || '';
       const existing = specialists.get(key);
       if (existing) {
         existing.status = 'done';
-        existing.report = ev.data?.report || ev.data;
-        existing.duration = ev.data?.durationMs || ev.duration;
+        existing.report = sResult?.report || sResult;
+        existing.duration = sResult?.durationMs || ev.duration;
+      } else {
+        // Specialist was never seen via specialist_start — add it directly
+        specialists.set(key, { name: sResult?.displayName || sResult?.name || key, status: 'done', report: sResult?.report || sResult, duration: sResult?.durationMs || ev.duration });
       }
     }
     if (ev.type === 'specialist_error') {
-      const key = ev.data?.name || ev.title || '';
+      const key = ev.specialistName || ev.data?.name || ev.title || '';
       const existing = specialists.get(key);
       if (existing) {
         existing.status = 'error';

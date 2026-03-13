@@ -444,17 +444,7 @@ export default function FomiPage() {
   const sourceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const [kgPopup, setKgPopup] = useState(false);
 
-  /* ── Specialist tracking (Act 1 chat phase) ─────────────────────── */
-  interface SpecialistState {
-    name: string;
-    displayName: string;
-    domain?: string;
-    status: "running" | "done" | "error";
-    durationMs?: number;
-    report?: any;
-    error?: string;
-  }
-  const [chatSpecialists, setChatSpecialists] = useState<Map<string, SpecialistState>>(new Map());
+  /* ── Specialist tracking (via useV7Events) ──────────────────────── */
   const [expandedSpec, setExpandedSpec] = useState<string | null>(null);
 
   /* ── Act 2: Discussion ─────────────────────────────────────────────── */
@@ -551,59 +541,14 @@ export default function FomiPage() {
           extractImpactStats(assistantContent);
           break;
 
-        case "specialist_start": {
-          const sName = event.specialistName || event.data?.name || event.title || "unknown";
-          const sDisplay = event.specialistDisplayName || event.data?.displayName || sName;
-          const sDomain = event.specialistDomain || event.data?.domain;
-          setChatSpecialists((prev) => {
-            const next = new Map(prev);
-            next.set(sName, { name: sName, displayName: sDisplay, domain: sDomain, status: "running" });
-            return next;
-          });
-          break;
-        }
-
-        case "specialist_complete": {
-          const sName = event.specialistName || event.data?.name || "unknown";
-          const sResult = event.specialistResult || event.data;
-          setChatSpecialists((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(sName);
-            next.set(sName, {
-              ...(existing || { name: sName, displayName: sName }),
-              name: sName,
-              displayName: existing?.displayName || sResult?.displayName || sName,
-              status: "done",
-              durationMs: sResult?.durationMs,
-              report: sResult?.report,
-            });
-            return next;
-          });
-          break;
-        }
-
-        case "specialist_error": {
-          const sName = event.specialistName || event.data?.name || "unknown";
-          setChatSpecialists((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(sName);
-            next.set(sName, {
-              ...(existing || { name: sName, displayName: sName }),
-              name: sName,
-              displayName: existing?.displayName || sName,
-              status: "error",
-              error: event.error || event.data?.error,
-            });
-            return next;
-          });
-          break;
-        }
-
+        case "specialist_start":
+        case "specialist_complete":
+        case "specialist_error":
         case "specialists_batch_start":
         case "specialists_batch_complete":
         case "specialists_planned":
         case "heartbeat":
-          break; // acknowledged but no UI update needed
+          break; // handled by useV7Events via v7Events
 
         case "kg_traversal_start":
           setKgStatus("traversing");
@@ -1038,16 +983,16 @@ export default function FomiPage() {
               )}
 
               {/* ── Specialist Progress Panel ────────────────────────── */}
-              {chatSpecialists.size > 0 && (
+              {v7State.specialists.size > 0 && (
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Specialists</span>
                     <span className="text-xs text-white/40">
-                      — {Array.from(chatSpecialists.values()).filter(s => s.status === "done").length}/{chatSpecialists.size} complete
+                      — {Array.from(v7State.specialists.values()).filter(s => s.status === "done").length}/{v7State.specialists.size} complete
                     </span>
                   </div>
                   <div className="space-y-2">
-                    {Array.from(chatSpecialists.entries()).map(([key, spec]) => (
+                    {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
                       <div key={key} className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
                         <button
                           onClick={() => setExpandedSpec(expandedSpec === key ? null : key)}
@@ -1062,12 +1007,12 @@ export default function FomiPage() {
                           {spec.status === "error" && (
                             <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
                           )}
-                          <span className="text-sm font-medium text-white/80 flex-1">{spec.displayName}</span>
+                          <span className="text-sm font-medium text-white/80 flex-1">{spec.name}</span>
                           {spec.status === "running" && (
                             <span className="text-xs text-amber-400/70">analyzing...</span>
                           )}
-                          {spec.durationMs && (
-                            <span className="text-xs text-white/30">{(spec.durationMs / 1000).toFixed(1)}s</span>
+                          {spec.duration && (
+                            <span className="text-xs text-white/30">{(spec.duration / 1000).toFixed(1)}s</span>
                           )}
                           {spec.status === "error" && (
                             <span className="text-xs text-red-400/70">failed</span>
