@@ -478,6 +478,8 @@ async function runSpecialistsParallel(
   const reports = new Map<string, SpecialistReport>();
   const specialistNames = specialists.map(s => s.name);
 
+  logger.info({ specialistCount: specialists.length, specialistNames }, 'Specialist phase: batch starting');
+
   emitSSE(res, {
     type: 'specialists_batch_start',
     specialistCount: specialists.length,
@@ -491,9 +493,14 @@ async function runSpecialistsParallel(
   const allResults: Array<PromiseSettledResult<{ name: string; report?: SpecialistReport; error?: string }>> = [];
   for (let i = 0; i < specialists.length; i += PARALLEL) {
     const batch = specialists.slice(i, i + PARALLEL);
+    const batchIndex = Math.floor(i / PARALLEL) + 1;
+    const totalBatches = Math.ceil(specialists.length / PARALLEL);
+    logger.info({ batchIndex, totalBatches, batchNames: batch.map(s => s.name) }, 'Specialist batch starting');
+    const batchStart = Date.now();
     const batchResults = await Promise.allSettled(
       batch.map(async (spec) => {
       const specStart = Date.now();
+      logger.info({ specialist: spec.name, domain: spec.domain }, 'Specialist START');
       emitSSE(res, {
         type: 'specialist_start',
         specialistName: spec.name,
@@ -507,6 +514,8 @@ async function runSpecialistsParallel(
           : `SZENARIO-KONTEXT:\n${kgData}\n\nFABRIK-DATEN:\n${factoryData}`;
         const report = await runSpecialistLlm(spec, context, freeLlmConfig, userId, signal, language);
         reports.set(spec.name, report);
+        const specDurationMs = Date.now() - specStart;
+        logger.info({ specialist: spec.name, durationMs: specDurationMs }, 'Specialist FINISHED');
 
         emitSSE(res, {
           type: 'specialist_complete',
@@ -515,7 +524,7 @@ async function runSpecialistsParallel(
             name: spec.name,
             domain: spec.domain,
             status: 'done',
-            durationMs: Date.now() - specStart,
+            durationMs: specDurationMs,
             report,
           },
         });
@@ -533,6 +542,7 @@ async function runSpecialistsParallel(
     })
     );
     allResults.push(...batchResults);
+    logger.info({ batchIndex, totalBatches, batchDurationMs: Date.now() - batchStart }, 'Specialist batch finished');
   }
 
   // Emit batch complete with compressed results for discussion thread
@@ -559,11 +569,14 @@ async function runSpecialistsParallel(
     };
   });
 
+  const totalDurationMs = Date.now() - startTime;
+  logger.info({ specialistCount: specialists.length, successCount: reports.size, totalDurationMs }, 'Specialist phase: all batches complete');
+
   emitSSE(res, {
     type: 'specialists_batch_complete',
     specialistCount: specialists.length,
     specialistResults,
-    totalDurationMs: Date.now() - startTime,
+    totalDurationMs,
   });
 
   return reports;
@@ -585,6 +598,7 @@ async function runModeratorReview(
   kgContext?: string,
   factoryContext?: string,
 ): Promise<{ readyForSynthesis: boolean; followUpTranscript: string }> {
+  logger.info({ round, reportCount: reports.size }, 'Moderator review: round starting');
   if (!emitSSE(res, { type: 'discussion_round_start', discussionRound: round })) {
     return { readyForSynthesis: true, followUpTranscript: previousAnswers };
   }
@@ -849,6 +863,7 @@ async function runDebate(
   language?: string,
 ): Promise<string> {
   // 3a: Moderator drafts answer
+  logger.info({ reportCount: reports.size }, 'Debate: moderator drafting synthesis answer');
   if (!emitSSE(res, { type: 'debate_start' })) return '';
   emitSSE(res, { type: 'discussion_synthesis_start' });
 
@@ -1817,6 +1832,8 @@ export async function runDynamicDiscussion(
     ? factoryResults.join('\n\n')
     : dl(language, 'Keine Fabrikdaten verfügbar.', 'No factory data available.');
 
+  logger.info({ kgNodes: kgNodes.length, kgEdges: kgEdges.length, factoryToolCount: factoryResults.length, specialistCount: specialists.length }, 'KG + factory data loaded — transitioning to specialist phase');
+
   // ── Phase 1: Specialists (with dynamic list) ──
   // Specialists use free tier (14B), moderator uses premium (32B)
   const reports = await runSpecialistsParallel(
@@ -1841,6 +1858,7 @@ export async function runDynamicDiscussion(
   }
 
   // ── Phase 2: Moderator Discussion ──
+  logger.info({ reportCount: reports.size, specialistNames: Array.from(reports.keys()) }, 'Moderator phase: starting discussion rounds');
   const phaseHeartbeat2 = setInterval(() => {
     if (signal?.aborted || res.writableEnded) { clearInterval(phaseHeartbeat2); return; }
     emitSSE(res, { type: 'heartbeat' });
@@ -1862,8 +1880,10 @@ export async function runDynamicDiscussion(
   }
 
   clearInterval(phaseHeartbeat2);
+  logger.info({ roundsCompleted: readyForSynthesis ? 'ready' : 'max rounds reached' }, 'Moderator phase: complete');
 
   // ── Phase 3: Debate + Synthesis ──
+  logger.info({ reportCount: reports.size }, 'Synthesis phase: starting debate + synthesis');
   const finalText = await runDebate(
     reports, transcript,
     premiumLlmConfig, freeLlmConfig,

@@ -442,6 +442,20 @@ export default function FomiPage() {
   const [impactCustomers, setImpactCustomers] = useState<string[]>([]);
   const [impactCost, setImpactCost] = useState("");
   const sourceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const [kgPopup, setKgPopup] = useState(false);
+
+  /* ── Specialist tracking (Act 1 chat phase) ─────────────────────── */
+  interface SpecialistState {
+    name: string;
+    displayName: string;
+    domain?: string;
+    status: "running" | "done" | "error";
+    durationMs?: number;
+    report?: any;
+    error?: string;
+  }
+  const [chatSpecialists, setChatSpecialists] = useState<Map<string, SpecialistState>>(new Map());
+  const [expandedSpec, setExpandedSpec] = useState<string | null>(null);
 
   /* ── Act 2: Discussion ─────────────────────────────────────────────── */
   const [v7Events, setV7Events] = useState<V7Event[]>([]);
@@ -536,6 +550,60 @@ export default function FomiPage() {
           upsert({ content: assistantContent, toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined });
           extractImpactStats(assistantContent);
           break;
+
+        case "specialist_start": {
+          const sName = event.specialistName || event.data?.name || event.title || "unknown";
+          const sDisplay = event.specialistDisplayName || event.data?.displayName || sName;
+          const sDomain = event.specialistDomain || event.data?.domain;
+          setChatSpecialists((prev) => {
+            const next = new Map(prev);
+            next.set(sName, { name: sName, displayName: sDisplay, domain: sDomain, status: "running" });
+            return next;
+          });
+          break;
+        }
+
+        case "specialist_complete": {
+          const sName = event.specialistName || event.data?.name || "unknown";
+          const sResult = event.specialistResult || event.data;
+          setChatSpecialists((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(sName);
+            next.set(sName, {
+              ...(existing || { name: sName, displayName: sName }),
+              name: sName,
+              displayName: existing?.displayName || sResult?.displayName || sName,
+              status: "done",
+              durationMs: sResult?.durationMs,
+              report: sResult?.report,
+            });
+            return next;
+          });
+          break;
+        }
+
+        case "specialist_error": {
+          const sName = event.specialistName || event.data?.name || "unknown";
+          setChatSpecialists((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(sName);
+            next.set(sName, {
+              ...(existing || { name: sName, displayName: sName }),
+              name: sName,
+              displayName: existing?.displayName || sName,
+              status: "error",
+              error: event.error || event.data?.error,
+            });
+            return next;
+          });
+          break;
+        }
+
+        case "specialists_batch_start":
+        case "specialists_batch_complete":
+        case "specialists_planned":
+        case "heartbeat":
+          break; // acknowledged but no UI update needed
 
         case "kg_traversal_start":
           setKgStatus("traversing");
@@ -954,9 +1022,83 @@ export default function FomiPage() {
                   <div className="flex items-center gap-2 px-4 pt-3 pb-1">
                     <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Intelligence</span>
                     <span className="text-xs text-white/40">— Knowledge Graph</span>
-                    <span className="ml-auto text-xs text-white/50">{kgNodes.length} nodes, {kgEdges.length} edges</span>
+                    <span className="ml-auto text-xs text-white/50 mr-2">{kgNodes.length} nodes, {kgEdges.length} edges</span>
+                    <button
+                      onClick={() => setKgPopup(true)}
+                      className="p-1 rounded hover:bg-white/10 transition-colors text-white/50 hover:text-white"
+                      title="Expand Knowledge Graph"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                      </svg>
+                    </button>
                   </div>
                   <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={380} />
+                </div>
+              )}
+
+              {/* ── Specialist Progress Panel ────────────────────────── */}
+              {chatSpecialists.size > 0 && (
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Specialists</span>
+                    <span className="text-xs text-white/40">
+                      — {Array.from(chatSpecialists.values()).filter(s => s.status === "done").length}/{chatSpecialists.size} complete
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {Array.from(chatSpecialists.entries()).map(([key, spec]) => (
+                      <div key={key} className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                        <button
+                          onClick={() => setExpandedSpec(expandedSpec === key ? null : key)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
+                        >
+                          {spec.status === "running" && (
+                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                          )}
+                          {spec.status === "done" && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                          )}
+                          {spec.status === "error" && (
+                            <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+                          )}
+                          <span className="text-sm font-medium text-white/80 flex-1">{spec.displayName}</span>
+                          {spec.status === "running" && (
+                            <span className="text-xs text-amber-400/70">analyzing...</span>
+                          )}
+                          {spec.durationMs && (
+                            <span className="text-xs text-white/30">{(spec.durationMs / 1000).toFixed(1)}s</span>
+                          )}
+                          {spec.status === "error" && (
+                            <span className="text-xs text-red-400/70">failed</span>
+                          )}
+                          {spec.report && (
+                            <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${expandedSpec === key ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          )}
+                        </button>
+                        {expandedSpec === key && spec.report && (
+                          <div className="px-3 pb-3 pt-1 border-t border-white/[0.04]">
+                            <div className="text-xs text-white/60 space-y-2">
+                              {spec.report.title && <div className="font-semibold text-white/80">{spec.report.title}</div>}
+                              {spec.report.finding && <p>{spec.report.finding}</p>}
+                              {spec.report.recommendation && (
+                                <p className="text-emerald-400/80"><span className="text-white/40">Rec: </span>{spec.report.recommendation}</p>
+                              )}
+                              {spec.report.severity && (
+                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  spec.report.severity === "critical" ? "bg-red-500/20 text-red-400" :
+                                  spec.report.severity === "high" ? "bg-amber-500/20 text-amber-400" :
+                                  "bg-blue-500/20 text-blue-400"
+                                }`}>{spec.report.severity}</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1124,6 +1266,28 @@ export default function FomiPage() {
           </div>
         )}
       </div>
+
+      {/* ── KG Fullscreen Popup ──────────────────────────────────── */}
+      {kgPopup && kgNodes.length > 0 && (
+        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col">
+          <div className="flex items-center justify-between px-6 py-3 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Knowledge Graph</span>
+              <span className="text-xs text-white/50">{kgNodes.length} nodes, {kgEdges.length} edges</span>
+              {kgCenter && <span className="text-xs text-cyan-400 font-mono">Center: {kgCenter}</span>}
+            </div>
+            <button
+              onClick={() => setKgPopup(false)}
+              className="px-3 py-1.5 rounded-lg border border-white/20 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+          <div className="flex-1">
+            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 60 : 800} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
