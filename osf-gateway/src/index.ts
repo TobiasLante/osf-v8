@@ -31,6 +31,7 @@ import { startKgAgent, stopKgAgent } from './kg-agent/index';
 import { validateEncryptionKey } from './auth/crypto';
 import { registry, httpRequestsTotal } from './metrics';
 import { recordRequest, getSnapshot } from './internal-metrics';
+import { createVersionedRouter } from './api-version';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
@@ -631,6 +632,21 @@ async function main() {
   app.use('/admin', adminRoutes);
   app.use('/news', newsRoutes);
   app.use('/marketplace', marketplaceRoutes);
+
+  // API Versioning — same routes under /v1/ prefix (backward compat preserved above)
+  app.use('/v1', createVersionedRouter([
+    { path: '/auth',        handler: authRoutes },
+    { path: '/chat',        handler: chatRoutes },
+    { path: '/mcp',         handler: mcpProxy },
+    { path: '/agents',      handler: agentRoutes },
+    { path: '/challenges',  handler: challengeRoutes },
+    { path: '/chains',      handler: chainRoutes },
+    { path: '/flows',       handler: flowRoutes },
+    { path: '/code-agents', handler: codeAgentRoutes },
+    { path: '/admin',       handler: adminRoutes },
+    { path: '/news',        handler: newsRoutes },
+    { path: '/marketplace', handler: marketplaceRoutes },
+  ]));
 
   // Create HTTP server (before NR proxy which needs it for WebSocket upgrades)
   httpServer = http.createServer(app);

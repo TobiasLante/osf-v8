@@ -5,11 +5,15 @@ import { pool } from '../db/pool';
 import { requireAuth, requireAdmin } from '../auth/middleware';
 import { logger } from '../logger';
 import { getLlmStatus } from '../chat/llm-client';
+import auditExportRoutes from './audit-export';
 
 const router = Router();
 
 // All admin routes require auth + admin role
 router.use(requireAuth, requireAdmin);
+
+// Audit export (CSV/JSON) — /admin/audit/export
+router.use('/audit', auditExportRoutes);
 
 // ─── User Management ──────────────────────────────────────────────────────
 
