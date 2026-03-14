@@ -339,11 +339,12 @@ function mapKgToolArgs(toolName: string, params: Record<string, unknown>, entity
 }
 
 async function runKgPhase(
-  agent: AgentDef,
+  availableToolNames: string[],
   res: Response,
   params: Record<string, unknown>,
 ): Promise<{ kgNodes: KgNode[]; kgEdges: KgEdge[]; kgToolResults: Array<{ name: string; result: string }> }> {
-  const kgTools = agent.tools.filter(t => t.startsWith('kg_'));
+  // KG tools come from the full MCP tool list, not from LLM selection
+  const kgTools = availableToolNames.filter(t => t.startsWith('kg_'));
   if (kgTools.length === 0) {
     return { kgNodes: [], kgEdges: [], kgToolResults: [] };
   }
@@ -354,6 +355,7 @@ async function runKgPhase(
     type: 'kg_traversal_start',
     scenarioName: params.scenario || 'Impact Analysis',
     entityId,
+    kgTools,
   });
 
   // Call all KG tools in parallel — map params per tool
@@ -1508,8 +1510,10 @@ export async function runDiscussionAgent(
     // Build KG context string from user message + params
     const userMsg = options?.userMessage || '';
 
-    // ── Phase 0: KG ──
-    const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(agent, res, params);
+    // ── Phase 0: KG — uses all available KG tools from MCP, not just agent's tools ──
+    const allTools = await getMcpTools();
+    const allToolNames = allTools.map((t: any) => t.function?.name || t.name).filter(Boolean);
+    const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(allToolNames, res, params);
 
     const isEn = language === 'en';
     const kgContext = kgToolResults.length > 0
@@ -1783,11 +1787,7 @@ export async function runDynamicDiscussion(
     relevantTools,
   });
 
-  // Ensure core KG tools are always included (they run as parallel MCP calls, not LLM calls)
-  const coreKgTools = ['kg_impact_analysis', 'kg_what_if_machine_down', 'kg_dependency_graph'];
-  const toolsWithKg = [...new Set([...relevantTools, ...coreKgTools.filter(t => toolNames.includes(t))])];
-
-  // Build a dynamic agent definition
+  // Build a dynamic agent definition — only non-KG tools from LLM selection
   const dynamicAgent: AgentDef = {
     id: 'dynamic-discussion',
     name: 'Dynamic Discussion',
@@ -1795,7 +1795,7 @@ export async function runDynamicDiscussion(
     category: 'Strategic',
     description: `${dl(language, 'Dynamische Analyse', 'Dynamic Analysis')}: ${userMessage.slice(0, 80)}`,
     systemPrompt: '',
-    tools: toolsWithKg,
+    tools: relevantTools,
     difficulty: 'Expert',
     icon: '🧠',
   };
@@ -1818,7 +1818,7 @@ export async function runDynamicDiscussion(
     ...(extractedEntityId && { entityId: extractedEntityId }),
   };
   logger.info({ extractedMachineId, extractedEntityId, scenario: params.scenario }, 'KG phase: extracted entity from user message');
-  const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(dynamicAgent, res, params);
+  const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(toolNames, res, params);
 
   const isEn = language === 'en';
   const kgContext = kgToolResults.length > 0

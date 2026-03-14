@@ -438,6 +438,7 @@ export default function FomiPage() {
   const [kgEdges, setKgEdges] = useState<KGEdge[]>([]);
   const [kgCenter, setKgCenter] = useState<string | undefined>();
   const [kgStatus, setKgStatus] = useState<"traversing" | "done">("done");
+  const [kgToolsList, setKgToolsList] = useState<string[]>([]);
   const [impactOrders, setImpactOrders] = useState<string[]>([]);
   const [impactCustomers, setImpactCustomers] = useState<string[]>([]);
   const [impactCost, setImpactCost] = useState("");
@@ -559,6 +560,7 @@ export default function FomiPage() {
         case "kg_traversal_start":
           setKgStatus("traversing");
           setKgCenter(event.centerEntityId || event.entityId);
+          if (Array.isArray(event.kgTools)) setKgToolsList(event.kgTools);
           // Light up ALL data sources — KG queries span the entire factory
           ["uns", "erp", "bde", "mrp"].forEach(activateSource);
           // Activate base KG types
@@ -975,6 +977,30 @@ export default function FomiPage() {
                   })}
                 </div>
               </div>
+
+              {/* ── KG Tools ──────────────────────────────────────────── */}
+              {kgToolsList.length > 0 && (
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">KG Queries</span>
+                    <span className="text-xs text-white/40">— {kgToolsList.length} tools</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {kgToolsList.map((tool) => (
+                      <span
+                        key={tool}
+                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-all duration-500 ${
+                          kgStatus === "traversing"
+                            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400 animate-pulse"
+                            : "border-emerald-500/20 bg-emerald-500/5 text-emerald-400"
+                        }`}
+                      >
+                        {tool.replace("kg_", "")}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* ── Knowledge Graph (3D) ─────────────────────────────── */}
               {kgNodes.length > 0 && (
