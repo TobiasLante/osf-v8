@@ -516,6 +516,7 @@ export default function FomiPage() {
   const processChatStream = useCallback(async (eventSource: AsyncGenerator<SSEEvent>) => {
     const pendingToolCalls: ToolCall[] = [];
     let assistantContent = "";
+    let hasDiscussion = false;
 
     const upsert = (patch: Partial<ChatMsg>) => {
       setMessages((prev) => {
@@ -549,12 +550,16 @@ export default function FomiPage() {
         }
 
         case "content":
+          // Skip content text if discussion ran — the final text is shown as its own bubble
+          if (hasDiscussion) break;
           assistantContent += event.text;
           upsert({ content: assistantContent, toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined });
           extractImpactStats(assistantContent);
           break;
 
         case "specialist_start":
+          hasDiscussion = true;
+          // falls through
         case "specialist_complete":
         case "specialist_error":
         case "specialists_batch_start":
