@@ -558,6 +558,18 @@ export default function FomiPage() {
         case "specialists_batch_start":
         case "specialists_batch_complete":
         case "specialists_planned":
+        case "discussion_round_start":
+        case "discussion_question":
+        case "discussion_answer":
+        case "discussion_recruit":
+        case "discussion_recruit_result":
+        case "discussion_round_complete":
+        case "discussion_synthesis_start":
+        case "debate_start":
+        case "debate_draft":
+        case "debate_critique":
+        case "debate_final":
+        case "intermediate_result":
           setV7Events((prev) => [...prev, event as V7Event]);
           break;
 
@@ -875,16 +887,8 @@ export default function FomiPage() {
 
               {/* Input */}
               <div className="p-4 border-t border-white/[0.06]">
-                {chatDone && !streaming ? (
-                  <button
-                    onClick={startDiscussion}
-                    className="w-full py-4 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-base hover:opacity-90 transition-opacity flex items-center justify-center gap-3"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                      <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    Start Expert Discussion
-                  </button>
+                {false && chatDone && !streaming ? (
+                  <div /> // Act 2 button removed — discussion runs inline in Act 1
                 ) : (
                   <div className="flex gap-2">
                     <input
