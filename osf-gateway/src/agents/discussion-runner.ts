@@ -1783,6 +1783,10 @@ export async function runDynamicDiscussion(
     relevantTools,
   });
 
+  // Ensure core KG tools are always included (they run as parallel MCP calls, not LLM calls)
+  const coreKgTools = ['kg_impact_analysis', 'kg_what_if_machine_down', 'kg_dependency_graph'];
+  const toolsWithKg = [...new Set([...relevantTools, ...coreKgTools.filter(t => toolNames.includes(t))])];
+
   // Build a dynamic agent definition
   const dynamicAgent: AgentDef = {
     id: 'dynamic-discussion',
@@ -1791,7 +1795,7 @@ export async function runDynamicDiscussion(
     category: 'Strategic',
     description: `${dl(language, 'Dynamische Analyse', 'Dynamic Analysis')}: ${userMessage.slice(0, 80)}`,
     systemPrompt: '',
-    tools: relevantTools,
+    tools: toolsWithKg,
     difficulty: 'Expert',
     icon: '🧠',
   };
