@@ -421,33 +421,22 @@ async function runKgPhase(
   const toolResults: Array<{ name: string; result: string }> = [];
   const runTools = async (tools: string[]) => {
     const promises = tools.map(async (toolName) => {
-      const maxRetries = 3;
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const args = mapKgToolArgs(toolName, params, entityId);
+        const result = await callMcpTool(toolName, args);
+        // Check if result is an error response
         try {
-          if (attempt > 0) {
-            emitSSE(res, { type: 'kg_tool_status', toolName, status: 'retry', attempt });
-            await new Promise(r => setTimeout(r, 2000 * attempt)); // backoff
-          }
-          const args = mapKgToolArgs(toolName, params, entityId);
-          const result = await callMcpTool(toolName, args);
-          // Check if result is an error response
-          try {
-            const parsed = JSON.parse(result);
-            if (parsed.error) {
-              if (attempt < maxRetries) continue; // retry
-              emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
-              return;
-            }
-          } catch { /* not JSON, treat as success */ }
-          toolResults.push({ name: toolName, result });
-          emitSSE(res, { type: 'kg_tool_status', toolName, status: 'ok' });
-          return;
-        } catch (err: any) {
-          if (attempt >= maxRetries) {
-            logger.warn({ tool: toolName, err: err.message }, 'KG tool call failed');
+          const parsed = JSON.parse(result);
+          if (parsed.error) {
             emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
+            return;
           }
-        }
+        } catch { /* not JSON, treat as success */ }
+        toolResults.push({ name: toolName, result });
+        emitSSE(res, { type: 'kg_tool_status', toolName, status: 'ok' });
+      } catch (err: any) {
+        logger.warn({ tool: toolName, err: err.message }, 'KG tool call failed');
+        emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
       }
     });
     await Promise.allSettled(promises);

@@ -1302,10 +1302,10 @@ export default function FomiPage() {
         )}
       </div>
 
-      {/* ── KG Fullscreen Popup ──────────────────────────────────── */}
+      {/* ── KG Window ──────────────────────────────────────────── */}
       {kgPopup && kgNodes.length > 0 && (
-        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col" onClick={() => setKgPopup(false)}>
-          <div className="relative z-10 flex items-center justify-between px-6 py-3 border-b border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed top-4 right-4 bottom-4 w-[55%] z-[100] bg-[#0a0a0f] border border-white/15 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             <div className="flex items-center gap-3">
               <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Knowledge Graph</span>
               <span className="text-xs text-white/50">{kgNodes.length} nodes, {kgEdges.length} edges</span>
@@ -1319,7 +1319,7 @@ export default function FomiPage() {
             </button>
           </div>
           <div className="flex-1">
-            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 60 : 800} />
+            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 120 : 700} />
           </div>
         </div>
       )}
