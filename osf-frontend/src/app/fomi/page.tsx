@@ -445,6 +445,13 @@ export default function FomiPage() {
   const sourceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const [kgPopup, setKgPopup] = useState(false);
 
+  // ESC closes KG popup
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setKgPopup(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   /* ── LLM provider toggle (click version badge) ──────────────────── */
   const [llmProvider, setLlmProvider] = useState<"local" | "haiku">("local");
 
@@ -1271,8 +1278,8 @@ export default function FomiPage() {
 
       {/* ── KG Fullscreen Popup ──────────────────────────────────── */}
       {kgPopup && kgNodes.length > 0 && (
-        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col">
-          <div className="flex items-center justify-between px-6 py-3 border-b border-white/10">
+        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col" onClick={() => setKgPopup(false)}>
+          <div className="relative z-10 flex items-center justify-between px-6 py-3 border-b border-white/10" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3">
               <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Knowledge Graph</span>
               <span className="text-xs text-white/50">{kgNodes.length} nodes, {kgEdges.length} edges</span>
@@ -1282,7 +1289,7 @@ export default function FomiPage() {
               onClick={() => setKgPopup(false)}
               className="px-3 py-1.5 rounded-lg border border-white/20 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
             >
-              Close
+              Close (ESC)
             </button>
           </div>
           <div className="flex-1">
