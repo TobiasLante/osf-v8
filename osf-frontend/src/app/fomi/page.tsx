@@ -318,6 +318,7 @@ export default function FomiPage() {
 
   /* ── Act switching ─────────────────────────────────────────────────── */
   const [act, setAct] = useState<"impact" | "discussion">("impact");
+  const [splitPct, setSplitPct] = useState(50);
 
   /* ── Recording mode (admin only) ───────────────────────────────────── */
   const [recording, setRecording] = useState(false);
@@ -800,9 +801,9 @@ export default function FomiPage() {
           {/* ═══════════════════════════════════════════════════════════
              IMPACT ANALYSIS + INLINE DISCUSSION
              ═══════════════════════════════════════════════════════════ */}
-          <div className="h-full flex">
-            {/* LEFT: Chat (40%) */}
-            <div className="w-[40%] flex flex-col border-r border-white/[0.06]">
+          <div className="h-full flex" style={{ position: 'relative' }}>
+            {/* LEFT: Chat */}
+            <div style={{ width: `${splitPct}%` }} className="flex flex-col border-r border-white/[0.06]">
               {/* Chat messages */}
               <div ref={chatRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                 {messages.length === 0 && !streaming && (
@@ -865,48 +866,80 @@ export default function FomiPage() {
                   </div>
                 ))}
 
-                {/* ── Specialist Cards (inline in chat) ──────────── */}
+                {/* ── Specialist Cards (expandable) ──────────── */}
                 {v7State.specialists.size > 0 && (
                   <div className="space-y-2">
                     <div className="text-xs font-bold text-white/50 uppercase tracking-widest">Specialists — {Array.from(v7State.specialists.values()).filter(s => s.status === "done").length}/{v7State.specialists.size}</div>
                     {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
-                      <div key={key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm">
-                        {spec.status === "running" && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
-                        {spec.status === "done" && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
-                        {spec.status === "error" && <span className="w-2 h-2 rounded-full bg-red-400" />}
-                        <span className="text-white/80">{spec.name}</span>
-                        {spec.duration && <span className="text-xs text-white/30 ml-auto">{(spec.duration / 1000).toFixed(0)}s</span>}
+                      <div key={key} className="rounded-lg bg-white/[0.04] border border-white/[0.08] overflow-hidden">
+                        <button
+                          onClick={() => setExpandedSpec(expandedSpec === key ? null : key)}
+                          className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors text-sm"
+                        >
+                          {spec.status === "running" && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />}
+                          {spec.status === "done" && <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />}
+                          {spec.status === "error" && <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />}
+                          <span className="text-white/80 flex-1">{spec.name}</span>
+                          {spec.duration && <span className="text-xs text-white/30">{(spec.duration / 1000).toFixed(0)}s</span>}
+                          {spec.report && (
+                            <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${expandedSpec === key ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          )}
+                        </button>
+                        {expandedSpec === key && spec.report && (
+                          <div className="px-3 pb-3 pt-1 border-t border-white/[0.04] text-xs text-white/60 space-y-2">
+                            {spec.report.zahlenDatenFakten && <p>{spec.report.zahlenDatenFakten}</p>}
+                            {Array.isArray(spec.report.kritischeFindings) && spec.report.kritischeFindings.slice(0, 3).map((f: any, fi: number) => (
+                              <div key={fi} className="flex items-start gap-1.5">
+                                <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                                  f.severity === "hoch" || f.severity === "critical" ? "bg-red-500/20 text-red-400" :
+                                  f.severity === "mittel" || f.severity === "high" ? "bg-amber-500/20 text-amber-400" :
+                                  "bg-blue-500/20 text-blue-400"
+                                }`}>{f.severity}</span>
+                                <span>{f.finding}</span>
+                              </div>
+                            ))}
+                            {Array.isArray(spec.report.empfehlungen) && spec.report.empfehlungen.slice(0, 2).map((r: any, ri: number) => (
+                              <p key={ri} className="text-emerald-400/80">
+                                <span className="text-white/40">{r.priorität === "sofort" ? "NOW" : r.priorität === "heute" ? "TODAY" : "WEEK"}: </span>
+                                {r.maßnahme}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* ── Discussion Thread (inline in chat) ──────────── */}
-                {v7State.discussionEvents.length > 0 && (
+                {/* ── Discussion Thread (inline in chat, without debate_final) ── */}
+                {v7State.discussionEvents.filter(ev => ev.type !== 'debate_final').length > 0 && (
                   <div ref={discussionRef}>
-                    <DiscussionThread events={v7State.discussionEvents} />
+                    <DiscussionThread events={v7State.discussionEvents.filter(ev => ev.type !== 'debate_final')} />
                   </div>
                 )}
+
+                {/* ── Final Recommendation (own prominent bubble) ── */}
+                {v7State.discussionEvents.filter(ev => ev.type === 'debate_final').map((ev, i) => (
+                  <div key={`final-${i}`} className="rounded-xl px-5 py-4 border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.08] to-emerald-500/[0.02]">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-3 h-3 rounded-full bg-emerald-400" />
+                      <span className="text-sm font-bold text-emerald-400 uppercase tracking-widest">Final Recommendation</span>
+                    </div>
+                    <div className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{ev.debateFinalSummary || ''}</div>
+                  </div>
+                ))}
 
                 {/* ── Synthesis ──────────────────────────────────── */}
                 {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
 
-                {/* Streaming indicator + Dead air hint (Feature D) */}
+                {/* Streaming indicator */}
                 {streaming && (
-                  <div className="space-y-2">
-                    {activityHint && (
-                      <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white/70">
-                        <svg className="w-4 h-4 animate-spin text-[#ff9500]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93" />
-                        </svg>
-                        {activityHint}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 px-2 py-3">
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:0ms]" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:200ms]" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:400ms]" />
-                    </div>
+                  <div className="flex items-center gap-2 px-2 py-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:0ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:200ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:400ms]" />
                   </div>
                 )}
               </div>
@@ -936,8 +969,25 @@ export default function FomiPage() {
               </div>
             </div>
 
-            {/* RIGHT: i3X Insight Panel (60%) */}
-            <div className="w-[60%] h-full overflow-y-auto px-5 py-4 space-y-4">
+            {/* Drag handle */}
+            <div
+              className="w-1.5 cursor-col-resize hover:bg-[#ff9500]/30 active:bg-[#ff9500]/50 transition-colors shrink-0"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startPct = splitPct;
+                const onMove = (me: MouseEvent) => {
+                  const dx = me.clientX - startX;
+                  const newPct = Math.min(70, Math.max(25, startPct + (dx / window.innerWidth) * 100));
+                  setSplitPct(newPct);
+                };
+                const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+              }}
+            />
+            {/* RIGHT: i3X Insight Panel */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4" style={{ height: 'calc(100vh - 56px)' }}>
               {/* ── Data Sources ──────────────────────────────────────── */}
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
                 <div className="flex items-center gap-2 mb-4">
@@ -1068,87 +1118,6 @@ export default function FomiPage() {
                 </div>
               )}
 
-              {/* ── Specialist Progress Panel ────────────────────────── */}
-              {v7State.specialists.size > 0 && (
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Specialists</span>
-                    <span className="text-xs text-white/40">
-                      — {Array.from(v7State.specialists.values()).filter(s => s.status === "done").length}/{v7State.specialists.size} complete
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
-                      <div key={key} className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-                        <button
-                          onClick={() => setExpandedSpec(expandedSpec === key ? null : key)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
-                        >
-                          {spec.status === "running" && (
-                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                          )}
-                          {spec.status === "done" && (
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                          )}
-                          {spec.status === "error" && (
-                            <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
-                          )}
-                          <span className="text-sm font-medium text-white/80 flex-1">{spec.name}</span>
-                          {spec.status === "running" && (
-                            <span className="text-xs text-amber-400/70">analyzing...</span>
-                          )}
-                          {spec.duration && (
-                            <span className="text-xs text-white/30">{(spec.duration / 1000).toFixed(1)}s</span>
-                          )}
-                          {spec.status === "error" && (
-                            <span className="text-xs text-red-400/70">failed</span>
-                          )}
-                          {spec.report && (
-                            <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${expandedSpec === key ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          )}
-                        </button>
-                        {expandedSpec === key && spec.report && (
-                          <div className="px-3 pb-3 pt-1 border-t border-white/[0.04]">
-                            <div className="text-xs text-white/60 space-y-2">
-                              {/* Domain / title */}
-                              {(spec.report.domain || spec.report.title) && (
-                                <div className="font-semibold text-white/80">{spec.report.domain || spec.report.title}</div>
-                              )}
-                              {/* Key facts */}
-                              {spec.report.zahlenDatenFakten && <p>{spec.report.zahlenDatenFakten}</p>}
-                              {spec.report.finding && <p>{spec.report.finding}</p>}
-                              {/* Critical findings */}
-                              {Array.isArray(spec.report.kritischeFindings) && spec.report.kritischeFindings.slice(0, 3).map((f: any, i: number) => (
-                                <div key={i} className="flex items-start gap-1.5">
-                                  <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
-                                    f.severity === "hoch" || f.severity === "critical" ? "bg-red-500/20 text-red-400" :
-                                    f.severity === "mittel" || f.severity === "high" ? "bg-amber-500/20 text-amber-400" :
-                                    "bg-blue-500/20 text-blue-400"
-                                  }`}>{f.severity}</span>
-                                  <span>{f.finding}</span>
-                                </div>
-                              ))}
-                              {/* Recommendations */}
-                              {Array.isArray(spec.report.empfehlungen) && spec.report.empfehlungen.slice(0, 2).map((r: any, i: number) => (
-                                <p key={i} className="text-emerald-400/80">
-                                  <span className="text-white/40">{r.priorität === "sofort" ? "NOW" : r.priorität === "heute" ? "TODAY" : "WEEK"}: </span>
-                                  {r.maßnahme}
-                                </p>
-                              ))}
-                              {spec.report.recommendation && (
-                                <p className="text-emerald-400/80"><span className="text-white/40">Rec: </span>{spec.report.recommendation}</p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* ── Impact Summary Cards ───────────────────────────────── */}
               {(impactOrders.length > 0 || impactCustomers.length > 0 || impactCost) && (
                 <div className="grid grid-cols-3 gap-3">
@@ -1177,72 +1146,6 @@ export default function FomiPage() {
                     <div className="text-xs text-[#ff9500]/70 uppercase tracking-wider font-bold mb-2">Downtime Cost</div>
                     <div className="text-3xl font-black text-[#ff9500]">{impactCost || "\u2014"}</div>
                   </div>
-                </div>
-              )}
-
-              {/* ── Live Discussion Events (streamed inline) ──────── */}
-              {v7Events.filter(ev => ['discussion_round_start','discussion_question','discussion_answer','discussion_recruit','discussion_recruit_result','discussion_round_complete','discussion_synthesis_start','debate_start','debate_draft','debate_critique','debate_final','intermediate_result'].includes(ev.type)).map((ev, i) => {
-                if (ev.type === 'discussion_round_start') return (
-                  <div key={`d-${i}`} className="flex items-center gap-2 pt-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-                    <span className="text-xs font-bold text-white/60 uppercase tracking-wider">Discussion Round {ev.discussionRound || ''}</span>
-                  </div>
-                );
-                if (ev.type === 'discussion_question') return (
-                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-violet-500/[0.1] border border-violet-500/25 border-l-[4px] border-l-violet-400">
-                    <div className="text-[11px] font-bold text-violet-400 uppercase tracking-wider mb-1.5">Moderator &rarr; {ev.targetSpecialist || ''}</div>
-                    <div className="text-sm text-white/80 leading-relaxed">{ev.moderatorQuestion || ''}</div>
-                  </div>
-                );
-                if (ev.type === 'discussion_answer') return (
-                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-blue-500/[0.1] border border-blue-500/25 border-r-[4px] border-r-blue-400 ml-8">
-                    <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-1.5">{ev.targetSpecialist || ''}</div>
-                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{ev.discussionAnswer || ''}</div>
-                  </div>
-                );
-                if (ev.type === 'discussion_recruit') return (
-                  <div key={`d-${i}`} className="text-xs font-bold px-4 py-2 bg-cyan-500/10 border border-cyan-500/25 rounded-full text-cyan-400 text-center">
-                    + {ev.recruitedSpecialistName || 'Specialist'} joining...
-                  </div>
-                );
-                if (ev.type === 'discussion_recruit_result') return (
-                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-cyan-500/[0.08] border border-cyan-500/25 border-l-[4px] border-l-cyan-400">
-                    <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider mb-1.5">{ev.recruitedSpecialistName || 'Specialist'} — Analysis</div>
-                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{ev.recruitedSpecialistReport || ''}</div>
-                  </div>
-                );
-                if (ev.type === 'debate_start') return (
-                  <div key={`d-${i}`} className="text-sm font-bold px-5 py-2 rounded-full text-violet-300 text-center" style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(245,158,11,0.15))', border: '1px solid rgba(139,92,246,0.3)' }}>
-                    Specialist Debate
-                  </div>
-                );
-                if (ev.type === 'debate_draft') return (
-                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-amber-500/[0.1] border border-amber-500/25 border-l-[4px] border-l-amber-400">
-                    <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-1.5">Moderator — Draft Recommendation</div>
-                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{ev.debateDraftSummary || ''}</div>
-                  </div>
-                );
-                if (ev.type === 'debate_final') return (
-                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-emerald-500/[0.12] border-2 border-emerald-500/30 border-l-[4px] border-l-emerald-400">
-                    <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider mb-1.5">Final Recommendation</div>
-                    <div className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{ev.debateFinalSummary || ''}</div>
-                  </div>
-                );
-                if (ev.type === 'intermediate_result') return (
-                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-emerald-500/[0.08] border border-emerald-500/25">
-                    <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider mb-1.5">Synthesis</div>
-                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data, null, 2)}</div>
-                  </div>
-                );
-                return null;
-              })}
-
-              {/* ── Typing indicator while streaming ───────────────── */}
-              {streaming && (v7State.specialists.size > 0 || v7Events.length > 0) && (
-                <div ref={discussionRef} className="flex items-center gap-1.5 px-4 py-3">
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:200ms]" />
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:400ms]" />
                 </div>
               )}
 
@@ -1278,7 +1181,7 @@ export default function FomiPage() {
             </button>
           </div>
           <div className="flex-1">
-            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 120 : 700} />
+            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 120 : 700} width={typeof window !== "undefined" ? Math.floor(window.innerWidth * 0.55) - 32 : 800} />
           </div>
         </div>
       )}

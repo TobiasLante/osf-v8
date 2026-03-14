@@ -24,6 +24,7 @@ export interface KG3DProps {
   centerEntityId?: string;
   status: "traversing" | "done";
   height?: number;
+  width?: number;
 }
 
 /* ─── Color map ──────────────────────────────────────────────────────── */
@@ -75,7 +76,7 @@ interface GraphData {
 
 /* ─── Component ──────────────────────────────────────────────────────── */
 
-export function KG3D({ nodes, edges, centerEntityId, status, height = 380 }: KG3DProps) {
+export function KG3D({ nodes, edges, centerEntityId, status, height = 380, width }: KG3DProps) {
   const fgRef = useRef<any>(null);
   const prevNodeCount = useRef(0);
 
@@ -237,7 +238,7 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380 }: KG3
         cooldownTicks={100}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.3}
-        width={containerRef.current?.clientWidth}
+        width={width || containerRef.current?.clientWidth}
         height={height}
       />
       {/* Status indicator */}
