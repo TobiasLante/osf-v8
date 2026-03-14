@@ -426,44 +426,49 @@ async function runKgPhase(
   await runTools(coreTools);
 
   // Emit Wave 1 results immediately so KG appears fast
-  if (toolResults.length > 0) {
-    const wave1Graph = extractKgGraph(toolResults, entityId);
+  const wave1Graph = toolResults.length > 0 ? extractKgGraph(toolResults, entityId) : { nodes: [], edges: [] };
+  if (wave1Graph.nodes.length > 0) {
     emitSSE(res, { type: 'kg_nodes_discovered', nodes: wave1Graph.nodes, edges: wave1Graph.edges, centerEntity: { id: entityId, type: entityType.toLowerCase() } });
-    logger.info({ wave: 1, nodeCount: wave1Graph.nodes.length, edgeCount: wave1Graph.edges.length }, 'KG phase: wave 1 complete');
   }
+  logger.info({ wave: 1, nodeCount: wave1Graph.nodes.length, edgeCount: wave1Graph.edges.length }, 'KG phase: wave 1 complete');
 
-  // Run Wave 2 (LLM extras) — enriches the graph
-  if (extraTools.length > 0) {
-    await runTools(extraTools);
-    // Emit incremental nodes from Wave 2
-    const wave2Results = toolResults.filter(r => extraTools.includes(r.name));
-    if (wave2Results.length > 0) {
-      const wave2Graph = extractKgGraph(wave2Results, entityId);
-      emitSSE(res, { type: 'kg_nodes_discovered', nodes: wave2Graph.nodes, edges: wave2Graph.edges, centerEntity: { id: entityId, type: entityType.toLowerCase() } });
-      logger.info({ wave: 2, nodeCount: wave2Graph.nodes.length, edgeCount: wave2Graph.edges.length }, 'KG phase: wave 2 complete');
-    }
-  }
-
-  logger.info({ kgToolCount: allKgTools.length, resultCount: toolResults.length, tools: toolResults.map(r => r.name), entityId }, 'KG phase: tools completed');
-
-  // Final graph from all results
-  const { nodes, edges } = extractKgGraph(toolResults, entityId);
-  logger.info({ nodeCount: nodes.length, edgeCount: edges.length }, 'KG phase: graph extracted');
-
-  emitSSE(res, { type: 'kg_traversal_end', totalNodes: nodes.length, totalEdges: edges.length });
+  emitSSE(res, { type: 'kg_traversal_end', totalNodes: wave1Graph.nodes.length, totalEdges: wave1Graph.edges.length });
   emitSSE(res, {
     type: 'kg_summary',
     centerEntity: entityId,
-    nodes, edges,
+    nodes: wave1Graph.nodes, edges: wave1Graph.edges,
     stats: {
-      totalNodes: nodes.length, totalEdges: edges.length,
-      affectedOrders: nodes.filter(n => n.type === 'order').length,
-      affectedCustomers: nodes.filter(n => n.type === 'customer').length,
-      alternatives: nodes.filter(n => n.type === 'alternative').length,
+      totalNodes: wave1Graph.nodes.length, totalEdges: wave1Graph.edges.length,
+      affectedOrders: wave1Graph.nodes.filter(n => n.type === 'order').length,
+      affectedCustomers: wave1Graph.nodes.filter(n => n.type === 'customer').length,
+      alternatives: wave1Graph.nodes.filter(n => n.type === 'alternative').length,
     },
   });
 
-  return { kgNodes: nodes, kgEdges: edges, kgToolResults: toolResults };
+  // Fire Wave 2 in background — enriches graph without blocking specialists
+  if (extraTools.length > 0) {
+    const wave2ToolResults: Array<{ name: string; result: string }> = [];
+    const bgRunTools = async () => {
+      const promises = extraTools.map(async (toolName) => {
+        try {
+          const args = mapKgToolArgs(toolName, params, entityId);
+          const result = await callMcpTool(toolName, args);
+          wave2ToolResults.push({ name: toolName, result });
+        } catch (err: any) {
+          logger.warn({ tool: toolName, err: err.message }, 'KG wave 2 tool failed');
+        }
+      });
+      await Promise.allSettled(promises);
+      if (wave2ToolResults.length > 0 && !res.writableEnded) {
+        const wave2Graph = extractKgGraph(wave2ToolResults, entityId);
+        emitSSE(res, { type: 'kg_nodes_discovered', nodes: wave2Graph.nodes, edges: wave2Graph.edges, centerEntity: { id: entityId, type: entityType.toLowerCase() } });
+        logger.info({ wave: 2, nodeCount: wave2Graph.nodes.length, edgeCount: wave2Graph.edges.length }, 'KG phase: wave 2 complete');
+      }
+    };
+    bgRunTools().catch(err => logger.warn({ err: err.message }, 'KG wave 2 background failed'));
+  }
+
+  return { kgNodes: wave1Graph.nodes, kgEdges: wave1Graph.edges, kgToolResults: toolResults };
 }
 
 // ─── Phase 1: Specialists ───────────────────────────────────────────────
