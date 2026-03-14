@@ -316,9 +316,6 @@ export default function FomiPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  /* ── Act switching ─────────────────────────────────────────────────── */
-  const [act, setAct] = useState<"impact" | "discussion">("impact");
-
   /* ── Recording mode (admin only) ───────────────────────────────────── */
   const [recording, setRecording] = useState(false);
   const [hasRecordedFallback, setHasRecordedFallback] = useState(false);
@@ -459,10 +456,8 @@ export default function FomiPage() {
   /* ── Specialist tracking (via useV7Events) ──────────────────────── */
   const [expandedSpec, setExpandedSpec] = useState<string | null>(null);
 
-  /* ── Act 2: Discussion ─────────────────────────────────────────────── */
+  /* ── Discussion events (inline in right panel) ───────────────────── */
   const [v7Events, setV7Events] = useState<V7Event[]>([]);
-  const [discussionRunning, setDiscussionRunning] = useState(false);
-  const discussionRef = useRef<HTMLDivElement>(null);
 
   /* ── Derived V7 state ──────────────────────────────────────────────── */
   const v7State = useV7Events(v7Events);
@@ -471,10 +466,6 @@ export default function FomiPage() {
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages]);
-
-  useEffect(() => {
-    if (discussionRef.current) discussionRef.current.scrollTop = discussionRef.current.scrollHeight;
-  }, [v7Events]);
 
   /* ── Activate a data source with glow timeout ──────────────────────── */
   const activateSource = useCallback((sourceId: string) => {
@@ -571,7 +562,14 @@ export default function FomiPage() {
         case "debate_critique":
         case "debate_final":
         case "intermediate_result":
+          console.log('[FoMI] Discussion event:', event.type, event);
           setV7Events((prev) => [...prev, event as V7Event]);
+          break;
+
+        default:
+          if (event.type !== "done" && event.type !== "error" && event.type !== "session") {
+            console.log('[FoMI] Unhandled event:', event.type);
+          }
           break;
 
         case "heartbeat":
@@ -682,50 +680,6 @@ export default function FomiPage() {
   };
 
   /* ═════════════════════════════════════════════════════════════════════
-     ACT 2: Start agent discussion
-     ═════════════════════════════════════════════════════════════════════ */
-  const startDiscussion = async () => {
-    setAct("discussion");
-    setDiscussionRunning(true);
-    setV7Events([]);
-    startDeadAirWatch();
-
-    try {
-      const fbDisc = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
-      const source = fallbackMode
-        ? playFallbackEvents(fbDisc)
-        : streamSSEWithRetry("/agents/run/impact-analysis", {
-            question: messages[0]?.content || "What happens if SGM-004 goes down right now?",
-            ...(llmProvider === "haiku" && { llmProvider: "haiku" }),
-          });
-
-      for await (const event of source) {
-        touchActivity();
-        recordEvent(event, "discussion");
-        setV7Events((prev) => [...prev, event as V7Event]);
-        if (event.type === "done" || event.type === "error") break;
-      }
-    } catch (err: any) {
-      // Auto-fallback on failure
-      if (!fallbackMode) {
-        console.warn("Live discussion failed, switching to fallback:", err.message);
-        const fbDiscFallback = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
-        setV7Events([]);
-        for await (const event of playFallbackEvents(fbDiscFallback)) {
-          touchActivity();
-          setV7Events((prev) => [...prev, event as V7Event]);
-          if (event.type === "done") break;
-        }
-      } else {
-        setV7Events((prev) => [...prev, { type: "error", message: err.message } as V7Event]);
-      }
-    }
-
-    stopDeadAirWatch();
-    setDiscussionRunning(false);
-  };
-
-  /* ═════════════════════════════════════════════════════════════════════
      RENDER
      ═════════════════════════════════════════════════════════════════════ */
 
@@ -760,26 +714,6 @@ export default function FomiPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Act indicator */}
-          <div className="flex rounded-lg overflow-hidden border border-white/10">
-            <button
-              onClick={() => setAct("impact")}
-              className={`px-4 py-1.5 text-xs font-semibold transition-all ${
-                act === "impact" ? "bg-[#ff9500] text-black" : "text-white/50 hover:text-white/80"
-              }`}
-            >
-              Impact Analysis
-            </button>
-            <button
-              onClick={() => setAct("discussion")}
-              className={`px-4 py-1.5 text-xs font-semibold transition-all ${
-                act === "discussion" ? "bg-[#ff9500] text-black" : "text-white/50 hover:text-white/80"
-              }`}
-            >
-              Expert Discussion
-            </button>
-          </div>
-
           {/* Record button — admin only */}
           {isAdmin && (
             <button
@@ -810,10 +744,6 @@ export default function FomiPage() {
 
       {/* ── Content ──────────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0">
-        {act === "impact" ? (
-          /* ═══════════════════════════════════════════════════════════
-             ACT 1: IMPACT ANALYSIS
-             ═══════════════════════════════════════════════════════════ */
           <div className="h-full flex">
             {/* LEFT: Chat (40%) */}
             <div className="w-[40%] flex flex-col border-r border-white/[0.06]">
@@ -901,26 +831,22 @@ export default function FomiPage() {
 
               {/* Input */}
               <div className="p-4 border-t border-white/[0.06]">
-                {false && chatDone && !streaming ? (
-                  <div /> // Act 2 button removed — discussion runs inline in Act 1
-                ) : (
-                  <div className="flex gap-2">
-                    <input
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                      placeholder="What happens if SGM-004 goes down right now?"
-                      className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#ff9500]/50 transition-colors placeholder:text-white/20"
-                    />
-                    <button
-                      onClick={handleSend}
-                      disabled={!question.trim() || streaming}
-                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#ff9500] to-[#ff5722] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
-                    >
-                      Ask
-                    </button>
-                  </div>
-                )}
+                <div className="flex gap-2">
+                  <input
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                    placeholder="What happens if SGM-004 goes down right now?"
+                    className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#ff9500]/50 transition-colors placeholder:text-white/20"
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={!question.trim() || streaming}
+                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#ff9500] to-[#ff5722] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
+                  >
+                    Ask
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1137,6 +1063,22 @@ export default function FomiPage() {
                 </div>
               )}
 
+              {/* ── Discussion Thread (inline in Act 1) ─────────────── */}
+              {v7State.discussionEvents.length > 0 && (
+                <div className="rounded-xl border border-violet-500/[0.15] bg-violet-500/[0.03] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Discussion</span>
+                    <span className="text-xs text-white/40">— Expert Debate</span>
+                  </div>
+                  <DiscussionThread events={v7State.discussionEvents} />
+                </div>
+              )}
+
+              {/* ── Synthesis ──────────────────────────────────────────── */}
+              {v7State.doneResult && (
+                <SynthesisCard data={v7State.doneResult} />
+              )}
+
               {/* ── Impact Summary Cards ───────────────────────────────── */}
               {(impactOrders.length > 0 || impactCustomers.length > 0 || impactCost) && (
                 <div className="grid grid-cols-3 gap-3">
@@ -1181,125 +1123,6 @@ export default function FomiPage() {
               )}
             </div>
           </div>
-        ) : (
-          /* ═══════════════════════════════════════════════════════════
-             ACT 2: EXPERT DISCUSSION
-             ═══════════════════════════════════════════════════════════ */
-          <div ref={discussionRef} className="h-full overflow-y-auto px-6 py-5">
-            <div className="max-w-6xl mx-auto space-y-5">
-              {/* Discussion header */}
-              <div className="flex items-center gap-4 mb-2">
-                <div className="flex-1">
-                  <h2 className="text-2xl font-bold">
-                    {messages[0]?.content || "SGM-004 is down \u2014 What do we do?"}
-                  </h2>
-                  <p className="text-sm text-white/40 mt-1">4 AI specialists analyzing impact across OEE, delivery, cost, and quality</p>
-                </div>
-                {discussionRunning && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10">
-                    <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                    <span className="text-xs text-violet-400 font-medium">Analysis in progress</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Specialist Cards */}
-              {v7State.specialists.size > 0 && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
-                    <SpecialistCard
-                      key={key}
-                      name={spec.name}
-                      status={spec.status as any}
-                      report={spec.report}
-                      duration={spec.duration}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Discussion Thread */}
-              {v7State.discussionEvents.length > 0 && (
-                <DiscussionThread events={v7State.discussionEvents} />
-              )}
-
-              {/* Synthesis */}
-              {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
-
-              {/* Event bubbles for misc events */}
-              {v7State.bubbles.map(({ key, event: ev }) => {
-                if (ev.type === "tool_call_start") {
-                  return (
-                    <div key={key} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                      <span className="font-mono text-amber-400">{ev.toolName}</span>
-                    </div>
-                  );
-                }
-                if (ev.type === "tool_call_end" || ev.type === "step_start" || ev.type === "step_complete" || ev.type === "step_error") return null;
-                if (ev.type === "thinking") {
-                  return (
-                    <div key={key} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-xs">
-                      <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                      <span className="text-violet-400">{ev.message}</span>
-                    </div>
-                  );
-                }
-                if (ev.type === "done") {
-                  return (
-                    <div key={key} className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center gap-3">
-                      <span className="w-3 h-3 rounded-full bg-emerald-400" />
-                      <span className="text-emerald-400 font-semibold">{ev.message || "Analysis Complete"}</span>
-                      {ev.duration != null && (
-                        <span className="text-sm text-white/30 ml-auto">{(ev.duration / 1000).toFixed(0)}s</span>
-                      )}
-                    </div>
-                  );
-                }
-                if (ev.type === "init" || ev.type === "specialists_batch_start") {
-                  return (
-                    <div key={key} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-xs">
-                      <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                      <span className="text-cyan-400">{ev.message || ev.type}</span>
-                    </div>
-                  );
-                }
-                return null;
-              })}
-
-              {/* Dead air hint (Feature D) */}
-              {discussionRunning && activityHint && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs text-white/30 animate-pulse">
-                  <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93" />
-                  </svg>
-                  {activityHint}
-                </div>
-              )}
-
-              {/* Typing indicator */}
-              {discussionRunning && (
-                <div className="flex items-center gap-1.5 px-4 py-3">
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:200ms]" />
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:400ms]" />
-                </div>
-              )}
-
-              {/* Back to impact button when done */}
-              {!discussionRunning && v7Events.length > 0 && (
-                <div className="flex justify-center pt-4">
-                  <button
-                    onClick={() => setAct("impact")}
-                    className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/20 transition-all text-sm"
-                  >
-                    Back to Impact Analysis
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ── KG Window ──────────────────────────────────────────── */}
