@@ -338,68 +338,125 @@ function mapKgToolArgs(toolName: string, params: Record<string, unknown>, entity
   }
 }
 
+/** Select core KG tools based on detected entity type */
+function selectCoreKgTools(entityType: string, availableToolNames: string[]): string[] {
+  const available = new Set(availableToolNames);
+  const pick = (names: string[]) => names.filter(n => available.has(n));
+
+  switch (entityType) {
+    case 'Machine':
+      return pick(['kg_impact_analysis', 'kg_dependency_graph', 'kg_what_if_machine_down', 'kg_maintenance_risk']);
+    case 'Order':
+      return pick(['kg_trace_order', 'kg_critical_path_orders', 'kg_impact_analysis', 'kg_rerouting_options']);
+    case 'Material':
+      return pick(['kg_material_shortage_impact', 'kg_supply_chain_risk', 'kg_material_commonality', 'kg_material_traceability']);
+    case 'Supplier':
+      return pick(['kg_supplier_herfindahl', 'kg_supply_chain_risk', 'kg_impact_analysis', 'kg_subcontracting_risk']);
+    case 'Customer':
+      return pick(['kg_customer_delivery_risk', 'kg_critical_path_orders', 'kg_impact_analysis']);
+    case 'Tool':
+      return pick(['kg_tool_wear_cascade', 'kg_impact_analysis', 'kg_dependency_graph']);
+    case 'Article':
+      return pick(['kg_find_alternatives', 'kg_impact_analysis', 'kg_pool_demand_forecast']);
+    default:
+      // No entity recognized — broad overview tools
+      return pick(['kg_bottleneck_analysis', 'kg_critical_path_orders', 'kg_type_overview']);
+  }
+}
+
+/** Detect entity type from extracted IDs */
+function detectEntityType(params: Record<string, unknown>): string {
+  const entityId = String(params.entityId || params.machineId || '');
+  if (params.machineId || /^(SGM|CNC|DRH|FRS|SGF|BZ|MTG)-?\d/i.test(entityId)) return 'Machine';
+  if (/^FA-?\d/i.test(entityId)) return 'Order';
+  if (/^MAT-/i.test(entityId)) return 'Material';
+  if (/^SUP-/i.test(entityId)) return 'Supplier';
+  if (/^CUST-/i.test(entityId)) return 'Customer';
+  if (/^WZ-/i.test(entityId)) return 'Tool';
+  if (/^ART-/i.test(entityId)) return 'Article';
+  return 'unknown';
+}
+
 async function runKgPhase(
   availableToolNames: string[],
   res: Response,
   params: Record<string, unknown>,
+  llmExtraKgTools?: string[],
 ): Promise<{ kgNodes: KgNode[]; kgEdges: KgEdge[]; kgToolResults: Array<{ name: string; result: string }> }> {
-  // KG tools come from the full MCP tool list, not from LLM selection
-  const kgTools = availableToolNames.filter(t => t.startsWith('kg_'));
-  if (kgTools.length === 0) {
+  const entityId = String(params.entityId || params.machineId || 'unknown');
+  const entityType = detectEntityType(params);
+
+  // Wave 1: Core tools based on entity type (deterministic, fast)
+  const coreTools = selectCoreKgTools(entityType, availableToolNames);
+
+  // Wave 2: LLM-selected extras (deduplicated)
+  const coreSet = new Set(coreTools);
+  const extraTools = (llmExtraKgTools || []).filter(t => t.startsWith('kg_') && !coreSet.has(t) && availableToolNames.includes(t));
+
+  const allKgTools = [...coreTools, ...extraTools];
+  if (allKgTools.length === 0) {
     return { kgNodes: [], kgEdges: [], kgToolResults: [] };
   }
 
-  const entityId = String(params.entityId || params.machineId || 'unknown');
+  logger.info({ entityType, coreTools, extraTools, entityId }, 'KG phase: tool selection');
 
   emitSSE(res, {
     type: 'kg_traversal_start',
     scenarioName: params.scenario || 'Impact Analysis',
     entityId,
-    kgTools,
+    entityType,
+    kgTools: allKgTools,
   });
 
-  // Call all KG tools in parallel — map params per tool
+  // Run Wave 1 (core) — fire immediately
   const toolResults: Array<{ name: string; result: string }> = [];
-  const kgPromises = kgTools.map(async (toolName) => {
-    try {
-      const args = mapKgToolArgs(toolName, params, entityId);
-      const result = await callMcpTool(toolName, args);
-      toolResults.push({ name: toolName, result });
-    } catch (err: any) {
-      logger.warn({ tool: toolName, err: err.message }, 'KG tool call failed');
+  const runTools = async (tools: string[]) => {
+    const promises = tools.map(async (toolName) => {
+      try {
+        const args = mapKgToolArgs(toolName, params, entityId);
+        const result = await callMcpTool(toolName, args);
+        toolResults.push({ name: toolName, result });
+      } catch (err: any) {
+        logger.warn({ tool: toolName, err: err.message }, 'KG tool call failed');
+      }
+    });
+    await Promise.allSettled(promises);
+  };
+
+  await runTools(coreTools);
+
+  // Emit Wave 1 results immediately so KG appears fast
+  if (toolResults.length > 0) {
+    const wave1Graph = extractKgGraph(toolResults, entityId);
+    emitSSE(res, { type: 'kg_nodes_discovered', nodes: wave1Graph.nodes, edges: wave1Graph.edges, centerEntity: { id: entityId, type: entityType.toLowerCase() } });
+    logger.info({ wave: 1, nodeCount: wave1Graph.nodes.length, edgeCount: wave1Graph.edges.length }, 'KG phase: wave 1 complete');
+  }
+
+  // Run Wave 2 (LLM extras) — enriches the graph
+  if (extraTools.length > 0) {
+    await runTools(extraTools);
+    // Emit incremental nodes from Wave 2
+    const wave2Results = toolResults.filter(r => extraTools.includes(r.name));
+    if (wave2Results.length > 0) {
+      const wave2Graph = extractKgGraph(wave2Results, entityId);
+      emitSSE(res, { type: 'kg_nodes_discovered', nodes: wave2Graph.nodes, edges: wave2Graph.edges, centerEntity: { id: entityId, type: entityType.toLowerCase() } });
+      logger.info({ wave: 2, nodeCount: wave2Graph.nodes.length, edgeCount: wave2Graph.edges.length }, 'KG phase: wave 2 complete');
     }
-  });
+  }
 
-  await Promise.allSettled(kgPromises);
+  logger.info({ kgToolCount: allKgTools.length, resultCount: toolResults.length, tools: toolResults.map(r => r.name), entityId }, 'KG phase: tools completed');
 
-  logger.info({ kgToolCount: kgTools.length, resultCount: toolResults.length, tools: toolResults.map(r => r.name), entityId }, 'KG phase: tools completed');
-
-  // Extract graph
+  // Final graph from all results
   const { nodes, edges } = extractKgGraph(toolResults, entityId);
   logger.info({ nodeCount: nodes.length, edgeCount: edges.length }, 'KG phase: graph extracted');
 
-  emitSSE(res, {
-    type: 'kg_nodes_discovered',
-    nodes,
-    edges,
-    centerEntity: { id: entityId, type: 'machine' },
-  });
-
-  emitSSE(res, {
-    type: 'kg_traversal_end',
-    totalNodes: nodes.length,
-    totalEdges: edges.length,
-  });
-
-  // Emit kg_summary for inline SVG diagram
+  emitSSE(res, { type: 'kg_traversal_end', totalNodes: nodes.length, totalEdges: edges.length });
   emitSSE(res, {
     type: 'kg_summary',
     centerEntity: entityId,
-    nodes,
-    edges,
+    nodes, edges,
     stats: {
-      totalNodes: nodes.length,
-      totalEdges: edges.length,
+      totalNodes: nodes.length, totalEdges: edges.length,
       affectedOrders: nodes.filter(n => n.type === 'order').length,
       affectedCustomers: nodes.filter(n => n.type === 'customer').length,
       alternatives: nodes.filter(n => n.type === 'alternative').length,
@@ -1513,7 +1570,8 @@ export async function runDiscussionAgent(
     // ── Phase 0: KG — uses all available KG tools from MCP, not just agent's tools ──
     const allTools = await getMcpTools();
     const allToolNames = allTools.map((t: any) => t.function?.name || t.name).filter(Boolean);
-    const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(allToolNames, res, params);
+    const agentKgTools = agent.tools.filter(t => t.startsWith('kg_'));
+    const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(allToolNames, res, params, agentKgTools);
 
     const isEn = language === 'en';
     const kgContext = kgToolResults.length > 0
@@ -1818,7 +1876,8 @@ export async function runDynamicDiscussion(
     ...(extractedEntityId && { entityId: extractedEntityId }),
   };
   logger.info({ extractedMachineId, extractedEntityId, scenario: params.scenario }, 'KG phase: extracted entity from user message');
-  const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(toolNames, res, params);
+  const llmKgTools = relevantTools.filter(t => t.startsWith('kg_'));
+  const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(toolNames, res, params, llmKgTools);
 
   const isEn = language === 'en';
   const kgContext = kgToolResults.length > 0
