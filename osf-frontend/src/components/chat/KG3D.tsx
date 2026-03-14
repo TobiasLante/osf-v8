@@ -115,14 +115,19 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380 }: KG3
     return { nodes: gNodes, links: gLinks };
   }, [nodes, edges, centerEntityId]);
 
-  // Auto-zoom when new nodes arrive
+  // Auto-zoom and center when new nodes arrive
+  const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (graphData.nodes.length > prevNodeCount.current && fgRef.current) {
       prevNodeCount.current = graphData.nodes.length;
-      // Let simulation settle, then zoom to fit
+      // Let simulation settle, then zoom to fit with generous padding
       setTimeout(() => {
-        fgRef.current?.zoomToFit?.(600, 60);
+        fgRef.current?.zoomToFit?.(600, 100);
       }, 800);
+      // Re-center after full settle
+      setTimeout(() => {
+        fgRef.current?.zoomToFit?.(400, 100);
+      }, 2500);
     }
   }, [graphData.nodes.length]);
 
@@ -207,7 +212,7 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380 }: KG3
   if (nodes.length === 0) return null;
 
   return (
-    <div style={{ height, width: "100%", position: "relative" }}>
+    <div ref={containerRef} style={{ height, width: "100%", position: "relative" }}>
       <ForceGraph3D
         ref={fgRef}
         graphData={graphData}
@@ -232,7 +237,7 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380 }: KG3
         cooldownTicks={100}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.3}
-        width={undefined}
+        width={containerRef.current?.clientWidth}
         height={height}
       />
       {/* Status indicator */}

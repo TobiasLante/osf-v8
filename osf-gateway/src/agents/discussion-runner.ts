@@ -528,7 +528,8 @@ RESPONSE FORMAT: Pure JSON, NO Markdown, NO code blocks. Use these EXACT field n
   "crossDomainHinweise": ["Cross-domain hints"]
 }
 
-Max 8 findings and 6 recommendations. Write all VALUES in English but keep the JSON KEYS exactly as shown.
+Max 8 findings and 6 recommendations.
+CRITICAL: Write ALL text values in ENGLISH. The JSON keys are German but every string value MUST be in English. No German words in values.
 CRITICAL: zahlenDatenFakten must contain ALL specific numbers from the input data. Do not summarize — list them.`
     : `Du bist der ${specialist.displayName}. Dein Fokus: ${specialist.focus}.
 Analysiere die bereitgestellten Daten und beantworte die User-Frage aus deiner Fachperspektive.
