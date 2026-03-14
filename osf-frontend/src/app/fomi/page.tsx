@@ -865,6 +865,32 @@ export default function FomiPage() {
                   </div>
                 ))}
 
+                {/* ── Specialist Cards (inline in chat) ──────────── */}
+                {v7State.specialists.size > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-white/50 uppercase tracking-widest">Specialists — {Array.from(v7State.specialists.values()).filter(s => s.status === "done").length}/{v7State.specialists.size}</div>
+                    {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
+                      <div key={key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm">
+                        {spec.status === "running" && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+                        {spec.status === "done" && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+                        {spec.status === "error" && <span className="w-2 h-2 rounded-full bg-red-400" />}
+                        <span className="text-white/80">{spec.name}</span>
+                        {spec.duration && <span className="text-xs text-white/30 ml-auto">{(spec.duration / 1000).toFixed(0)}s</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Discussion Thread (inline in chat) ──────────── */}
+                {v7State.discussionEvents.length > 0 && (
+                  <div ref={discussionRef}>
+                    <DiscussionThread events={v7State.discussionEvents} />
+                  </div>
+                )}
+
+                {/* ── Synthesis ──────────────────────────────────── */}
+                {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
+
                 {/* Streaming indicator + Dead air hint (Feature D) */}
                 {streaming && (
                   <div className="space-y-2">
@@ -1154,19 +1180,66 @@ export default function FomiPage() {
                 </div>
               )}
 
-              {/* ── Discussion Thread (inline) ─────────────────────── */}
-              {v7State.discussionEvents.length > 0 && (
-                <div ref={discussionRef}>
-                  <DiscussionThread events={v7State.discussionEvents} />
-                </div>
-              )}
-
-              {/* ── Synthesis ──────────────────────────────────────── */}
-              {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
+              {/* ── Live Discussion Events (streamed inline) ──────── */}
+              {v7Events.filter(ev => ['discussion_round_start','discussion_question','discussion_answer','discussion_recruit','discussion_recruit_result','discussion_round_complete','discussion_synthesis_start','debate_start','debate_draft','debate_critique','debate_final','intermediate_result'].includes(ev.type)).map((ev, i) => {
+                if (ev.type === 'discussion_round_start') return (
+                  <div key={`d-${i}`} className="flex items-center gap-2 pt-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+                    <span className="text-xs font-bold text-white/60 uppercase tracking-wider">Discussion Round {ev.discussionRound || ''}</span>
+                  </div>
+                );
+                if (ev.type === 'discussion_question') return (
+                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-violet-500/[0.1] border border-violet-500/25 border-l-[4px] border-l-violet-400">
+                    <div className="text-[11px] font-bold text-violet-400 uppercase tracking-wider mb-1.5">Moderator &rarr; {ev.targetSpecialist || ''}</div>
+                    <div className="text-sm text-white/80 leading-relaxed">{ev.moderatorQuestion || ''}</div>
+                  </div>
+                );
+                if (ev.type === 'discussion_answer') return (
+                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-blue-500/[0.1] border border-blue-500/25 border-r-[4px] border-r-blue-400 ml-8">
+                    <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-1.5">{ev.targetSpecialist || ''}</div>
+                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{ev.discussionAnswer || ''}</div>
+                  </div>
+                );
+                if (ev.type === 'discussion_recruit') return (
+                  <div key={`d-${i}`} className="text-xs font-bold px-4 py-2 bg-cyan-500/10 border border-cyan-500/25 rounded-full text-cyan-400 text-center">
+                    + {ev.recruitedSpecialistName || 'Specialist'} joining...
+                  </div>
+                );
+                if (ev.type === 'discussion_recruit_result') return (
+                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-cyan-500/[0.08] border border-cyan-500/25 border-l-[4px] border-l-cyan-400">
+                    <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider mb-1.5">{ev.recruitedSpecialistName || 'Specialist'} — Analysis</div>
+                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{ev.recruitedSpecialistReport || ''}</div>
+                  </div>
+                );
+                if (ev.type === 'debate_start') return (
+                  <div key={`d-${i}`} className="text-sm font-bold px-5 py-2 rounded-full text-violet-300 text-center" style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(245,158,11,0.15))', border: '1px solid rgba(139,92,246,0.3)' }}>
+                    Specialist Debate
+                  </div>
+                );
+                if (ev.type === 'debate_draft') return (
+                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-amber-500/[0.1] border border-amber-500/25 border-l-[4px] border-l-amber-400">
+                    <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-1.5">Moderator — Draft Recommendation</div>
+                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{ev.debateDraftSummary || ''}</div>
+                  </div>
+                );
+                if (ev.type === 'debate_final') return (
+                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-emerald-500/[0.12] border-2 border-emerald-500/30 border-l-[4px] border-l-emerald-400">
+                    <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider mb-1.5">Final Recommendation</div>
+                    <div className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{ev.debateFinalSummary || ''}</div>
+                  </div>
+                );
+                if (ev.type === 'intermediate_result') return (
+                  <div key={`d-${i}`} className="rounded-lg px-4 py-3 bg-emerald-500/[0.08] border border-emerald-500/25">
+                    <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider mb-1.5">Synthesis</div>
+                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">{typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data, null, 2)}</div>
+                  </div>
+                );
+                return null;
+              })}
 
               {/* ── Typing indicator while streaming ───────────────── */}
-              {streaming && v7State.specialists.size > 0 && !v7State.doneResult && (
-                <div className="flex items-center gap-1.5 px-4 py-3">
+              {streaming && (v7State.specialists.size > 0 || v7Events.length > 0) && (
+                <div ref={discussionRef} className="flex items-center gap-1.5 px-4 py-3">
                   <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
                   <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:200ms]" />
                   <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:400ms]" />
