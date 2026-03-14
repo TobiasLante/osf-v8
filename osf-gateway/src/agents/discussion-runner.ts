@@ -472,9 +472,18 @@ async function runKgPhase(
         try {
           const args = mapKgToolArgs(toolName, params, entityId);
           const result = await callMcpTool(toolName, args);
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.error) {
+              emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
+              return;
+            }
+          } catch { /* not JSON, treat as success */ }
           wave2ToolResults.push({ name: toolName, result });
+          emitSSE(res, { type: 'kg_tool_status', toolName, status: 'ok' });
         } catch (err: any) {
           logger.warn({ tool: toolName, err: err.message }, 'KG wave 2 tool failed');
+          emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
         }
       });
       await Promise.allSettled(promises);

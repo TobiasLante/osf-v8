@@ -316,6 +316,9 @@ export default function FomiPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
+  /* ── Act switching ─────────────────────────────────────────────────── */
+  const [act, setAct] = useState<"impact" | "discussion">("impact");
+
   /* ── Recording mode (admin only) ───────────────────────────────────── */
   const [recording, setRecording] = useState(false);
   const [hasRecordedFallback, setHasRecordedFallback] = useState(false);
@@ -456,8 +459,10 @@ export default function FomiPage() {
   /* ── Specialist tracking (via useV7Events) ──────────────────────── */
   const [expandedSpec, setExpandedSpec] = useState<string | null>(null);
 
-  /* ── Discussion events (inline in right panel) ───────────────────── */
+  /* ── Act 2: Discussion ─────────────────────────────────────────────── */
   const [v7Events, setV7Events] = useState<V7Event[]>([]);
+  const [discussionRunning, setDiscussionRunning] = useState(false);
+  const discussionRef = useRef<HTMLDivElement>(null);
 
   /* ── Derived V7 state ──────────────────────────────────────────────── */
   const v7State = useV7Events(v7Events);
@@ -466,6 +471,10 @@ export default function FomiPage() {
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    if (discussionRef.current) discussionRef.current.scrollTop = discussionRef.current.scrollHeight;
+  }, [v7Events]);
 
   /* ── Activate a data source with glow timeout ──────────────────────── */
   const activateSource = useCallback((sourceId: string) => {
@@ -661,7 +670,7 @@ export default function FomiPage() {
         await processChatStream(playFallbackEvents(fbEvents));
       } else {
         // Live mode with auto-reconnect (Feature C)
-        await processChatStream(streamSSEWithRetry("/chat/completions", { message: text }));
+        await processChatStream(streamSSEWithRetry("/chat/completions", { message: text, language: "en" }));
       }
     } catch (err: any) {
       // If live failed, auto-fallback
@@ -677,6 +686,50 @@ export default function FomiPage() {
     stopDeadAirWatch();
     setStreaming(false);
     setChatDone(true);
+  };
+
+  /* ═════════════════════════════════════════════════════════════════════
+     ACT 2: Start agent discussion
+     ═════════════════════════════════════════════════════════════════════ */
+  const startDiscussion = async () => {
+    setAct("discussion");
+    setDiscussionRunning(true);
+    setV7Events([]);
+    startDeadAirWatch();
+
+    try {
+      const fbDisc = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
+      const source = fallbackMode
+        ? playFallbackEvents(fbDisc)
+        : streamSSEWithRetry("/agents/run/impact-analysis", {
+            question: messages[0]?.content || "What happens if SGM-004 goes down right now?",
+            ...(llmProvider === "haiku" && { llmProvider: "haiku" }),
+          });
+
+      for await (const event of source) {
+        touchActivity();
+        recordEvent(event, "discussion");
+        setV7Events((prev) => [...prev, event as V7Event]);
+        if (event.type === "done" || event.type === "error") break;
+      }
+    } catch (err: any) {
+      // Auto-fallback on failure
+      if (!fallbackMode) {
+        console.warn("Live discussion failed, switching to fallback:", err.message);
+        const fbDiscFallback = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
+        setV7Events([]);
+        for await (const event of playFallbackEvents(fbDiscFallback)) {
+          touchActivity();
+          setV7Events((prev) => [...prev, event as V7Event]);
+          if (event.type === "done") break;
+        }
+      } else {
+        setV7Events((prev) => [...prev, { type: "error", message: err.message } as V7Event]);
+      }
+    }
+
+    stopDeadAirWatch();
+    setDiscussionRunning(false);
   };
 
   /* ═════════════════════════════════════════════════════════════════════
@@ -744,6 +797,9 @@ export default function FomiPage() {
 
       {/* ── Content ──────────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0">
+          {/* ═══════════════════════════════════════════════════════════
+             IMPACT ANALYSIS + INLINE DISCUSSION
+             ═══════════════════════════════════════════════════════════ */}
           <div className="h-full flex">
             {/* LEFT: Chat (40%) */}
             <div className="w-[40%] flex flex-col border-r border-white/[0.06]">
@@ -831,22 +887,26 @@ export default function FomiPage() {
 
               {/* Input */}
               <div className="p-4 border-t border-white/[0.06]">
-                <div className="flex gap-2">
-                  <input
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                    placeholder="What happens if SGM-004 goes down right now?"
-                    className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#ff9500]/50 transition-colors placeholder:text-white/20"
-                  />
-                  <button
-                    onClick={handleSend}
-                    disabled={!question.trim() || streaming}
-                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#ff9500] to-[#ff5722] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
-                  >
-                    Ask
-                  </button>
-                </div>
+                {false && chatDone && !streaming ? (
+                  <div /> // Act 2 button removed — discussion runs inline in Act 1
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                      placeholder="What happens if SGM-004 goes down right now?"
+                      className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#ff9500]/50 transition-colors placeholder:text-white/20"
+                    />
+                    <button
+                      onClick={handleSend}
+                      disabled={!question.trim() || streaming}
+                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#ff9500] to-[#ff5722] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
+                    >
+                      Ask
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1063,22 +1123,6 @@ export default function FomiPage() {
                 </div>
               )}
 
-              {/* ── Discussion Thread (inline in Act 1) ─────────────── */}
-              {v7State.discussionEvents.length > 0 && (
-                <div className="rounded-xl border border-violet-500/[0.15] bg-violet-500/[0.03] p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Discussion</span>
-                    <span className="text-xs text-white/40">— Expert Debate</span>
-                  </div>
-                  <DiscussionThread events={v7State.discussionEvents} />
-                </div>
-              )}
-
-              {/* ── Synthesis ──────────────────────────────────────────── */}
-              {v7State.doneResult && (
-                <SynthesisCard data={v7State.doneResult} />
-              )}
-
               {/* ── Impact Summary Cards ───────────────────────────────── */}
               {(impactOrders.length > 0 || impactCustomers.length > 0 || impactCost) && (
                 <div className="grid grid-cols-3 gap-3">
@@ -1107,6 +1151,25 @@ export default function FomiPage() {
                     <div className="text-xs text-[#ff9500]/70 uppercase tracking-wider font-bold mb-2">Downtime Cost</div>
                     <div className="text-3xl font-black text-[#ff9500]">{impactCost || "\u2014"}</div>
                   </div>
+                </div>
+              )}
+
+              {/* ── Discussion Thread (inline) ─────────────────────── */}
+              {v7State.discussionEvents.length > 0 && (
+                <div ref={discussionRef}>
+                  <DiscussionThread events={v7State.discussionEvents} />
+                </div>
+              )}
+
+              {/* ── Synthesis ──────────────────────────────────────── */}
+              {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
+
+              {/* ── Typing indicator while streaming ───────────────── */}
+              {streaming && v7State.specialists.size > 0 && !v7State.doneResult && (
+                <div className="flex items-center gap-1.5 px-4 py-3">
+                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
+                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:200ms]" />
+                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce [animation-delay:400ms]" />
                 </div>
               )}
 
