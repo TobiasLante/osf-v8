@@ -911,7 +911,7 @@ export default function FomiPage() {
             </div>
 
             {/* RIGHT: i3X Insight Panel (60%) */}
-            <div className="w-[60%] overflow-y-auto px-5 py-4 space-y-4">
+            <div className="w-[60%] h-full overflow-y-auto px-5 py-4 space-y-4">
               {/* ── Data Sources ──────────────────────────────────────── */}
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
                 <div className="flex items-center gap-2 mb-4">
