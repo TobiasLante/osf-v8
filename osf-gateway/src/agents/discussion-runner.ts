@@ -120,24 +120,33 @@ function safeArray(val: any): any[] {
 
 function compressReport(name: string, report: SpecialistReport): string {
   const findings = safeArray(report.kritischeFindings)
-    .slice(0, 3)
+    .slice(0, 8)
     .map(f => {
       const finding = typeof f === 'string' ? f : (f?.finding || JSON.stringify(f));
       const severity = typeof f === 'object' ? f?.severity : '?';
-      return `- [${severity}] ${finding}`;
+      const evidence = typeof f === 'object' && f?.evidence ? ` (${f.evidence})` : '';
+      const machines = typeof f === 'object' && Array.isArray(f?.affectedMachines) ? ` [${f.affectedMachines.join(', ')}]` : '';
+      return `- [${severity}] ${finding}${evidence}${machines}`;
     })
     .join('\n');
 
   const recs = safeArray(report.empfehlungen)
-    .slice(0, 3)
-    .map(r => typeof r === 'string' ? `- ${r}` : `- [${r?.priorität || '?'}] ${r?.maßnahme || JSON.stringify(r)}`)
+    .slice(0, 6)
+    .map(r => {
+      if (typeof r === 'string') return `- ${r}`;
+      const machine = r?.maschine ? ` → ${r.maschine}` : '';
+      const effect = r?.erwarteteWirkung ? ` (${r.erwarteteWirkung})` : '';
+      return `- [${r?.priorität || '?'}] ${r?.maßnahme || JSON.stringify(r)}${machine}${effect}`;
+    })
     .join('\n');
 
   const kpis = typeof report.zahlenDatenFakten === 'string'
-    ? (report.zahlenDatenFakten || '').substring(0, 300)
-    : JSON.stringify(report.zahlenDatenFakten || '').substring(0, 300);
+    ? (report.zahlenDatenFakten || '').substring(0, 3000)
+    : JSON.stringify(report.zahlenDatenFakten || '').substring(0, 3000);
 
-  return `=== ${name.toUpperCase()} (${report.domain || 'unknown'}) ===\nKPIs: ${kpis}\nFindings:\n${findings || 'Keine'}\nEmpfehlungen:\n${recs || 'Keine'}`;
+  const crossDomain = safeArray(report.crossDomainHinweise).slice(0, 5).map(h => `- ${h}`).join('\n');
+
+  return `=== ${name.toUpperCase()} (${report.domain || 'unknown'}) ===\nKPIs & Data:\n${kpis}\nFindings:\n${findings || 'None'}\nRecommendations:\n${recs || 'None'}${crossDomain ? `\nCross-Domain:\n${crossDomain}` : ''}`;
 }
 
 function parseCritiqueItems(critique: any): Array<{ type: string; text: string }> {
@@ -408,16 +417,37 @@ async function runKgPhase(
     kgTools: allKgTools,
   });
 
-  // Run Wave 1 (core) — fire immediately
+  // Run KG tools with per-tool SSE status updates
   const toolResults: Array<{ name: string; result: string }> = [];
   const runTools = async (tools: string[]) => {
     const promises = tools.map(async (toolName) => {
-      try {
-        const args = mapKgToolArgs(toolName, params, entityId);
-        const result = await callMcpTool(toolName, args);
-        toolResults.push({ name: toolName, result });
-      } catch (err: any) {
-        logger.warn({ tool: toolName, err: err.message }, 'KG tool call failed');
+      const maxRetries = 3;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            emitSSE(res, { type: 'kg_tool_status', toolName, status: 'retry', attempt });
+            await new Promise(r => setTimeout(r, 2000 * attempt)); // backoff
+          }
+          const args = mapKgToolArgs(toolName, params, entityId);
+          const result = await callMcpTool(toolName, args);
+          // Check if result is an error response
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.error) {
+              if (attempt < maxRetries) continue; // retry
+              emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
+              return;
+            }
+          } catch { /* not JSON, treat as success */ }
+          toolResults.push({ name: toolName, result });
+          emitSSE(res, { type: 'kg_tool_status', toolName, status: 'ok' });
+          return;
+        } catch (err: any) {
+          if (attempt >= maxRetries) {
+            logger.warn({ tool: toolName, err: err.message }, 'KG tool call failed');
+            emitSSE(res, { type: 'kg_tool_status', toolName, status: 'failed' });
+          }
+        }
       }
     });
     await Promise.allSettled(promises);
@@ -490,17 +520,18 @@ IMPORTANT: Only use data that is actually present in the provided data. Do NOT i
 RESPONSE FORMAT: Pure JSON, NO Markdown, NO code blocks. Use these EXACT field names (they are German by design):
 {
   "domain": "${specialist.domain}",
-  "zahlenDatenFakten": "Compact KPI summary (max 300 chars, in English)",
+  "zahlenDatenFakten": "Detailed data summary with ALL relevant numbers: machine IDs, OEE values, load percentages, order counts, customer names, due dates, quantities. Be specific — cite every data point from the input.",
   "kritischeFindings": [
-    { "finding": "...", "evidence": "...", "severity": "hoch|mittel|niedrig", "affectedMachines": [] }
+    { "finding": "Specific finding with machine/order IDs", "evidence": "Exact numbers from the data", "severity": "hoch|mittel|niedrig", "affectedMachines": ["SGM-004"] }
   ],
   "empfehlungen": [
-    { "maßnahme": "...", "priorität": "sofort|heute|diese_woche", "erwarteteWirkung": "..." }
+    { "maßnahme": "Concrete action with machine ID", "priorität": "sofort|heute|diese_woche", "maschine": "SGM-007", "erwarteteWirkung": "Expected impact with numbers" }
   ],
   "crossDomainHinweise": ["Cross-domain hints"]
 }
 
-Max 3-5 findings and 3-5 recommendations. Write all VALUES in English but keep the JSON KEYS exactly as shown.`
+Max 8 findings and 6 recommendations. Write all VALUES in English but keep the JSON KEYS exactly as shown.
+CRITICAL: zahlenDatenFakten must contain ALL specific numbers from the input data. Do not summarize — list them.`
     : `Du bist der ${specialist.displayName}. Dein Fokus: ${specialist.focus}.
 Analysiere die bereitgestellten Daten und beantworte die User-Frage aus deiner Fachperspektive.
 WICHTIG: Verwende NUR Daten die tatsächlich in den bereitgestellten Daten stehen. Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten.
@@ -508,17 +539,18 @@ WICHTIG: Verwende NUR Daten die tatsächlich in den bereitgestellten Daten stehe
 ANTWORT-FORMAT: Reines JSON, KEIN Markdown, KEINE Code-Blöcke.
 {
   "domain": "${specialist.domain}",
-  "zahlenDatenFakten": "Kompakte KPI-Zusammenfassung (max 300 Zeichen)",
+  "zahlenDatenFakten": "Detaillierte Datenzusammenfassung mit ALLEN relevanten Zahlen: Maschinen-IDs, OEE-Werte, Auslastung, Auftragsanzahl, Kundennamen, Termine, Mengen. Spezifisch — jeden Datenpunkt aus dem Input zitieren.",
   "kritischeFindings": [
-    { "finding": "...", "evidence": "...", "severity": "hoch|mittel|niedrig", "affectedMachines": [] }
+    { "finding": "Konkretes Finding mit Maschinen-/Auftrags-IDs", "evidence": "Exakte Zahlen aus den Daten", "severity": "hoch|mittel|niedrig", "affectedMachines": ["SGM-004"] }
   ],
   "empfehlungen": [
-    { "maßnahme": "...", "priorität": "sofort|heute|diese_woche", "erwarteteWirkung": "..." }
+    { "maßnahme": "Konkrete Maßnahme mit Maschinen-ID", "priorität": "sofort|heute|diese_woche", "maschine": "SGM-007", "erwarteteWirkung": "Erwarteter Effekt mit Zahlen" }
   ],
   "crossDomainHinweise": ["Hinweise für andere Bereiche"]
 }
 
-Maximal 3-5 Findings und 3-5 Empfehlungen. Präzise und kompakt.`;
+Max 8 Findings und 6 Empfehlungen.
+KRITISCH: zahlenDatenFakten muss ALLE konkreten Zahlen aus den Input-Daten enthalten. Nicht zusammenfassen — auflisten.`;
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
@@ -849,6 +881,7 @@ Regeln für newSpecialists:
 
   // ── Process follow-up questions ──
   const questions = safeArray(review.followUpQuestions).slice(0, 3);
+  logger.info({ questionCount: questions.length, readyForSynthesis: review.readyForSynthesis, gaps: review.gaps?.length || 0 }, 'Moderator review: parsed result');
 
   for (const q of questions) {
     if (res.writableEnded) break;
@@ -926,6 +959,7 @@ async function runDebate(
   signal?: AbortSignal,
   userMessage?: string,
   language?: string,
+  kgContext?: string,
 ): Promise<string> {
   // 3a: Moderator drafts answer
   logger.info({ reportCount: reports.size }, 'Debate: moderator drafting synthesis answer');
@@ -943,37 +977,42 @@ async function runDebate(
       : `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDeine Antwort MUSS diese Frage DIREKT beantworten. Nenne konkrete Daten, Zahlen, Namen aus den Berichten.\n`)
     : '';
 
+  const kgSection = kgContext ? `\nRAW DATA FROM KNOWLEDGE GRAPH:\n${kgContext}\n` : '';
+
   const draftPrompt = isEn
     ? `${questionContext}
+${kgSection}
 SPECIALIST REPORTS:
 ${compressed}
 
 DISCUSSION:
 ${discussionTranscript || 'No further discussion points.'}
 
-TASK: Answer the user question directly and precisely based on the specialist data.
-- Start with the DIRECT ANSWER to the question (specific numbers, names, values)
-- Then: Context and analysis (brief)
-- Then: Recommended actions (only if relevant to the question)
-- Do NOT invent person names, job titles or organizational units not in the data
-- Use ONLY data that is actually contained in the specialist reports
-
-Answer as structured text (Markdown). Respond in English.`
+TASK: Answer the user question. Max 250 words. No filler.
+RULES:
+- Lead with the DIRECT ANSWER — specific machine IDs, order numbers, percentages, costs
+- Every claim must cite a specific data point from the reports or KG data above
+- NEVER say "not known" or "not available" if the data IS in the reports — look harder
+- List affected orders, machines, customers BY NAME with their status/OEE/load
+- Recommendations: concrete actions with machine IDs and expected impact
+- Bullet points, no prose paragraphs
+- Respond in English.`
     : `${questionContext}
+${kgSection}
 SPEZIALISTEN-BERICHTE:
 ${compressed}
 
 DISKUSSION:
 ${discussionTranscript || 'Keine weiteren Diskussionspunkte.'}
 
-AUFGABE: Beantworte die User-Frage direkt und präzise basierend auf den Daten der Spezialisten.
-- Beginne mit der DIREKTEN ANTWORT auf die Frage (konkrete Zahlen, Namen, Werte)
-- Dann: Kontext und Analyse (kurz)
-- Dann: Empfohlene Maßnahmen (nur wenn relevant für die Frage)
-- Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten die nicht in den Daten stehen
-- Verwende NUR Daten die tatsächlich in den Spezialisten-Berichten enthalten sind
-
-Antworte als strukturierter Text (Markdown).`;
+AUFGABE: Beantworte die User-Frage. Max 250 Wörter. Kein Fülltext.
+REGELN:
+- Beginne mit der DIREKTEN ANTWORT — konkrete Maschinen-IDs, Auftragsnummern, Prozente, Kosten
+- Jede Aussage muss einen konkreten Datenpunkt aus den Berichten oder KG-Daten oben zitieren
+- Sage NIE "nicht bekannt" oder "nicht verfügbar" wenn die Daten IN den Berichten stehen — schau genauer hin
+- Liste betroffene Aufträge, Maschinen, Kunden MIT NAMEN und deren Status/OEE/Auslastung
+- Empfehlungen: konkrete Maßnahmen mit Maschinen-IDs und erwartetem Effekt
+- Stichpunkte, keine Fließtext-Absätze`;
 
   const heartbeat = setInterval(() => {
     if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat); return; }
@@ -1001,7 +1040,7 @@ Antworte als strukturierter Text (Markdown).`;
     clearInterval(heartbeat);
   }
 
-  const draftSummary = draftText.length > 200 ? draftText.substring(0, 200) + '...' : draftText;
+  const draftSummary = draftText.length > 2000 ? draftText.substring(0, 2000) + '...' : draftText;
   emitSSE(res, { type: 'debate_draft', debateDraftSummary: draftSummary });
 
   // 3b: Specialists critique in batches of 2
@@ -1152,7 +1191,7 @@ Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
     clearInterval(heartbeat3);
   }
 
-  const finalSummary = finalText.length > 200 ? finalText.substring(0, 200) + '...' : finalText;
+  const finalSummary = finalText.length > 2000 ? finalText.substring(0, 2000) + '...' : finalText;
   emitSSE(res, { type: 'debate_final', debateFinalSummary: finalSummary });
 
   return finalText;
@@ -1581,7 +1620,7 @@ export async function runDiscussionAgent(
     const isEn = language === 'en';
     const kgContext = kgToolResults.length > 0
       ? `${isEn ? 'KG DATA' : 'KG-DATEN'} (${kgNodes.length} ${isEn ? 'nodes' : 'Knoten'}, ${kgEdges.length} ${isEn ? 'edges' : 'Kanten'}):\n` +
-        kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 1500)}`).join('\n\n')
+        kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 4000)}`).join('\n\n')
       : dl(language, 'Keine KG-Daten verfügbar.', 'No KG data available.');
 
     // ── Load factory data via agent's non-KG tools ──
@@ -1663,6 +1702,7 @@ export async function runDiscussionAgent(
       userId, res,
       IMPACT_SPECIALISTS, undefined,
       userMsg || undefined, language,
+      kgContext,
     );
 
     // ── Phase 4: Generate HTML Report ──
@@ -1887,7 +1927,7 @@ export async function runDynamicDiscussion(
   const isEn = language === 'en';
   const kgContext = kgToolResults.length > 0
     ? `${isEn ? 'KG DATA' : 'KG-DATEN'} (${kgNodes.length} ${isEn ? 'nodes' : 'Knoten'}, ${kgEdges.length} ${isEn ? 'edges' : 'Kanten'}):\n` +
-      kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 1500)}`).join('\n\n')
+      kgToolResults.map(r => `[${r.name}]: ${r.result.substring(0, 4000)}`).join('\n\n')
     : dl(language, 'Keine KG-Daten verfügbar.', 'No KG data available.');
 
   // ── Load factory data via non-KG tools ──
@@ -1974,6 +2014,7 @@ export async function runDynamicDiscussion(
     userId, res,
     specialists, signal,
     userMessage, language,
+    kgContext,
   );
 
   // ── Phase 4: Generate HTML Report ──
