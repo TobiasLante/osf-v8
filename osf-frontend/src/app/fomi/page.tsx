@@ -473,7 +473,7 @@ export default function FomiPage() {
   }, [messages]);
 
   useEffect(() => {
-    if (discussionRef.current) discussionRef.current.scrollTop = discussionRef.current.scrollHeight;
+    if (discussionRef.current) discussionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [v7Events]);
 
   /* ── Activate a data source with glow timeout ──────────────────────── */
