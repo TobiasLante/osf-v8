@@ -512,13 +512,14 @@ async function runSpecialistLlm(
   const isEn = language === 'en';
   const systemPrompt = isEn
     ? `You are the ${specialist.displayName}. Your focus: ${specialist.focus}.
-Analyze the provided data and answer the user question from your domain perspective.
+Analyze the provided data and answer the user question EXCLUSIVELY from your domain perspective.
 IMPORTANT: Only use data that is actually present in the provided data. Do NOT invent person names, job titles or organizational units.
+CRITICAL DIFFERENTIATION RULE: Do NOT repeat basic facts that any specialist would state (e.g. "827 orders affected", "OEE is 23.11%", "12 customers impacted"). Instead, focus ONLY on insights unique to YOUR domain: ${specialist.focus}. Your analysis must contain information that NO other specialist would provide. If another specialist with a different focus would write the same finding, it does NOT belong in your report.
 
 RESPONSE FORMAT: Pure JSON, NO Markdown, NO code blocks. Use these EXACT field names (they are German by design):
 {
   "domain": "${specialist.domain}",
-  "zahlenDatenFakten": "Detailed data summary with ALL relevant numbers: machine IDs, OEE values, load percentages, order counts, customer names, due dates, quantities. Be specific — cite every data point from the input.",
+  "zahlenDatenFakten": "Data summary with numbers SPECIFIC TO YOUR DOMAIN (${specialist.focus}). Do NOT list general facts like total orders or overall OEE — only data points that matter for your specific analysis perspective.",
   "kritischeFindings": [
     { "finding": "Specific finding with machine/order IDs", "evidence": "Exact numbers from the data", "severity": "hoch|mittel|niedrig", "affectedMachines": ["SGM-004"] }
   ],
@@ -530,15 +531,16 @@ RESPONSE FORMAT: Pure JSON, NO Markdown, NO code blocks. Use these EXACT field n
 
 Max 8 findings and 6 recommendations.
 CRITICAL: Write ALL text values in ENGLISH. The JSON keys are German but every string value MUST be in English. No German words in values.
-CRITICAL: zahlenDatenFakten must contain ALL specific numbers from the input data. Do not summarize — list them.`
+CRITICAL: zahlenDatenFakten must contain domain-specific numbers only. General impact numbers (total orders, total customers, overall OEE) belong in the moderator summary, not in your specialist report.`
     : `Du bist der ${specialist.displayName}. Dein Fokus: ${specialist.focus}.
-Analysiere die bereitgestellten Daten und beantworte die User-Frage aus deiner Fachperspektive.
+Analysiere die bereitgestellten Daten und beantworte die User-Frage AUSSCHLIESSLICH aus deiner Fachperspektive.
 WICHTIG: Verwende NUR Daten die tatsächlich in den bereitgestellten Daten stehen. Erfinde KEINE Personennamen, Jobtitel oder Organisationseinheiten.
+KRITISCHE DIFFERENZIERUNGS-REGEL: Wiederhole KEINE Basisfakten die jeder Spezialist nennen wuerde (z.B. "827 Auftraege betroffen", "OEE ist 23.11%", "12 Kunden betroffen"). Konzentriere dich NUR auf Erkenntnisse die einzigartig fuer DEINE Domaene sind: ${specialist.focus}. Deine Analyse muss Informationen enthalten die KEIN anderer Spezialist liefern wuerde. Wenn ein anderer Spezialist mit anderem Fokus dasselbe Finding schreiben wuerde, gehoert es NICHT in deinen Bericht.
 
 ANTWORT-FORMAT: Reines JSON, KEIN Markdown, KEINE Code-Blöcke.
 {
   "domain": "${specialist.domain}",
-  "zahlenDatenFakten": "Detaillierte Datenzusammenfassung mit ALLEN relevanten Zahlen: Maschinen-IDs, OEE-Werte, Auslastung, Auftragsanzahl, Kundennamen, Termine, Mengen. Spezifisch — jeden Datenpunkt aus dem Input zitieren.",
+  "zahlenDatenFakten": "Datenzusammenfassung mit Zahlen die SPEZIFISCH FUER DEINE DOMAENE sind (${specialist.focus}). KEINE allgemeinen Fakten wie Gesamtauftraege oder Gesamt-OEE — nur Datenpunkte die fuer deine spezifische Analyse-Perspektive relevant sind.",
   "kritischeFindings": [
     { "finding": "Konkretes Finding mit Maschinen-/Auftrags-IDs", "evidence": "Exakte Zahlen aus den Daten", "severity": "hoch|mittel|niedrig", "affectedMachines": ["SGM-004"] }
   ],
@@ -549,7 +551,7 @@ ANTWORT-FORMAT: Reines JSON, KEIN Markdown, KEINE Code-Blöcke.
 }
 
 Max 8 Findings und 6 Empfehlungen.
-KRITISCH: zahlenDatenFakten muss ALLE konkreten Zahlen aus den Input-Daten enthalten. Nicht zusammenfassen — auflisten.`;
+KRITISCH: zahlenDatenFakten darf NUR domaenen-spezifische Zahlen enthalten. Allgemeine Impact-Zahlen (Gesamtauftraege, Gesamtkunden, Gesamt-OEE) gehoeren in die Moderator-Zusammenfassung, nicht in deinen Spezialisten-Bericht.`;
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
