@@ -759,13 +759,6 @@ export default function FomiPage() {
           .fomi-light input::placeholder { color: rgba(123,45,133,0.4) !important; }
         `}</style>
       )}
-      {/* Light/Dark toggle — floating below global header */}
-      <button
-        onClick={() => setLightMode(m => !m)}
-        className={`fixed top-16 right-4 z-[200] px-3 py-1.5 rounded-lg text-xs font-bold border shadow-lg transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
-      >
-        {lightMode ? "Dark" : "Light"}
-      </button>
       {/* ── Top Bar ──────────────────────────────────────────────────── */}
       <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-white/[0.06]">
         <div className="flex items-center gap-4">
@@ -788,6 +781,12 @@ export default function FomiPage() {
           </button>
           <span className={`text-sm ${lightMode ? "text-gray-400" : "text-white/40"}`}>|</span>
           <span className={`text-sm font-medium ${lightMode ? "text-gray-600" : "text-white/60"}`}>FoMI 2026 Live Demo</span>
+          <button
+            onClick={() => setLightMode(m => !m)}
+            className={`ml-2 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
+          >
+            {lightMode ? "Dark" : "Light"}
+          </button>
           {/* Fallback indicator — subtle, only visible to presenter */}
           {fallbackMode && (
             <span className="text-[9px] text-white/20 ml-1">SAFE</span>
