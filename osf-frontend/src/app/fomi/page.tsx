@@ -748,10 +748,10 @@ export default function FomiPage() {
 
   return (
     <div className={`fixed inset-0 ${lightMode ? "text-gray-900" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
-      {/* Light/Dark toggle — floating top right */}
+      {/* Light/Dark toggle — floating below global header */}
       <button
         onClick={() => setLightMode(m => !m)}
-        className={`fixed top-2 right-14 z-[200] px-3 py-1 rounded-lg text-xs font-bold border shadow-lg transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
+        className={`fixed top-16 right-4 z-[200] px-3 py-1.5 rounded-lg text-xs font-bold border shadow-lg transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
       >
         {lightMode ? "Dark" : "Light"}
       </button>
