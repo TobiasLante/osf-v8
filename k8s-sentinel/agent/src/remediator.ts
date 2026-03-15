@@ -2,6 +2,7 @@ import { DiagnosedIssue } from './diagnoser';
 import { K8sClient } from './k8s-client';
 import { removeContainer } from './docker-client';
 import { insertIncident, updateIncidentStatus, Incident, isPodProtected, ClusterRow } from './db';
+import { findMatchingRunbook, executeRunbook } from './runbook-engine';
 import { broadcast } from './sse';
 import { config } from './config';
 import { logger } from './logger';
@@ -63,6 +64,26 @@ export async function remediateIssues(
       broadcast('fix_proposed', { ...incident, fix_status: 'proposed', cluster_id: clusterId });
       notify('fix_proposed', { ...incident, cluster_name: cluster?.name }).catch(() => {});
       continue;
+    }
+
+    // Check for matching runbook before standard remediation
+    try {
+      const runbook = await findMatchingRunbook(issue, clusterId);
+      if (runbook) {
+        logger.info({ runbook: runbook.name, issue: issue.type }, 'Runbook matched');
+        const success = await executeRunbook(runbook, issue, incident.id!, clusterId!, cluster!, k8sClient);
+        if (success) {
+          fixed++;
+          await updateIncidentStatus(incident.id!, 'fixed', new Date());
+          broadcast('fix_applied', { ...incident, fix_status: 'fixed', cluster_id: clusterId, runbook: runbook.name });
+          notify('fix_applied', { ...incident, cluster_name: cluster?.name, runbook: runbook.name }).catch(() => {});
+        } else {
+          await updateIncidentStatus(incident.id!, 'fix_failed', undefined);
+        }
+        continue;
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Runbook lookup failed, falling back to standard remediation');
     }
 
     if (issue.severity === 'harmless') {

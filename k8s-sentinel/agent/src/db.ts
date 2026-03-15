@@ -84,6 +84,50 @@ export async function initSchema(): Promise<void> {
         ALTER TABLE protected_pods ADD COLUMN cluster_id UUID REFERENCES clusters(id);
       EXCEPTION WHEN duplicate_column THEN NULL;
       END $$;
+
+      CREATE TABLE IF NOT EXISTS runbooks (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        cluster_id UUID REFERENCES clusters(id),
+        match_type TEXT,
+        match_namespace TEXT,
+        match_resource TEXT,
+        steps JSONB NOT NULL,
+        enabled BOOLEAN DEFAULT TRUE,
+        is_template BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS runbook_executions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        runbook_id UUID REFERENCES runbooks(id),
+        incident_id UUID REFERENCES incidents(id),
+        cluster_id UUID REFERENCES clusters(id),
+        status TEXT DEFAULT 'running',
+        steps_completed INT DEFAULT 0,
+        steps_total INT NOT NULL,
+        log JSONB DEFAULT '[]',
+        started_at TIMESTAMPTZ DEFAULT NOW(),
+        finished_at TIMESTAMPTZ
+      );
+
+      CREATE TABLE IF NOT EXISTS predictions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        cluster_id UUID REFERENCES clusters(id),
+        type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        namespace TEXT,
+        resource_kind TEXT,
+        resource_name TEXT,
+        description TEXT NOT NULL,
+        trend_data JSONB,
+        predicted_event TEXT,
+        estimated_eta TEXT,
+        acknowledged BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ
+      );
     `);
     logger.info('Database schema initialized');
   } finally {
@@ -231,7 +275,7 @@ export interface ProtectedPod {
 export async function getProtectedPods(clusterId?: string): Promise<ProtectedPod[]> {
   if (clusterId) {
     const result = await pool.query(
-      'SELECT * FROM protected_pods WHERE cluster_id = $1 ORDER BY namespace, pod_pattern',
+      'SELECT * FROM protected_pods WHERE cluster_id = $1 OR cluster_id IS NULL ORDER BY namespace, pod_pattern',
       [clusterId]
     );
     return result.rows;
@@ -254,7 +298,7 @@ export async function addProtectedPod(namespace: string, podPattern: string, rea
 export async function removeProtectedPod(namespace: string, podPattern: string, clusterId?: string): Promise<boolean> {
   if (clusterId) {
     const result = await pool.query(
-      'DELETE FROM protected_pods WHERE namespace = $1 AND pod_pattern = $2 AND cluster_id = $3',
+      'DELETE FROM protected_pods WHERE namespace = $1 AND pod_pattern = $2 AND (cluster_id = $3 OR cluster_id IS NULL)',
       [namespace, podPattern, clusterId]
     );
     return (result.rowCount || 0) > 0;
@@ -370,4 +414,286 @@ export async function insertNotificationConfig(type: string, url: string, events
 export async function deleteNotificationConfig(id: string): Promise<boolean> {
   const result = await pool.query('DELETE FROM notification_config WHERE id = $1', [id]);
   return (result.rowCount || 0) > 0;
+}
+
+// --- Predictions ---
+
+export interface Prediction {
+  id?: string;
+  cluster_id?: string;
+  type: string;
+  severity: string;
+  namespace?: string;
+  resource_kind?: string;
+  resource_name?: string;
+  description: string;
+  trend_data?: any;
+  predicted_event?: string;
+  estimated_eta?: string;
+  acknowledged?: boolean;
+  created_at?: Date;
+  expires_at?: Date;
+}
+
+export async function insertPrediction(p: Prediction): Promise<Prediction> {
+  const result = await pool.query(
+    `INSERT INTO predictions (cluster_id, type, severity, namespace, resource_kind, resource_name, description, trend_data, predicted_event, estimated_eta, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING *`,
+    [p.cluster_id || null, p.type, p.severity, p.namespace || null, p.resource_kind || null,
+     p.resource_name || null, p.description, p.trend_data ? JSON.stringify(p.trend_data) : null,
+     p.predicted_event || null, p.estimated_eta || null, p.expires_at || null]
+  );
+  return result.rows[0];
+}
+
+export async function getActivePredictions(clusterId?: string): Promise<Prediction[]> {
+  if (clusterId) {
+    const result = await pool.query(
+      `SELECT * FROM predictions
+       WHERE cluster_id = $1 AND acknowledged = FALSE AND (expires_at IS NULL OR expires_at > NOW())
+       ORDER BY created_at DESC`,
+      [clusterId]
+    );
+    return result.rows;
+  }
+  const result = await pool.query(
+    `SELECT * FROM predictions
+     WHERE acknowledged = FALSE AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY created_at DESC`
+  );
+  return result.rows;
+}
+
+export async function acknowledgePrediction(id: string): Promise<Prediction | null> {
+  const result = await pool.query(
+    `UPDATE predictions SET acknowledged = TRUE WHERE id = $1 RETURNING *`,
+    [id]
+  );
+  return result.rows[0] || null;
+}
+
+export async function expireOldPredictions(): Promise<number> {
+  const result = await pool.query(
+    `DELETE FROM predictions WHERE expires_at IS NOT NULL AND expires_at < NOW()`
+  );
+  return result.rowCount || 0;
+}
+
+export async function hasActivePrediction(clusterId: string, type: string, resourceName: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM predictions
+     WHERE cluster_id = $1 AND type = $2 AND resource_name = $3
+       AND acknowledged = FALSE AND (expires_at IS NULL OR expires_at > NOW())
+     LIMIT 1`,
+    [clusterId, type, resourceName]
+  );
+  return result.rows.length > 0;
+}
+
+// --- Runbooks ---
+
+export interface RunbookRow {
+  id: string;
+  name: string;
+  cluster_id?: string;
+  match_type?: string;
+  match_namespace?: string;
+  match_resource?: string;
+  steps: any[];
+  enabled: boolean;
+  is_template: boolean;
+}
+
+export async function getRunbooks(clusterId?: string): Promise<RunbookRow[]> {
+  if (clusterId) {
+    const result = await pool.query(
+      'SELECT * FROM runbooks WHERE cluster_id = $1 OR cluster_id IS NULL ORDER BY is_template DESC, name',
+      [clusterId]
+    );
+    return result.rows;
+  }
+  const result = await pool.query('SELECT * FROM runbooks ORDER BY is_template DESC, name');
+  return result.rows;
+}
+
+export async function getRunbookById(id: string): Promise<RunbookRow | null> {
+  const result = await pool.query('SELECT * FROM runbooks WHERE id = $1', [id]);
+  return result.rows[0] || null;
+}
+
+export async function insertRunbook(r: Partial<RunbookRow>): Promise<RunbookRow> {
+  const result = await pool.query(
+    `INSERT INTO runbooks (name, cluster_id, match_type, match_namespace, match_resource, steps, enabled, is_template)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
+    [r.name, r.cluster_id || null, r.match_type || null, r.match_namespace || null,
+     r.match_resource || null, JSON.stringify(r.steps || []), r.enabled !== false, r.is_template || false]
+  );
+  return result.rows[0];
+}
+
+export async function updateRunbook(id: string, updates: Partial<RunbookRow>): Promise<RunbookRow | null> {
+  const fields: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  if (updates.name !== undefined) { fields.push(`name = $${idx++}`); values.push(updates.name); }
+  if (updates.cluster_id !== undefined) { fields.push(`cluster_id = $${idx++}`); values.push(updates.cluster_id || null); }
+  if (updates.match_type !== undefined) { fields.push(`match_type = $${idx++}`); values.push(updates.match_type); }
+  if (updates.match_namespace !== undefined) { fields.push(`match_namespace = $${idx++}`); values.push(updates.match_namespace); }
+  if (updates.match_resource !== undefined) { fields.push(`match_resource = $${idx++}`); values.push(updates.match_resource); }
+  if (updates.steps !== undefined) { fields.push(`steps = $${idx++}`); values.push(JSON.stringify(updates.steps)); }
+  if (updates.enabled !== undefined) { fields.push(`enabled = $${idx++}`); values.push(updates.enabled); }
+  if (updates.is_template !== undefined) { fields.push(`is_template = $${idx++}`); values.push(updates.is_template); }
+
+  if (fields.length === 0) return getRunbookById(id);
+
+  fields.push(`updated_at = NOW()`);
+  values.push(id);
+  const result = await pool.query(
+    `UPDATE runbooks SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+    values
+  );
+  return result.rows[0] || null;
+}
+
+export async function deleteRunbook(id: string): Promise<boolean> {
+  const result = await pool.query('DELETE FROM runbooks WHERE id = $1', [id]);
+  return (result.rowCount || 0) > 0;
+}
+
+export async function getEnabledRunbooks(clusterId?: string): Promise<RunbookRow[]> {
+  if (clusterId) {
+    const result = await pool.query(
+      'SELECT * FROM runbooks WHERE enabled = TRUE AND (cluster_id = $1 OR cluster_id IS NULL) ORDER BY name',
+      [clusterId]
+    );
+    return result.rows;
+  }
+  const result = await pool.query('SELECT * FROM runbooks WHERE enabled = TRUE ORDER BY name');
+  return result.rows;
+}
+
+// --- Runbook Executions ---
+
+export interface RunbookExecutionRow {
+  id: string;
+  runbook_id: string;
+  incident_id: string;
+  cluster_id?: string;
+  status: string;
+  steps_completed: number;
+  steps_total: number;
+  log: any[];
+  started_at: Date;
+  finished_at?: Date;
+}
+
+export async function insertExecution(e: Partial<RunbookExecutionRow>): Promise<RunbookExecutionRow> {
+  const result = await pool.query(
+    `INSERT INTO runbook_executions (runbook_id, incident_id, cluster_id, status, steps_completed, steps_total, log)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [e.runbook_id, e.incident_id, e.cluster_id || null, e.status || 'running',
+     e.steps_completed || 0, e.steps_total || 0, JSON.stringify(e.log || [])]
+  );
+  return result.rows[0];
+}
+
+export async function updateExecution(id: string, updates: Partial<RunbookExecutionRow>): Promise<RunbookExecutionRow | null> {
+  const fields: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  if (updates.status !== undefined) { fields.push(`status = $${idx++}`); values.push(updates.status); }
+  if (updates.steps_completed !== undefined) { fields.push(`steps_completed = $${idx++}`); values.push(updates.steps_completed); }
+  if (updates.log !== undefined) { fields.push(`log = $${idx++}`); values.push(JSON.stringify(updates.log)); }
+  if (updates.finished_at !== undefined) { fields.push(`finished_at = $${idx++}`); values.push(updates.finished_at); }
+
+  if (fields.length === 0) return getExecutionById(id);
+
+  values.push(id);
+  const result = await pool.query(
+    `UPDATE runbook_executions SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+    values
+  );
+  return result.rows[0] || null;
+}
+
+export async function getExecutions(clusterId?: string, limit = 50): Promise<RunbookExecutionRow[]> {
+  if (clusterId) {
+    const result = await pool.query(
+      `SELECT re.*, rb.name as runbook_name FROM runbook_executions re
+       LEFT JOIN runbooks rb ON re.runbook_id = rb.id
+       WHERE re.cluster_id = $1 ORDER BY re.started_at DESC LIMIT $2`,
+      [clusterId, limit]
+    );
+    return result.rows;
+  }
+  const result = await pool.query(
+    `SELECT re.*, rb.name as runbook_name FROM runbook_executions re
+     LEFT JOIN runbooks rb ON re.runbook_id = rb.id
+     ORDER BY re.started_at DESC LIMIT $1`,
+    [limit]
+  );
+  return result.rows;
+}
+
+export async function getExecutionById(id: string): Promise<RunbookExecutionRow | null> {
+  const result = await pool.query(
+    `SELECT re.*, rb.name as runbook_name FROM runbook_executions re
+     LEFT JOIN runbooks rb ON re.runbook_id = rb.id
+     WHERE re.id = $1`,
+    [id]
+  );
+  return result.rows[0] || null;
+}
+
+// --- Seed Runbook Templates ---
+
+export async function seedRunbookTemplates(): Promise<void> {
+  const existing = await pool.query('SELECT id FROM runbooks WHERE is_template = TRUE LIMIT 1');
+  if (existing.rows.length > 0) return;
+
+  logger.info('Seeding default runbook templates');
+
+  // 1. OOM Escalation
+  await insertRunbook({
+    name: 'OOM Escalation',
+    match_type: 'OOMKilled',
+    is_template: true,
+    steps: [
+      { type: 'check_condition', params: { check: 'restartCount > 3' }, on_failure: 'abort' },
+      { type: 'delete_pod', params: {} },
+      { type: 'wait', params: { seconds: 30 } },
+      { type: 'check_condition', params: { check: 'pod_ready' }, on_failure: 'continue' },
+      { type: 'rollback_deployment', params: {}, on_failure: 'continue' },
+      { type: 'notify', params: { message: 'OOM escalation completed for $resource in $namespace' } },
+    ],
+  });
+
+  // 2. CrashLoop Recovery
+  await insertRunbook({
+    name: 'CrashLoop Recovery',
+    match_type: 'CrashLoopBackOff',
+    is_template: true,
+    steps: [
+      { type: 'delete_pod', params: {} },
+      { type: 'wait', params: { seconds: 60 } },
+      { type: 'check_condition', params: { check: 'pod_ready' }, on_failure: 'continue' },
+      { type: 'notify', params: { message: 'Manual intervention needed for $resource in $namespace' }, on_failure: 'continue' },
+    ],
+  });
+
+  // 3. Stale Job Cleanup
+  await insertRunbook({
+    name: 'Stale Job Cleanup',
+    match_type: 'FailedJob',
+    is_template: true,
+    steps: [
+      { type: 'delete_pod', params: {} },
+      { type: 'notify', params: { message: 'Failed job $resource cleaned up in $namespace' } },
+    ],
+  });
 }

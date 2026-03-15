@@ -6,8 +6,12 @@ import {
   insertSnapshot, getLatestSnapshot, getProtectedPods, addProtectedPod,
   removeProtectedPod, getClusters, getClusterById, insertCluster,
   updateCluster, deleteCluster, getNotificationConfigs, insertNotificationConfig,
-  deleteNotificationConfig, ClusterRow,
+  deleteNotificationConfig, getActivePredictions, acknowledgePrediction, ClusterRow,
+  getRunbooks, getRunbookById, insertRunbook, updateRunbook, deleteRunbook,
+  getExecutions, getExecutionById, seedRunbookTemplates,
 } from './db';
+import { dryRunRunbook } from './runbook-engine';
+import { runPredictions } from './predictor';
 import { addClient, broadcast } from './sse';
 import { ClusterSnapshot, createK8sClient, K8sClient } from './k8s-client';
 import { fetchDockerSnapshot, removeContainer, restartContainer } from './docker-client';
@@ -306,6 +310,87 @@ app.post('/api/notifications/test', async (_req, res) => {
   }
 });
 
+// --- Predictions ---
+
+app.get('/api/predictions', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    const predictions = await getActivePredictions(clusterId || undefined);
+    res.json(predictions);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/predictions/:id/acknowledge', async (req, res) => {
+  try {
+    const prediction = await acknowledgePrediction(req.params.id);
+    if (!prediction) return res.status(404).json({ error: 'Not found' });
+    broadcast('prediction_acknowledged', { id: prediction.id });
+    res.json(prediction);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Runbooks ---
+
+app.get('/api/runbooks', async (req, res) => {
+  try { res.json(await getRunbooks(req.query.cluster_id as string)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/runbooks/:id', async (req, res) => {
+  try {
+    const rb = await getRunbookById(req.params.id);
+    if (!rb) return res.status(404).json({ error: 'Not found' });
+    res.json(rb);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/runbooks', async (req, res) => {
+  try { res.json(await insertRunbook(req.body)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/runbooks/:id', async (req, res) => {
+  try {
+    const updated = await updateRunbook(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    res.json(updated);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/runbooks/:id', async (req, res) => {
+  try { res.json({ deleted: await deleteRunbook(req.params.id) }); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/runbooks/:id/test', async (req, res) => {
+  try {
+    const rb = await getRunbookById(req.params.id);
+    if (!rb) return res.status(404).json({ error: 'Not found' });
+    const mockIssue = { type: rb.match_type || '', severity: 'medium' as const, namespace: 'test', resourceKind: 'Pod', resourceName: 'test-pod', description: 'Dry run test', diagnosis: '', proposedFix: '' };
+    const result = await dryRunRunbook(rb as any, mockIssue);
+    res.json({ steps: result });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Runbook Executions ---
+
+app.get('/api/runbook-executions', async (req, res) => {
+  try { res.json(await getExecutions(req.query.cluster_id as string)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/runbook-executions/:id', async (req, res) => {
+  try {
+    const ex = await getExecutionById(req.params.id);
+    if (!ex) return res.status(404).json({ error: 'Not found' });
+    res.json(ex);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // --- Check Loop ---
 
 function initClusterClient(cluster: ClusterRow): void {
@@ -387,6 +472,9 @@ async function checkLoopForCluster(clusterId: string, cluster: any): Promise<voi
       ts: new Date().toISOString(),
     });
 
+    // Run predictive analysis asynchronously
+    setImmediate(() => runPredictions(clusterId, snapshot).catch(err => logger.error({ err: err.message }, 'Prediction error')));
+
     logger.info({
       cluster: clusterRow.name,
       pods: snapshot.pods.length,
@@ -419,6 +507,7 @@ async function seedDefaultCluster(): Promise<void> {
 async function main(): Promise<void> {
   await initSchema();
   await seedDefaultCluster();
+  await seedRunbookTemplates();
 
   // Load all clusters and start loops
   const clusters = await getClusters();
