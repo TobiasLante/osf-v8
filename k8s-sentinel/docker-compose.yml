@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sentinel
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  agent:
+    build: ./agent
+    ports:
+      - "8888:8080"
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+    volumes:
+      - /home/tlante/.kube/config:/root/.kube/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_AGENT_URL: ${NEXT_PUBLIC_AGENT_URL:-http://localhost:8888}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - agent
+    restart: unless-stopped
+
+volumes:
+  pgdata:
