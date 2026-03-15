@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useCluster } from '../context/ClusterContext';
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8080';
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
 interface Pod {
   name: string;
@@ -37,6 +38,7 @@ const patternPresets = [
 ];
 
 export default function PodOverview() {
+  const { activeClusterId, activeCluster } = useCluster();
   const [pods, setPods] = useState<Pod[]>([]);
   const [rules, setRules] = useState<ProtectionRule[]>([]);
   const [nsFilter, setNsFilter] = useState<string>('all');
@@ -46,24 +48,30 @@ export default function PodOverview() {
   const [protectPattern, setProtectPattern] = useState('');
   const [protectReason, setProtectReason] = useState('');
 
+  const isDocker = activeCluster?.type === 'docker';
+  const entityLabel = isDocker ? 'Containers' : 'Pods';
+  const entityLabelSingular = isDocker ? 'Container' : 'Pod';
+
   useEffect(() => {
     fetchPods();
     fetchRules();
     const es = new EventSource(`${AGENT_URL}/api/stream`);
     es.addEventListener('check_complete', () => fetchPods());
     return () => es.close();
-  }, []);
+  }, [activeClusterId]);
 
   async function fetchPods() {
     try {
-      const res = await fetch(`${AGENT_URL}/api/pods`);
+      const query = activeClusterId ? `?cluster_id=${activeClusterId}` : '';
+      const res = await fetch(`${AGENT_URL}/api/pods${query}`);
       setPods(await res.json());
     } catch {}
   }
 
   async function fetchRules() {
     try {
-      const res = await fetch(`${AGENT_URL}/api/protected-pods`);
+      const query = activeClusterId ? `?cluster_id=${activeClusterId}` : '';
+      const res = await fetch(`${AGENT_URL}/api/protected-pods${query}`);
       setRules(await res.json());
     } catch {}
   }
@@ -118,7 +126,7 @@ export default function PodOverview() {
       .filter(p => !protectNs || protectNs === '*' || p.namespace === protectNs)
       .map(p => {
         const parts = p.name.split('-');
-        // Typical K8s: name-replicaset-pod → take first N-2 parts as prefix
+        // Typical K8s: name-replicaset-pod -> take first N-2 parts as prefix
         if (parts.length >= 3) return parts.slice(0, -2).join('-') + '-*';
         if (parts.length === 2) return parts[0] + '-*';
         return p.name;
@@ -130,7 +138,7 @@ export default function PodOverview() {
     <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-800 col-span-full">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase">
-          All Pods
+          All {entityLabel}
           <span className="ml-2 text-xs text-gray-400 dark:text-gray-600">({filtered.length})</span>
         </h2>
         <div className="flex gap-2 items-center">
@@ -185,7 +193,7 @@ export default function PodOverview() {
               {rules.filter(r => r.pod_pattern !== '*').length > 0 && (
                 <details className="mt-1">
                   <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-400">
-                    + {rules.filter(r => r.pod_pattern !== '*').length} individual pod rules
+                    + {rules.filter(r => r.pod_pattern !== '*').length} individual {entityLabelSingular.toLowerCase()} rules
                   </summary>
                   <div className="mt-1 space-y-1">
                     {rules.filter(r => r.pod_pattern !== '*').map(r => (
@@ -209,11 +217,11 @@ export default function PodOverview() {
         </div>
       )}
 
-      {/* Protection rule modal — with dropdowns */}
+      {/* Protection rule modal -- with dropdowns */}
       {showProtectModal && (
         <div className="bg-amber-50 dark:bg-gray-800 rounded p-3 mb-3 border border-amber-200 dark:border-amber-600/30">
           <h3 className="text-sm font-semibold text-amber-600 dark:text-amber-400 mb-2">Add Protection Rule</h3>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">Protected pods will only be remediated with manual approval.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">Protected {entityLabel.toLowerCase()} will only be remediated with manual approval.</p>
           <div className="grid grid-cols-3 gap-2 mb-2">
             {/* Namespace dropdown */}
             <select
@@ -234,11 +242,11 @@ export default function PodOverview() {
                 value={protectPattern}
                 onChange={e => setProtectPattern(e.target.value)}
                 list="pattern-suggestions"
-                placeholder="Pod pattern"
+                placeholder={`${entityLabelSingular} pattern`}
                 className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-sm text-gray-800 dark:text-gray-200"
               />
               <datalist id="pattern-suggestions">
-                <option value="*">All pods in namespace</option>
+                <option value="*">All {entityLabel.toLowerCase()} in namespace</option>
                 {podPrefixes.map(p => (
                   <option key={p} value={p}>{p}</option>
                 ))}
@@ -253,8 +261,8 @@ export default function PodOverview() {
             >
               <option value="">-- Reason --</option>
               <option value="Production workload">Production workload</option>
-              <option value="Live system — no auto-fix">Live system — no auto-fix</option>
-              <option value="Database — handle manually">Database — handle manually</option>
+              <option value="Live system — no auto-fix">Live system -- no auto-fix</option>
+              <option value="Database — handle manually">Database -- handle manually</option>
               <option value="Stateful service">Stateful service</option>
               <option value="External dependency">External dependency</option>
             </select>
@@ -272,7 +280,7 @@ export default function PodOverview() {
           <thead className="text-gray-400 dark:text-gray-500 text-xs uppercase sticky top-0 bg-white dark:bg-gray-900">
             <tr>
               <th className="text-left py-1 px-2">Protected</th>
-              <th className="text-left py-1 px-2">Pod</th>
+              <th className="text-left py-1 px-2">{entityLabelSingular}</th>
               <th className="text-left py-1 px-2">Namespace</th>
               <th className="text-left py-1 px-2">Phase</th>
               <th className="text-left py-1 px-2">Ready</th>

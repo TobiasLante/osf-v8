@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useCluster } from '../context/ClusterContext';
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8080';
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
 interface Incident {
   id: string;
@@ -34,6 +35,7 @@ const statusColors: Record<string, string> = {
 };
 
 export default function IssueTimeline() {
+  const { activeClusterId } = useCluster();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filter, setFilter] = useState<string>('all');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -47,11 +49,12 @@ export default function IssueTimeline() {
     es.addEventListener('fix_proposed', () => fetchIncidents());
     es.addEventListener('fix_rejected', () => fetchIncidents());
     return () => es.close();
-  }, []);
+  }, [activeClusterId]);
 
   async function fetchIncidents() {
     try {
-      const res = await fetch(`${AGENT_URL}/api/incidents`);
+      const query = activeClusterId ? `?cluster_id=${activeClusterId}` : '';
+      const res = await fetch(`${AGENT_URL}/api/incidents${query}`);
       setIncidents(await res.json());
     } catch {}
   }

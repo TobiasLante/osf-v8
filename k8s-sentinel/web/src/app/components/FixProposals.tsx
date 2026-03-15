@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useCluster } from '../context/ClusterContext';
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8080';
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
 interface Incident {
   id: string;
@@ -18,6 +19,7 @@ interface Incident {
 }
 
 export default function FixProposals() {
+  const { activeClusterId } = useCluster();
   const [proposals, setProposals] = useState<Incident[]>([]);
   const [loading, setLoading] = useState<Set<string>>(new Set());
 
@@ -29,11 +31,13 @@ export default function FixProposals() {
     es.addEventListener('fix_applied', () => fetchProposals());
     es.addEventListener('fix_rejected', () => fetchProposals());
     return () => es.close();
-  }, []);
+  }, [activeClusterId]);
 
   async function fetchProposals() {
     try {
-      const res = await fetch(`${AGENT_URL}/api/incidents?status=proposed`);
+      const params = new URLSearchParams({ status: 'proposed' });
+      if (activeClusterId) params.set('cluster_id', activeClusterId);
+      const res = await fetch(`${AGENT_URL}/api/incidents?${params}`);
       setProposals(await res.json());
     } catch {}
   }

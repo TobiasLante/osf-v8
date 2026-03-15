@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useCluster } from '../context/ClusterContext';
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8080';
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
 interface NodeInfo {
   name: string;
@@ -24,6 +25,7 @@ interface ClusterStatus {
 }
 
 export default function ClusterOverview() {
+  const { activeClusterId, activeCluster } = useCluster();
   const [status, setStatus] = useState<ClusterStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,11 +36,12 @@ export default function ClusterOverview() {
     es.addEventListener('cluster_status', () => fetchStatus());
     es.addEventListener('check_complete', () => fetchStatus());
     return () => es.close();
-  }, []);
+  }, [activeClusterId]);
 
   async function fetchStatus() {
     try {
-      const res = await fetch(`${AGENT_URL}/api/status`);
+      const query = activeClusterId ? `?cluster_id=${activeClusterId}` : '';
+      const res = await fetch(`${AGENT_URL}/api/status${query}`);
       const data = await res.json();
       setStatus(data);
       setError(null);
@@ -52,9 +55,24 @@ export default function ClusterOverview() {
   const totalNodes = status?.nodes?.length || 0;
   const readyNodes = status?.nodes?.filter((n: any) => n.ready).length || 0;
 
+  const clusterTypeLabel = activeCluster?.type === 'docker' ? 'Docker' : 'K8s';
+
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-800">
-      <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Cluster Overview</h2>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase">Cluster Overview</h2>
+        {activeCluster && (
+          <span
+            className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+              activeCluster.type === 'k8s'
+                ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                : 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400'
+            }`}
+          >
+            {clusterTypeLabel}
+          </span>
+        )}
+      </div>
 
       {error && <p className="text-red-500 dark:text-red-400 text-sm mb-2">Agent unavailable: {error}</p>}
 

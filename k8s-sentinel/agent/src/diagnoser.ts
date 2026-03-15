@@ -1,5 +1,5 @@
 import { DetectedIssue } from './checker';
-import { getPodLogs, ClusterSnapshot, EventInfo } from './k8s-client';
+import { ClusterSnapshot, EventInfo } from './k8s-client';
 import { llmChat } from './llm-client';
 import { logger } from './logger';
 
@@ -27,10 +27,7 @@ export async function diagnoseIssues(
 
     // For medium/critical: gather context and ask LLM
     try {
-      let logs = '';
-      if (issue.resourceKind === 'Pod' && issue.namespace) {
-        logs = await getPodLogs(issue.namespace, issue.resourceName, 50);
-      }
+      const logs = ''; // Pod logs require cluster-specific client — using events only
 
       const relevantEvents = snapshot.events
         .filter(e => e.involvedObject.name === issue.resourceName)

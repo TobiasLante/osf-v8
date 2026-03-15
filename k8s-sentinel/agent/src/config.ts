@@ -5,6 +5,8 @@ export const config: {
   k8s: { kubeconfigPath: string; context: string };
   db: { host: string; port: number; database: string; user: string; password: string };
   llm: { url: string; model: string };
+  notifications: { slackWebhookUrl: string };
+  docker: { socketPath: string };
 } = {
   port: parseInt(process.env.PORT || '8080'),
   checkIntervalMs: parseInt(process.env.CHECK_INTERVAL_MS || '60000'),
@@ -26,5 +28,13 @@ export const config: {
   llm: {
     url: process.env.LLM_URL || 'http://192.168.178.120:5001',
     model: process.env.LLM_MODEL || 'qwen2.5-32b-instruct',
+  },
+
+  notifications: {
+    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || '',
+  },
+
+  docker: {
+    socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
   },
 };

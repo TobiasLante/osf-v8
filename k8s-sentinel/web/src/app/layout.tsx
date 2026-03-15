@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import ThemeToggle from './components/ThemeToggle';
 import ModeSelector from './components/ModeSelector';
+import AppShell from './components/AppShell';
+import NavSettings from './components/NavSettings';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,10 +22,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <span className="text-xs text-gray-400 dark:text-gray-500">AI-powered K8s Monitor</span>
           <div className="ml-auto flex items-center gap-3">
             <ModeSelector />
+            <NavSettings />
             <ThemeToggle />
           </div>
         </nav>
-        <main className="p-4 bg-gray-50 dark:bg-gray-950 min-h-screen">{children}</main>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

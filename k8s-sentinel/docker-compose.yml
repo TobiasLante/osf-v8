@@ -26,6 +26,7 @@ services:
       DB_HOST: postgres
     volumes:
       - /home/tlante/.kube/config:/root/.kube/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       postgres:
         condition: service_healthy

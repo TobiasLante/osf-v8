@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useCluster } from '../context/ClusterContext';
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8080';
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -17,6 +18,7 @@ const suggestions = [
 ];
 
 export default function ChatPanel() {
+  const { activeClusterId, activeCluster } = useCluster();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,12 @@ export default function ChatPanel() {
       const res = await fetch(`${AGENT_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({
+          message: msg,
+          cluster_id: activeClusterId,
+          cluster_name: activeCluster?.name,
+          cluster_type: activeCluster?.type,
+        }),
       });
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer || data.error || 'No response' }]);
@@ -51,7 +58,14 @@ export default function ChatPanel() {
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-800 flex flex-col h-full">
-      <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Cluster Chat</h2>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase">Cluster Chat</h2>
+        {activeCluster && (
+          <span className="text-xs text-gray-400 dark:text-gray-500">
+            ({activeCluster.name} - {activeCluster.type})
+          </span>
+        )}
+      </div>
 
       <div className="flex-1 overflow-y-auto space-y-2 mb-3 min-h-[200px] max-h-[400px]">
         {messages.length === 0 && (

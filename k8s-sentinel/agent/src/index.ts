@@ -1,43 +1,61 @@
 import express from 'express';
 import { config } from './config';
 import { logger } from './logger';
-import { initSchema, getIncidents, getIncidentById, getCheckRuns, insertCheckRun, insertSnapshot, getLatestSnapshot, getProtectedPods, addProtectedPod, removeProtectedPod } from './db';
+import {
+  initSchema, getIncidents, getIncidentById, getCheckRuns, insertCheckRun,
+  insertSnapshot, getLatestSnapshot, getProtectedPods, addProtectedPod,
+  removeProtectedPod, getClusters, getClusterById, insertCluster,
+  updateCluster, deleteCluster, getNotificationConfigs, insertNotificationConfig,
+  deleteNotificationConfig, ClusterRow,
+} from './db';
 import { addClient, broadcast } from './sse';
-import { fetchClusterSnapshot, ClusterSnapshot } from './k8s-client';
+import { ClusterSnapshot, createK8sClient, K8sClient } from './k8s-client';
+import { fetchDockerSnapshot, removeContainer, restartContainer } from './docker-client';
 import { runChecks } from './checker';
 import { diagnoseIssues } from './diagnoser';
 import { remediateIssues, approveIncident, rejectIncident } from './remediator';
 import { llmChat } from './llm-client';
+import { startClusterLoop, stopClusterLoop, stopAllLoops, getActiveLoops } from './cluster-manager';
+import { notify } from './notifier';
 
 const app = express();
 app.use(express.json());
 
-// CORS for web UI
+// CORS
 app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   next();
 });
 app.options('*', (_req, res) => res.sendStatus(204));
 
-let cachedSnapshot: ClusterSnapshot | null = null;
-let checkLoopRunning = false;
+// Per-cluster cached snapshots
+const cachedSnapshots = new Map<string, ClusterSnapshot>();
+// Per-cluster K8s clients
+const k8sClients = new Map<string, K8sClient>();
+// Track running loops to prevent concurrent runs per cluster
+const loopRunning = new Set<string>();
 
-// --- Routes ---
+// --- Health ---
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', mode: config.remediationMode, uptime: process.uptime() });
+  res.json({ status: 'ok', mode: config.remediationMode, uptime: process.uptime(), loops: getActiveLoops().length });
 });
 
-app.get('/api/status', async (_req, res) => {
+// --- Cluster Status ---
+
+app.get('/api/status', async (req, res) => {
   try {
-    const snapshot = cachedSnapshot || await getLatestSnapshot();
+    const clusterId = req.query.cluster_id as string;
+    const snapshot = (clusterId ? cachedSnapshots.get(clusterId) : null) || await getLatestSnapshot(clusterId);
     res.json(snapshot || { message: 'No snapshot yet — first check cycle pending' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// --- Incidents ---
 
 app.get('/api/incidents', async (req, res) => {
   try {
@@ -45,6 +63,7 @@ app.get('/api/incidents', async (req, res) => {
       severity: req.query.severity as string,
       fix_status: req.query.status as string,
       namespace: req.query.namespace as string,
+      cluster_id: req.query.cluster_id as string,
     });
     res.json(incidents);
   } catch (err: any) {
@@ -82,22 +101,29 @@ app.post('/api/incidents/:id/reject', async (req, res) => {
   }
 });
 
+// --- SSE ---
+
 app.get('/api/stream', (req, res) => {
   addClient(res);
 });
 
+// --- Chat ---
+
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, cluster_id } = req.body;
     if (!message) return res.status(400).json({ error: 'message required' });
 
-    const snapshot = cachedSnapshot;
+    const snapshot = cluster_id ? cachedSnapshots.get(cluster_id) : cachedSnapshots.values().next().value;
+    const cluster = cluster_id ? await getClusterById(cluster_id) : null;
+    const clusterInfo = cluster ? `Cluster: ${cluster.name} (${cluster.type})` : '';
+
     const context = snapshot
-      ? `Current cluster state:\n- Nodes: ${snapshot.nodes.length} (${snapshot.nodes.filter(n => n.ready).length} ready)\n- Pods: ${snapshot.pods.length} (${snapshot.pods.filter(p => p.ready).length} healthy)\n- Namespaces: ${snapshot.namespaces.map(n => `${n.name}(${n.podsHealthy}/${n.podsTotal})`).join(', ')}\n- Recent events: ${snapshot.events.slice(0, 10).map(e => `${e.reason}: ${e.involvedObject.kind}/${e.involvedObject.name}`).join(', ')}`
+      ? `${clusterInfo}\nCurrent state:\n- Nodes: ${snapshot.nodes.length} (${snapshot.nodes.filter(n => n.ready).length} ready)\n- Pods: ${snapshot.pods.length} (${snapshot.pods.filter(p => p.ready).length} healthy)\n- Namespaces: ${snapshot.namespaces.map(n => `${n.name}(${n.podsHealthy}/${n.podsTotal})`).join(', ')}\n- Recent events: ${snapshot.events.slice(0, 10).map(e => `${e.reason}: ${e.involvedObject.kind}/${e.involvedObject.name}`).join(', ')}`
       : 'No cluster data available yet.';
 
     const answer = await llmChat([
-      { role: 'system', content: `You are a Kubernetes cluster assistant. Answer questions about the cluster status concisely.\n\n${context}` },
+      { role: 'system', content: `You are a Kubernetes/Docker cluster assistant. Answer questions about the cluster status concisely.\n\n${context}` },
       { role: 'user', content: message },
     ], 512);
 
@@ -109,9 +135,9 @@ app.post('/api/chat', async (req, res) => {
 
 // --- Protected Pods ---
 
-app.get('/api/protected-pods', async (_req, res) => {
+app.get('/api/protected-pods', async (req, res) => {
   try {
-    res.json(await getProtectedPods());
+    res.json(await getProtectedPods(req.query.cluster_id as string));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -119,9 +145,9 @@ app.get('/api/protected-pods', async (_req, res) => {
 
 app.post('/api/protected-pods', async (req, res) => {
   try {
-    const { namespace, podPattern, reason } = req.body;
+    const { namespace, podPattern, reason, cluster_id } = req.body;
     if (!namespace || !podPattern) return res.status(400).json({ error: 'namespace and podPattern required' });
-    const result = await addProtectedPod(namespace, podPattern, reason);
+    const result = await addProtectedPod(namespace, podPattern, reason, cluster_id);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -130,9 +156,9 @@ app.post('/api/protected-pods', async (req, res) => {
 
 app.delete('/api/protected-pods', async (req, res) => {
   try {
-    const { namespace, podPattern } = req.body;
+    const { namespace, podPattern, cluster_id } = req.body;
     if (!namespace || !podPattern) return res.status(400).json({ error: 'namespace and podPattern required' });
-    const ok = await removeProtectedPod(namespace, podPattern);
+    const ok = await removeProtectedPod(namespace, podPattern, cluster_id);
     res.json({ deleted: ok });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -141,11 +167,12 @@ app.delete('/api/protected-pods', async (req, res) => {
 
 // --- Pods List ---
 
-app.get('/api/pods', async (_req, res) => {
+app.get('/api/pods', async (req, res) => {
   try {
-    const snapshot = cachedSnapshot || await getLatestSnapshot();
+    const clusterId = req.query.cluster_id as string;
+    const snapshot = (clusterId ? cachedSnapshots.get(clusterId) : null) || await getLatestSnapshot(clusterId);
     if (!snapshot?.pods) return res.json([]);
-    const protections = await getProtectedPods();
+    const protections = await getProtectedPods(clusterId);
     const pods = snapshot.pods.map((p: any) => ({
       ...p,
       protected: protections.some((prot: any) => {
@@ -178,10 +205,102 @@ app.post('/api/mode', (req, res) => {
   res.json({ mode });
 });
 
-app.get('/api/checks', async (_req, res) => {
+app.get('/api/checks', async (req, res) => {
   try {
-    const runs = await getCheckRuns();
+    const runs = await getCheckRuns(20, req.query.cluster_id as string);
     res.json(runs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Clusters CRUD ---
+
+app.get('/api/clusters', async (_req, res) => {
+  try {
+    res.json(await getClusters());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/clusters', async (req, res) => {
+  try {
+    const { name, type, config: clusterConfig } = req.body;
+    if (!name || !type || !clusterConfig) return res.status(400).json({ error: 'name, type, config required' });
+    const cluster = await insertCluster(name, type, clusterConfig);
+    // Start check loop for new cluster
+    initClusterClient(cluster);
+    startClusterLoop(cluster, checkLoopForCluster, config.checkIntervalMs);
+    broadcast('cluster_added', { id: cluster.id, name: cluster.name, type: cluster.type });
+    res.json(cluster);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/clusters/:id', async (req, res) => {
+  try {
+    const updated = await updateCluster(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    // Restart loop if config changed
+    stopClusterLoop(updated.id);
+    if (updated.enabled) {
+      initClusterClient(updated);
+      startClusterLoop(updated, checkLoopForCluster, config.checkIntervalMs);
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/clusters/:id', async (req, res) => {
+  try {
+    stopClusterLoop(req.params.id);
+    k8sClients.delete(req.params.id);
+    const ok = await deleteCluster(req.params.id);
+    if (ok) broadcast('cluster_removed', { id: req.params.id });
+    res.json({ deleted: ok });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Notifications ---
+
+app.get('/api/notifications/config', async (_req, res) => {
+  try {
+    res.json(await getNotificationConfigs());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/notifications/config', async (req, res) => {
+  try {
+    const { type, url, events } = req.body;
+    if (!type || !url) return res.status(400).json({ error: 'type and url required' });
+    const nc = await insertNotificationConfig(type, url, events || []);
+    res.json(nc);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/notifications/config/:id', async (req, res) => {
+  try {
+    const ok = await deleteNotificationConfig(req.params.id);
+    res.json({ deleted: ok });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/notifications/test', async (_req, res) => {
+  try {
+    await notify('test', { description: 'Test notification from k8s-sentinel', severity: 'harmless' });
+    res.json({ sent: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -189,19 +308,39 @@ app.get('/api/checks', async (_req, res) => {
 
 // --- Check Loop ---
 
-async function checkLoop(): Promise<void> {
-  if (checkLoopRunning) return;
-  checkLoopRunning = true;
+function initClusterClient(cluster: ClusterRow): void {
+  if (cluster.type === 'k8s') {
+    const { kubeconfigPath, context } = cluster.config as { kubeconfigPath: string; context: string };
+    k8sClients.set(cluster.id, createK8sClient(kubeconfigPath, context));
+  }
+  // Docker clusters don't need a persistent client
+}
+
+async function checkLoopForCluster(clusterId: string, cluster: any): Promise<void> {
+  if (loopRunning.has(clusterId)) return;
+  loopRunning.add(clusterId);
 
   try {
-    logger.info('Check loop started');
-    broadcast('check_start', { ts: new Date().toISOString() });
+    const clusterRow = cluster as ClusterRow;
+    logger.info({ cluster: clusterRow.name, type: clusterRow.type }, 'Check loop started');
+    broadcast('check_start', { cluster_id: clusterId, cluster_name: clusterRow.name, ts: new Date().toISOString() });
 
-    // 1. Fetch cluster snapshot
-    const snapshot = await fetchClusterSnapshot();
-    cachedSnapshot = snapshot;
-    await insertSnapshot(snapshot);
+    // 1. Fetch snapshot based on cluster type
+    let snapshot: ClusterSnapshot;
+    if (clusterRow.type === 'docker') {
+      const socketPath = (clusterRow.config as any).socketPath || config.docker.socketPath;
+      snapshot = await fetchDockerSnapshot(socketPath);
+    } else {
+      const client = k8sClients.get(clusterId);
+      if (!client) throw new Error(`No K8s client for cluster ${clusterRow.name}`);
+      snapshot = await client.fetchClusterSnapshot();
+    }
+
+    cachedSnapshots.set(clusterId, snapshot);
+    await insertSnapshot(snapshot, clusterId);
     broadcast('cluster_status', {
+      cluster_id: clusterId,
+      cluster_name: clusterRow.name,
       nodes: snapshot.nodes.length,
       nodesReady: snapshot.nodes.filter(n => n.ready).length,
       pods: snapshot.pods.length,
@@ -213,11 +352,12 @@ async function checkLoop(): Promise<void> {
     // 2. Run checks
     const issues = runChecks(snapshot);
 
-    // 3. Diagnose
+    // 3. Diagnose (uses LLM for medium/critical)
     const diagnosed = await diagnoseIssues(issues, snapshot);
 
     // 4+5. Remediate
-    const result = await remediateIssues(diagnosed);
+    const k8sClient = k8sClients.get(clusterId);
+    const result = await remediateIssues(diagnosed, clusterId, clusterRow, k8sClient);
 
     // 6. Report
     const podsHealthy = snapshot.pods.filter(p => p.ready && p.phase === 'Running').length;
@@ -231,9 +371,11 @@ async function checkLoop(): Promise<void> {
       issues_found: issues.length,
       fixes_applied: result.fixed,
       finished_at: new Date(),
-    });
+    }, clusterId);
 
     broadcast('check_complete', {
+      cluster_id: clusterId,
+      cluster_name: clusterRow.name,
       pods: snapshot.pods.length,
       podsHealthy,
       nodes: snapshot.nodes.length,
@@ -246,6 +388,7 @@ async function checkLoop(): Promise<void> {
     });
 
     logger.info({
+      cluster: clusterRow.name,
       pods: snapshot.pods.length,
       podsHealthy,
       nodes: snapshot.nodes.length,
@@ -254,24 +397,40 @@ async function checkLoop(): Promise<void> {
       ...result,
     }, 'Check loop completed');
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Check loop error');
+    logger.error({ err: err.message, clusterId }, 'Check loop error');
   } finally {
-    checkLoopRunning = false;
+    loopRunning.delete(clusterId);
   }
 }
 
 // --- Startup ---
 
+async function seedDefaultCluster(): Promise<void> {
+  const clusters = await getClusters();
+  if (clusters.length > 0) return;
+
+  logger.info('No clusters found — seeding default K8s cluster from env');
+  await insertCluster('microk8s', 'k8s', {
+    kubeconfigPath: config.k8s.kubeconfigPath,
+    context: config.k8s.context,
+  });
+}
+
 async function main(): Promise<void> {
   await initSchema();
+  await seedDefaultCluster();
+
+  // Load all clusters and start loops
+  const clusters = await getClusters();
+  for (const cluster of clusters) {
+    if (!cluster.enabled) continue;
+    initClusterClient(cluster);
+    startClusterLoop(cluster, checkLoopForCluster, config.checkIntervalMs);
+  }
 
   app.listen(config.port, '0.0.0.0', () => {
-    logger.info({ port: config.port, mode: config.remediationMode }, 'k8s-sentinel agent started');
+    logger.info({ port: config.port, mode: config.remediationMode, clusters: clusters.length }, 'k8s-sentinel agent started');
   });
-
-  // Run first check immediately, then on interval
-  setTimeout(() => checkLoop(), 3000);
-  setInterval(() => checkLoop(), config.checkIntervalMs);
 }
 
 main().catch(err => {

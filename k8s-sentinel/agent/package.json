@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.0.0",
+    "dockerode": "^4.0.9",
     "express": "^4.21.0",
     "pg": "^8.13.0",
     "pino": "^9.5.0",
@@ -16,6 +17,7 @@
     "uuid": "^10.0.0"
   },
   "devDependencies": {
+    "@types/dockerode": "^4.0.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
