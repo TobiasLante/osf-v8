@@ -724,7 +724,7 @@ Analyze the reports and decide:
 1. Gaps — is critical information MISSING that the current specialists cannot provide?
 2. Contradictions between specialists
 3. Follow-up questions (max 3) to existing specialists
-4. NEW SPECIALISTS — if a gap can ONLY be filled by bringing in a new specialist with different tools, request one! This is powerful — use it when you see a blind spot.
+4. NEW SPECIALISTS — LAST RESORT ONLY. Only recruit if a critical question cannot be answered by ANY existing specialist AND requires tools that no current specialist has. Prefer asking deeper follow-up questions to existing specialists first. Max 1 new specialist per round.
 ${round >= 2 ? `\nROUND ${round} RULE: This is a follow-up round. Your questions MUST confront specialists with specific counter-evidence from other specialists. Quote the exact data point or claim from the opposing specialist. Example: "Cost estimates break-even at 2.3h, but your OEE data shows only 1.1h of actual downtime last month. How do you reconcile this?" Do NOT ask vague or generic questions.` : ''}
 
 RESPONSE FORMAT: Pure JSON.
@@ -745,7 +745,7 @@ Rules for newSpecialists:
 - Only request if the current specialists genuinely CANNOT answer a critical question
 - Pick tools from the available tools reference above
 - Give a clear focus so the new specialist knows exactly what to investigate
-- Max 2 new specialists per round`
+- Max 1 new specialist per round`
     : `Du bist der Moderator einer Multi-Agent-Analyse-Diskussion.
 
 AKTUELLE SPEZIALISTEN: ${currentSpecNames}
@@ -761,7 +761,7 @@ Analysiere die Berichte und entscheide:
 1. Lücken — fehlen kritische Informationen die die aktuellen Spezialisten nicht liefern können?
 2. Widersprüche zwischen Spezialisten
 3. Follow-Up-Fragen (max 3) an bestehende Spezialisten
-4. NEUE SPEZIALISTEN — wenn eine Lücke NUR durch einen neuen Spezialisten mit anderen Tools gefüllt werden kann, fordere einen an! Das ist mächtig — nutze es wenn du einen blinden Fleck siehst.
+4. NEUE SPEZIALISTEN — NUR ALS LETZTER AUSWEG. Nur rekrutieren wenn eine kritische Frage von KEINEM bestehenden Spezialisten beantwortet werden kann UND Tools erfordert die kein aktueller Spezialist hat. Bevorzuge tiefere Follow-Up-Fragen an bestehende Spezialisten. Max 1 neuer Spezialist pro Runde.
 ${round >= 2 ? `\nRUNDE-${round}-REGEL: Dies ist eine Folgerunde. Deine Fragen MÜSSEN Spezialisten mit konkreten Gegenbelegen anderer Spezialisten konfrontieren. Zitiere den exakten Datenpunkt oder die Behauptung des anderen Spezialisten. Beispiel: "Cost schätzt Break-even bei 2,3h, aber deine OEE-Daten zeigen nur 1,1h tatsächliche Stillstandzeit letzten Monat. Wie erklärst du das?" Stelle KEINE vagen oder generischen Fragen.` : ''}
 
 ANTWORT-FORMAT: Reines JSON.
@@ -782,7 +782,7 @@ Regeln für newSpecialists:
 - Nur anfordern wenn die aktuellen Spezialisten eine kritische Frage wirklich NICHT beantworten können
 - Tools aus der Tool-Referenz oben wählen
 - Klaren Fokus geben damit der neue Spezialist weiß was er untersuchen soll
-- Max 2 neue Spezialisten pro Runde`;
+- Max 1 neuer Spezialist pro Runde`;
 
   const heartbeat = setInterval(() => {
     if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat); return; }
@@ -811,7 +811,7 @@ Regeln für newSpecialists:
   }
 
   // ── Process NEW SPECIALISTS (dynamic recruitment) ──
-  const newSpecs = safeArray(review.newSpecialists).slice(0, 2);
+  const newSpecs = safeArray(review.newSpecialists).slice(0, 1);
   let transcript = previousAnswers;
 
   if (newSpecs.length > 0 && kgContext && factoryContext) {
@@ -1268,7 +1268,7 @@ function generateHtmlReport(
   // Discussion transcript HTML
   let discussionHtml = '';
   if (transcript.trim()) {
-    const lines = transcript.split('\n').filter(l => l.trim()).slice(0, 30);
+    const lines = transcript.split('\n').filter(l => l.trim()).slice(0, 120);
     for (const line of lines) {
       if (line.includes('Moderator')) {
         discussionHtml += `<p><strong>${esc(line.trim())}</strong></p>`;
@@ -1797,7 +1797,8 @@ Rules:
 - domain: uppercase key (e.g. "INVENTORY_OPTIMIZATION", "PRODUCTION_PLANNING")
 - displayName: English display name
 - relevantTools: only tools from the available list that match the question
-- Be creative with specialists — they don't have to be the default 4`
+- Be creative with specialists — they don't have to be the default 4
+- CRITICAL: Each specialist MUST have a clearly DISTINCT perspective. Avoid overlap! Bad example: "Impact Analyst" + "Production Controller" + "Supply Chain Analyst" all analyzing the same OEE/order data. Good example: one specialist for machine-level analysis, one for customer/contract impact, one for financial cost modeling, one for maintenance/root cause. If two specialists would look at the same data and reach similar conclusions, merge them into one.`
     : `Du bist ein Manufacturing-Experte. Analysiere die User-Frage und plane 3-5 Spezialisten für eine Multi-Agent-Diskussion.
 
 TOOL-REFERENZ:
@@ -1821,7 +1822,8 @@ Regeln:
 - domain: Großbuchstaben-Key (z.B. "INVENTORY_OPTIMIZATION", "PRODUCTION_PLANNING")
 - displayName: MUST be in English (e.g. "Production Planner", "Quality Assurance")
 - relevantTools: nur Tools aus der verfügbaren Liste die zur Frage passen
-- Sei kreativ mit den Spezialisten — sie müssen nicht die Standard-4 sein`;
+- Sei kreativ mit den Spezialisten — sie müssen nicht die Standard-4 sein
+- KRITISCH: Jeder Spezialist MUSS eine klar UNTERSCHIEDLICHE Perspektive haben. Vermeide Überlappung! Schlechtes Beispiel: "Impact Analyst" + "Production Controller" + "Supply Chain Analyst" analysieren alle dieselben OEE/Auftragsdaten. Gutes Beispiel: ein Spezialist für Maschinenebene, einer für Kunden/Vertragsauswirkungen, einer für finanzielle Kostenmodellierung, einer für Wartung/Ursachenanalyse. Wenn zwei Spezialisten dieselben Daten betrachten und zu ähnlichen Schlüssen kommen würden, fasse sie zu einem zusammen.`;
 
   try {
     const raw = await callLlmJson<{ specialists: SpecialistDef[]; relevantTools: string[] }>(
