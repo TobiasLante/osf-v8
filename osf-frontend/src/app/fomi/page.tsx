@@ -747,7 +747,18 @@ export default function FomiPage() {
      ═════════════════════════════════════════════════════════════════════ */
 
   return (
-    <div className={`fixed inset-0 ${lightMode ? "text-gray-900" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
+    <div className={`fixed inset-0 ${lightMode ? "text-gray-900 fomi-light" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
+      {lightMode && (
+        <style>{`
+          .fomi-light .border-white\\/\\[0\\.06\\], .fomi-light .border-white\\/\\[0\\.08\\], .fomi-light .border-white\\/\\[0\\.04\\], .fomi-light .border-white\\/10, .fomi-light .border-white\\/15, .fomi-light .border-white\\/20 { border-color: rgba(208,58,140,0.2) !important; }
+          .fomi-light .bg-white\\/\\[0\\.02\\], .fomi-light .bg-white\\/\\[0\\.03\\], .fomi-light .bg-white\\/\\[0\\.04\\], .fomi-light .bg-white\\/\\[0\\.05\\] { background-color: rgba(208,58,140,0.04) !important; }
+          .fomi-light .text-white\\/80, .fomi-light .text-white\\/70, .fomi-light .text-white\\/60 { color: #2d2d2d !important; }
+          .fomi-light .text-white\\/50, .fomi-light .text-white\\/45, .fomi-light .text-white\\/40 { color: #555 !important; }
+          .fomi-light .text-white\\/30, .fomi-light .text-white\\/20, .fomi-light .text-white\\/15 { color: #888 !important; }
+          .fomi-light input { background-color: rgba(208,58,140,0.05) !important; color: #1a1a1a !important; border-color: rgba(208,58,140,0.2) !important; }
+          .fomi-light input::placeholder { color: rgba(123,45,133,0.4) !important; }
+        `}</style>
+      )}
       {/* Light/Dark toggle — floating below global header */}
       <button
         onClick={() => setLightMode(m => !m)}
