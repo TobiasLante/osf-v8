@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCluster } from '../context/ClusterContext';
+import { useSSEEvents } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
@@ -29,13 +30,10 @@ export default function ClusterOverview() {
   const [status, setStatus] = useState<ClusterStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useSSEEvents(['cluster_status', 'check_complete'], () => fetchStatus());
+
   useEffect(() => {
     fetchStatus();
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('cluster_status', () => fetchStatus());
-    es.addEventListener('check_complete', () => fetchStatus());
-    return () => es.close();
   }, [activeClusterId]);
 
   async function fetchStatus() {

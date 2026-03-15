@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCluster } from '../context/ClusterContext';
+import { useSSEEvents } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
@@ -39,14 +40,10 @@ export default function RunbookExecutions() {
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  useSSEEvents(['runbook_started', 'runbook_step', 'runbook_completed'], () => fetchExecutions());
+
   useEffect(() => {
     fetchExecutions();
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('runbook_started', () => fetchExecutions());
-    es.addEventListener('runbook_step', () => fetchExecutions());
-    es.addEventListener('runbook_completed', () => fetchExecutions());
-    return () => es.close();
   }, [activeClusterId]);
 
   async function fetchExecutions() {

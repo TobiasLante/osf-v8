@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCluster } from '../context/ClusterContext';
+import { useSSEEvents } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
@@ -34,13 +35,10 @@ export default function PredictionPanel() {
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState<Set<string>>(new Set());
 
+  useSSEEvents(['prediction', 'prediction_expired'], () => fetchPredictions());
+
   useEffect(() => {
     fetchPredictions();
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('prediction', () => fetchPredictions());
-    es.addEventListener('prediction_acknowledged', () => fetchPredictions());
-    return () => es.close();
   }, [activeClusterId]);
 
   async function fetchPredictions() {

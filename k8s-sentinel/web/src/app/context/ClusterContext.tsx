@@ -46,11 +46,6 @@ export function ClusterProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetchClusters();
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('cluster_added', () => fetchClusters());
-    es.addEventListener('cluster_removed', () => fetchClusters());
-    return () => es.close();
   }, []);
 
   const activeCluster = clusters.find(c => c.id === activeClusterId) || null;

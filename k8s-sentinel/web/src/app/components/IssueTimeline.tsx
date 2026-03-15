@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCluster } from '../context/ClusterContext';
+import { useSSEEvents } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
@@ -40,15 +41,10 @@ export default function IssueTimeline() {
   const [filter, setFilter] = useState<string>('all');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  useSSEEvents(['issue_detected', 'fix_applied', 'fix_proposed', 'fix_rejected'], () => fetchIncidents());
+
   useEffect(() => {
     fetchIncidents();
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('issue_detected', () => fetchIncidents());
-    es.addEventListener('fix_applied', () => fetchIncidents());
-    es.addEventListener('fix_proposed', () => fetchIncidents());
-    es.addEventListener('fix_rejected', () => fetchIncidents());
-    return () => es.close();
   }, [activeClusterId]);
 
   async function fetchIncidents() {

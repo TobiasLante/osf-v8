@@ -52,8 +52,12 @@ export default function RunbookEditor() {
     try {
       const params = activeClusterId ? `?cluster_id=${activeClusterId}` : '';
       const res = await fetch(`${AGENT_URL}/api/runbooks${params}`);
-      setRunbooks(await res.json());
-    } catch {}
+      const data = await res.json();
+      console.log('Runbooks fetched:', data.length, 'cluster_id:', activeClusterId);
+      setRunbooks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Runbooks fetch error:', err);
+    }
   }
 
   function startCreate() {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCluster } from '../context/ClusterContext';
+import { useSSEEvents } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
@@ -23,14 +24,10 @@ export default function FixProposals() {
   const [proposals, setProposals] = useState<Incident[]>([]);
   const [loading, setLoading] = useState<Set<string>>(new Set());
 
+  useSSEEvents(['fix_proposed', 'fix_applied', 'fix_rejected'], () => fetchProposals());
+
   useEffect(() => {
     fetchProposals();
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('fix_proposed', () => fetchProposals());
-    es.addEventListener('fix_applied', () => fetchProposals());
-    es.addEventListener('fix_rejected', () => fetchProposals());
-    return () => es.close();
   }, [activeClusterId]);
 
   async function fetchProposals() {

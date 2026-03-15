@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSSE } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8080';
 
@@ -14,18 +15,13 @@ export default function ModeSelector() {
   const [mode, setMode] = useState<string>('readonly');
   const [open, setOpen] = useState(false);
 
+  useSSE('mode_changed', (data) => setMode(data.mode));
+
   useEffect(() => {
     fetch(`${AGENT_URL}/api/mode`)
       .then(r => r.json())
       .then(d => setMode(d.mode))
       .catch(() => {});
-
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('mode_changed', (e) => {
-      const data = JSON.parse(e.data);
-      setMode(data.mode);
-    });
-    return () => es.close();
   }, []);
 
   async function changeMode(newMode: string) {

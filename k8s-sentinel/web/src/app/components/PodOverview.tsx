@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCluster } from '../context/ClusterContext';
+import { useSSE } from '../context/SSEContext';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8888';
 
@@ -52,12 +53,11 @@ export default function PodOverview() {
   const entityLabel = isDocker ? 'Containers' : 'Pods';
   const entityLabelSingular = isDocker ? 'Container' : 'Pod';
 
+  useSSE('check_complete', () => fetchPods());
+
   useEffect(() => {
     fetchPods();
     fetchRules();
-    const es = new EventSource(`${AGENT_URL}/api/stream`);
-    es.addEventListener('check_complete', () => fetchPods());
-    return () => es.close();
   }, [activeClusterId]);
 
   async function fetchPods() {
