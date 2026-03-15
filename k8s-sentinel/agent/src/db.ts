@@ -128,6 +128,30 @@ export async function initSchema(): Promise<void> {
         created_at TIMESTAMPTZ DEFAULT NOW(),
         expires_at TIMESTAMPTZ
       );
+
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        cluster_id UUID REFERENCES clusters(id),
+        action TEXT NOT NULL,
+        tool_name TEXT,
+        params JSONB,
+        result TEXT,
+        status TEXT NOT NULL,
+        blocked_reason TEXT,
+        user_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS pending_tool_calls (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        cluster_id UUID REFERENCES clusters(id),
+        tool_name TEXT NOT NULL,
+        params JSONB NOT NULL,
+        danger_level TEXT NOT NULL,
+        reason TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `);
     logger.info('Database schema initialized');
   } finally {

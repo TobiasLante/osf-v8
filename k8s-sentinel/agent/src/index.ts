@@ -18,7 +18,8 @@ import { fetchDockerSnapshot, removeContainer, restartContainer } from './docker
 import { runChecks } from './checker';
 import { diagnoseIssues } from './diagnoser';
 import { remediateIssues, approveIncident, rejectIncident } from './remediator';
-import { llmChat } from './llm-client';
+import { llmChat, llmChatWithTools } from './llm-client';
+import { TOOL_DEFINITIONS, executeToolCall, approveToolCall, rejectToolCall, getPendingToolCalls, getAuditLog } from './chat-tools';
 import { startClusterLoop, stopClusterLoop, stopAllLoops, getActiveLoops } from './cluster-manager';
 import { notify } from './notifier';
 
@@ -118,23 +119,98 @@ app.post('/api/chat', async (req, res) => {
     const { message, cluster_id } = req.body;
     if (!message) return res.status(400).json({ error: 'message required' });
 
-    const snapshot = cluster_id ? cachedSnapshots.get(cluster_id) : cachedSnapshots.values().next().value;
-    const cluster = cluster_id ? await getClusterById(cluster_id) : null;
+    const clusterId = cluster_id;
+    const snapshot = clusterId ? cachedSnapshots.get(clusterId) : cachedSnapshots.values().next().value;
+    const cluster = clusterId ? await getClusterById(clusterId) : null;
+    const k8sClient = clusterId ? k8sClients.get(clusterId) : undefined;
     const clusterInfo = cluster ? `Cluster: ${cluster.name} (${cluster.type})` : '';
+    const modeInfo = `Current mode: ${config.remediationMode}`;
 
     const context = snapshot
-      ? `${clusterInfo}\nCurrent state:\n- Nodes: ${snapshot.nodes.length} (${snapshot.nodes.filter(n => n.ready).length} ready)\n- Pods: ${snapshot.pods.length} (${snapshot.pods.filter(p => p.ready).length} healthy)\n- Namespaces: ${snapshot.namespaces.map(n => `${n.name}(${n.podsHealthy}/${n.podsTotal})`).join(', ')}\n- Recent events: ${snapshot.events.slice(0, 10).map(e => `${e.reason}: ${e.involvedObject.kind}/${e.involvedObject.name}`).join(', ')}`
+      ? `${clusterInfo}\n${modeInfo}\nState: ${snapshot.nodes.length} nodes (${snapshot.nodes.filter(n => n.ready).length} ready), ${snapshot.pods.length} pods (${snapshot.pods.filter(p => p.ready).length} healthy)`
       : 'No cluster data available yet.';
 
-    const answer = await llmChat([
-      { role: 'system', content: `You are a Kubernetes/Docker cluster assistant. Answer questions about the cluster status concisely.\n\n${context}` },
-      { role: 'user', content: message },
-    ], 512);
+    const systemPrompt = `You are a Kubernetes/Docker cluster operations assistant with access to monitoring and management tools.
 
-    res.json({ answer });
+IMPORTANT RULES:
+- You can use tools to query cluster state (always safe)
+- For write operations (restart, delete, rollback): the governance system will check permissions automatically
+- In readonly mode, write tools are blocked — inform the user they need to switch to hitl or auto mode
+- For protected pods, write tools require approval — inform the user approval is pending
+- NEVER suggest running kubectl commands directly — always use the provided tools
+- Be concise and helpful
+
+${context}`;
+
+    const messages: any[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: message },
+    ];
+
+    // First LLM call — may return tool calls
+    const llmResponse = await llmChatWithTools(messages, TOOL_DEFINITIONS);
+
+    if (llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
+      // Execute each tool call through governance
+      const toolResults: any[] = [];
+      for (const tc of llmResponse.tool_calls) {
+        const result = await executeToolCall(tc.function.name, JSON.parse(tc.function.arguments || '{}'), {
+          clusterId: clusterId || undefined,
+          cluster: cluster || undefined,
+          k8sClient,
+          snapshot: snapshot || undefined,
+        });
+        toolResults.push({ tool_call_id: tc.id, name: tc.function.name, result });
+      }
+
+      // Second LLM call with tool results to generate final answer
+      messages.push({ role: 'assistant', content: null, tool_calls: llmResponse.tool_calls });
+      for (const tr of toolResults) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: tr.tool_call_id,
+          content: JSON.stringify(tr.result),
+        });
+      }
+
+      const finalResponse = await llmChat(messages, 512);
+      res.json({ answer: finalResponse, tool_calls: toolResults });
+    } else {
+      // No tool calls — just return the text answer
+      res.json({ answer: llmResponse.content || llmResponse });
+    }
   } catch (err: any) {
+    logger.error({ err: err.message }, 'Chat error');
     res.status(500).json({ error: err.message });
   }
+});
+
+// --- Tool Approval Endpoints ---
+
+app.get('/api/tool-calls/pending', async (req, res) => {
+  try { res.json(await getPendingToolCalls(req.query.cluster_id as string)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/tool-calls/:id/approve', async (req, res) => {
+  try {
+    const clusterId = req.body.cluster_id;
+    const k8sClient = clusterId ? k8sClients.get(clusterId) : undefined;
+    const cluster = clusterId ? await getClusterById(clusterId) : null;
+    const snapshot = clusterId ? cachedSnapshots.get(clusterId) : undefined;
+    const result = await approveToolCall(req.params.id, { clusterId, cluster: cluster || undefined, k8sClient, snapshot });
+    res.json(result);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/tool-calls/:id/reject', async (req, res) => {
+  try { await rejectToolCall(req.params.id); res.json({ ok: true }); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/audit-log', async (req, res) => {
+  try { res.json(await getAuditLog(req.query.cluster_id as string, parseInt(req.query.limit as string) || 50)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // --- Protected Pods ---
