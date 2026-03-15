@@ -1190,7 +1190,7 @@ Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
     clearInterval(heartbeat3);
   }
 
-  const finalSummary = finalText.length > 2000 ? finalText.substring(0, 2000) + '...' : finalText;
+  const finalSummary = finalText.length > 8000 ? finalText.substring(0, 8000) + '...' : finalText;
   emitSSE(res, { type: 'debate_final', debateFinalSummary: finalSummary });
 
   return finalText;

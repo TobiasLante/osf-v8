@@ -392,6 +392,7 @@ export default function FomiPage() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [chatDone, setChatDone] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
@@ -594,6 +595,14 @@ export default function FomiPage() {
         case "heartbeat":
           break;
 
+        case "report_ready":
+          if (event.reportUrl) {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('osf_token') : null;
+            const url = `${process.env.NEXT_PUBLIC_API_URL}${event.reportUrl}${token ? '?token=' + encodeURIComponent(token) : ''}`;
+            setReportUrl(url);
+          }
+          break;
+
         case "kg_traversal_start":
           setKgStatus("traversing");
           setKgCenter(event.centerEntityId || event.entityId);
@@ -670,6 +679,7 @@ export default function FomiPage() {
     setQuestion("");
     setStreaming(true);
     setChatDone(false);
+    setReportUrl(null);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     startDeadAirWatch();
 
@@ -680,7 +690,7 @@ export default function FomiPage() {
         await processChatStream(playFallbackEvents(fbEvents));
       } else {
         // Live mode with auto-reconnect (Feature C)
-        await processChatStream(streamSSEWithRetry("/chat/completions", { message: text, language: "en" }));
+        await processChatStream(streamSSEWithRetry("/chat/completions", { message: text, language: "en", ...(llmProvider === "haiku" && { llmProvider: "haiku" }) }));
       }
     } catch (err: any) {
       // If live failed, auto-fallback
@@ -752,9 +762,23 @@ export default function FomiPage() {
         <style>{`
           .fomi-light .border-white\\/\\[0\\.06\\], .fomi-light .border-white\\/\\[0\\.08\\], .fomi-light .border-white\\/\\[0\\.04\\], .fomi-light .border-white\\/10, .fomi-light .border-white\\/15, .fomi-light .border-white\\/20 { border-color: rgba(208,58,140,0.2) !important; }
           .fomi-light .bg-white\\/\\[0\\.02\\], .fomi-light .bg-white\\/\\[0\\.03\\], .fomi-light .bg-white\\/\\[0\\.04\\], .fomi-light .bg-white\\/\\[0\\.05\\] { background-color: rgba(208,58,140,0.04) !important; }
+          .fomi-light .text-white\\/90 { color: #1a1a1a !important; }
           .fomi-light .text-white\\/80, .fomi-light .text-white\\/70, .fomi-light .text-white\\/60 { color: #2d2d2d !important; }
-          .fomi-light .text-white\\/50, .fomi-light .text-white\\/45, .fomi-light .text-white\\/40 { color: #555 !important; }
-          .fomi-light .text-white\\/30, .fomi-light .text-white\\/20, .fomi-light .text-white\\/15 { color: #888 !important; }
+          .fomi-light .text-white\\/50, .fomi-light .text-white\\/45, .fomi-light .text-white\\/40 { color: #444 !important; }
+          .fomi-light .text-white\\/30, .fomi-light .text-white\\/20, .fomi-light .text-white\\/15 { color: #666 !important; }
+          .fomi-light .text-white { color: #1a1a1a !important; }
+          .fomi-light .text-emerald-400 { color: #047857 !important; }
+          .fomi-light .text-emerald-400\\/80 { color: #059669 !important; }
+          .fomi-light .text-violet-400, .fomi-light .text-violet-300 { color: #6d28d9 !important; }
+          .fomi-light .text-blue-400 { color: #1d4ed8 !important; }
+          .fomi-light .text-amber-400, .fomi-light .text-amber-400\\/70 { color: #b45309 !important; }
+          .fomi-light .text-cyan-400, .fomi-light .text-cyan-400\\/70 { color: #0e7490 !important; }
+          .fomi-light .text-red-400, .fomi-light .text-red-400\\/70 { color: #b91c1c !important; }
+          .fomi-light .bg-emerald-500\\/\\[0\\.08\\], .fomi-light .bg-emerald-500\\/\\[0\\.02\\] { background-color: rgba(4,120,87,0.08) !important; }
+          .fomi-light .bg-violet-500\\/\\[0\\.1\\] { background-color: rgba(109,40,217,0.08) !important; }
+          .fomi-light .bg-blue-500\\/\\[0\\.1\\] { background-color: rgba(29,78,216,0.08) !important; }
+          .fomi-light .bg-amber-500\\/\\[0\\.1\\] { background-color: rgba(180,83,9,0.08) !important; }
+          .fomi-light .bg-cyan-500\\/10 { background-color: rgba(14,116,144,0.08) !important; }
           .fomi-light input { background-color: rgba(208,58,140,0.05) !important; color: #1a1a1a !important; border-color: rgba(208,58,140,0.2) !important; }
           .fomi-light input::placeholder { color: rgba(123,45,133,0.4) !important; }
         `}</style>
@@ -956,6 +980,24 @@ export default function FomiPage() {
                     <div className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{ev.debateFinalSummary || ''}</div>
                   </div>
                 ))}
+
+                {/* ── Report Link ──────────────────────────────── */}
+                {reportUrl && (
+                  <a
+                    href={reportUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 px-5 py-3.5 rounded-xl border-2 border-[#d03a8c]/30 bg-[#d03a8c]/[0.06] hover:bg-[#d03a8c]/[0.12] transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-[#d03a8c] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="text-sm font-bold text-[#d03a8c]">Open Full Report</span>
+                    <svg className="w-4 h-4 text-[#d03a8c]/60 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                )}
 
                 {/* ── Synthesis ──────────────────────────────────── */}
                 {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
