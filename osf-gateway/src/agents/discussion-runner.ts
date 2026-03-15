@@ -725,6 +725,7 @@ Analyze the reports and decide:
 2. Contradictions between specialists
 3. Follow-up questions (max 3) to existing specialists
 4. NEW SPECIALISTS — if a gap can ONLY be filled by bringing in a new specialist with different tools, request one! This is powerful — use it when you see a blind spot.
+${round >= 2 ? `\nROUND ${round} RULE: This is a follow-up round. Your questions MUST confront specialists with specific counter-evidence from other specialists. Quote the exact data point or claim from the opposing specialist. Example: "Cost estimates break-even at 2.3h, but your OEE data shows only 1.1h of actual downtime last month. How do you reconcile this?" Do NOT ask vague or generic questions.` : ''}
 
 RESPONSE FORMAT: Pure JSON.
 {
@@ -761,6 +762,7 @@ Analysiere die Berichte und entscheide:
 2. Widersprüche zwischen Spezialisten
 3. Follow-Up-Fragen (max 3) an bestehende Spezialisten
 4. NEUE SPEZIALISTEN — wenn eine Lücke NUR durch einen neuen Spezialisten mit anderen Tools gefüllt werden kann, fordere einen an! Das ist mächtig — nutze es wenn du einen blinden Fleck siehst.
+${round >= 2 ? `\nRUNDE-${round}-REGEL: Dies ist eine Folgerunde. Deine Fragen MÜSSEN Spezialisten mit konkreten Gegenbelegen anderer Spezialisten konfrontieren. Zitiere den exakten Datenpunkt oder die Behauptung des anderen Spezialisten. Beispiel: "Cost schätzt Break-even bei 2,3h, aber deine OEE-Daten zeigen nur 1,1h tatsächliche Stillstandzeit letzten Monat. Wie erklärst du das?" Stelle KEINE vagen oder generischen Fragen.` : ''}
 
 ANTWORT-FORMAT: Reines JSON.
 {
@@ -896,9 +898,14 @@ Regeln für newSpecialists:
       targetSpecialist: target,
     });
 
-    // Get specialist's answer
+    // Get specialist's answer — give them their raw data (KG + factory) plus their own report
     const specReport = reports.get(target);
-    const specContext = specReport ? compressReport(target, specReport) : dl(language, 'Keine Daten verfügbar.', 'No data available.');
+    const specOwnReport = specReport ? compressReport(target, specReport) : '';
+    const specContext = [
+      specOwnReport,
+      kgContext ? `\nRAW KG DATA:\n${kgContext}` : '',
+      factoryContext ? `\nRAW FACTORY DATA:\n${factoryContext}` : '',
+    ].filter(Boolean).join('\n') || dl(language, 'Keine Daten verfügbar.', 'No data available.');
 
     const heartbeat2 = setInterval(() => {
       if (signal?.aborted || res.writableEnded) { clearInterval(heartbeat2); return; }
@@ -912,8 +919,8 @@ Regeln für newSpecialists:
             ? `You are the specialist for ${target}. Answer the question based on your analysis.`
             : `Du bist der Spezialist für ${target}. Beantworte die Frage basierend auf deiner Analyse.` },
           { role: 'user', content: isEn
-            ? `Your previous analysis:\n${specContext}\n\nModerator's question: ${question}\n\nAnswer in 2-3 sentences, precise and factual.`
-            : `Deine bisherige Analyse:\n${specContext}\n\nFrage des Moderators: ${question}\n\nAntworte in 2-3 Sätzen, präzise und faktisch.` },
+            ? `Your previous analysis and raw data:\n${specContext}\n\nModerator's question: ${question}\n\nAnswer in up to 10 sentences. Be precise, factual, and cite specific data points (machine IDs, order numbers, values) as evidence.`
+            : `Deine bisherige Analyse und Rohdaten:\n${specContext}\n\nFrage des Moderators: ${question}\n\nAntworte in bis zu 10 Sätzen. Sei präzise, faktisch, und nenne konkrete Datenpunkte (Maschinen-IDs, Auftragsnummern, Werte) als Beleg.` },
         ],
         undefined,
         freeLlmConfig,

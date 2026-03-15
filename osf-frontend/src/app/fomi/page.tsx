@@ -1082,7 +1082,7 @@ export default function FomiPage() {
                         )}
                         <svg
                           className="w-8 h-8 transition-all duration-500"
-                          style={{ color: isActive ? src.color : "rgba(255,255,255,0.15)" }}
+                          style={{ color: isActive ? src.color : lightMode ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.15)" }}
                           viewBox="0 0 24 24"
                           fill="currentColor"
                         >
@@ -1090,7 +1090,7 @@ export default function FomiPage() {
                         </svg>
                         <span
                           className="text-sm font-semibold transition-all duration-500"
-                          style={{ color: isActive ? src.color : "rgba(255,255,255,0.45)" }}
+                          style={{ color: isActive ? src.color : lightMode ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.45)" }}
                         >
                           {src.label}
                         </span>
@@ -1121,7 +1121,7 @@ export default function FomiPage() {
                             : "border-white/[0.06] scale-95 opacity-50"
                         }`}
                         style={{
-                          color: isActive ? t.color : "rgba(255,255,255,0.45)",
+                          color: isActive ? t.color : lightMode ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.45)",
                           backgroundColor: isActive ? `${t.color}15` : "transparent",
                           borderColor: isActive ? `${t.color}40` : "transparent",
                         }}
