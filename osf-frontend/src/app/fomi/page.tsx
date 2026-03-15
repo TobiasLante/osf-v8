@@ -319,6 +319,10 @@ export default function FomiPage() {
   /* ── Act switching ─────────────────────────────────────────────────── */
   const [act, setAct] = useState<"impact" | "discussion">("impact");
   const [splitPct, setSplitPct] = useState(50);
+  const [lightMode, setLightMode] = useState(false);
+  const bg = lightMode ? "#ffffff" : "#050507";
+  const bgCard = lightMode ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.02)";
+  const borderCard = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.06)";
 
   /* ── Recording mode (admin only) ───────────────────────────────────── */
   const [recording, setRecording] = useState(false);
@@ -743,7 +747,7 @@ export default function FomiPage() {
      ═════════════════════════════════════════════════════════════════════ */
 
   return (
-    <div className="fixed inset-0 bg-[#050507] text-white overflow-hidden flex flex-col">
+    <div className={`fixed inset-0 ${lightMode ? "text-gray-900" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
       {/* ── Top Bar ──────────────────────────────────────────────────── */}
       <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-white/[0.06]">
         <div className="flex items-center gap-4">
@@ -764,8 +768,14 @@ export default function FomiPage() {
             v{process.env.NEXT_PUBLIC_APP_VERSION}
             {llmProvider === "haiku" && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />}
           </button>
-          <span className="text-sm text-white/40">|</span>
-          <span className="text-sm text-white/60 font-medium">FoMI 2026 Live Demo</span>
+          <span className={`text-sm ${lightMode ? "text-gray-400" : "text-white/40"}`}>|</span>
+          <span className={`text-sm font-medium ${lightMode ? "text-gray-600" : "text-white/60"}`}>FoMI 2026 Live Demo</span>
+          <button
+            onClick={() => setLightMode(m => !m)}
+            className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${lightMode ? "bg-gray-100 border-gray-300 text-gray-600" : "bg-white/[0.05] border-white/10 text-white/50"}`}
+          >
+            {lightMode ? "Dark" : "Light"}
+          </button>
           {/* Fallback indicator — subtle, only visible to presenter */}
           {fallbackMode && (
             <span className="text-[9px] text-white/20 ml-1">SAFE</span>
@@ -1119,7 +1129,7 @@ export default function FomiPage() {
                       </svg>
                     </button>
                   </div>
-                  <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={380} />
+                  <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={380} bgColor={bg} />
                 </div>
               )}
 
@@ -1186,7 +1196,7 @@ export default function FomiPage() {
             </button>
           </div>
           <div className="flex-1">
-            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 120 : 700} width={typeof window !== "undefined" ? Math.floor(window.innerWidth * 0.55) - 32 : 800} />
+            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 120 : 700} width={typeof window !== "undefined" ? Math.floor(window.innerWidth * 0.55) - 32 : 800} bgColor={bg} />
           </div>
         </div>
       )}

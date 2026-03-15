@@ -25,6 +25,7 @@ export interface KG3DProps {
   status: "traversing" | "done";
   height?: number;
   width?: number;
+  bgColor?: string;
 }
 
 /* ─── Color map ──────────────────────────────────────────────────────── */
@@ -76,7 +77,7 @@ interface GraphData {
 
 /* ─── Component ──────────────────────────────────────────────────────── */
 
-export function KG3D({ nodes, edges, centerEntityId, status, height = 380, width }: KG3DProps) {
+export function KG3D({ nodes, edges, centerEntityId, status, height = 380, width, bgColor = "#050507" }: KG3DProps) {
   const fgRef = useRef<any>(null);
   const prevNodeCount = useRef(0);
 
@@ -230,7 +231,7 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380, width
         linkDirectionalParticles={2}
         linkDirectionalParticleWidth={1.5}
         linkDirectionalParticleColor={(link: any) => link.color}
-        backgroundColor="#050507"
+        backgroundColor={bgColor}
         showNavInfo={false}
         enableNodeDrag={true}
         enableNavigationControls={true}
