@@ -39,7 +39,7 @@ interface KGTypeEntry {
 }
 
 const KG_TYPES: KGTypeEntry[] = [
-  { id: "machine", label: "Machine", color: "#ff9500" },
+  { id: "machine", label: "Machine", color: "#d03a8c" },
   { id: "sensor", label: "Sensor", color: "#f59e0b" },
   { id: "order", label: "Order", color: "#10b981" },
   { id: "article", label: "Article", color: "#3b82f6" },
@@ -749,7 +749,7 @@ export default function FomiPage() {
         <div className="flex items-center gap-4">
           {/* Logo — triple-click activates fallback (Feature A) */}
           <div className="flex items-center gap-2 select-none" onClick={handleLogoClick}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#ff9500] to-[#ff5722] grid place-items-center cursor-pointer">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] grid place-items-center cursor-pointer">
               <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
@@ -794,7 +794,7 @@ export default function FomiPage() {
 
           {/* i3X badge */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03]">
-            <span className="text-[10px] font-bold text-[#ff9500] tracking-wider">i3X</span>
+            <span className="text-[10px] font-bold text-[#d03a8c] tracking-wider">i3X</span>
             <span className="text-[10px] text-white/30">|</span>
             <span className="text-[10px] text-white/50">CESMII SM Profiles</span>
           </div>
@@ -814,10 +814,10 @@ export default function FomiPage() {
                 {messages.length === 0 && !streaming && (
                   <div className="flex flex-col items-center justify-center h-full text-center">
                     <div className="relative w-24 h-24 mb-6">
-                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#ff9500] to-[#ff5722] opacity-20 animate-pulse" />
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] opacity-20 animate-pulse" />
                       <div className="absolute inset-2 rounded-full bg-[#050507]" />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <svg className="w-10 h-10 text-[#ff9500]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg className="w-10 h-10 text-[#d03a8c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                         </svg>
                       </div>
@@ -831,7 +831,7 @@ export default function FomiPage() {
                         setQuestion("What happens if SGM-004 goes down right now?");
                         setTimeout(() => handleSend(), 100);
                       }}
-                      className="px-5 py-3 rounded-lg bg-gradient-to-r from-[#ff9500] to-[#ff5722] text-black font-semibold text-sm hover:opacity-90 transition-opacity"
+                      className="px-5 py-3 rounded-lg bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-black font-semibold text-sm hover:opacity-90 transition-opacity"
                     >
                       &quot;What happens if SGM-004 goes down?&quot;
                     </button>
@@ -841,7 +841,7 @@ export default function FomiPage() {
                 {messages.map((msg, i) => (
                   <div key={i} className={`${msg.role === "user" ? "flex justify-end" : ""}`}>
                     {msg.role === "user" ? (
-                      <div className="max-w-[90%] rounded-xl px-4 py-3 bg-gradient-to-r from-[#ff9500]/20 to-[#ff5722]/10 border border-[#ff9500]/20">
+                      <div className="max-w-[90%] rounded-xl px-4 py-3 bg-gradient-to-r from-[#d03a8c]/20 to-[#7b2d85]/10 border border-[#d03a8c]/20">
                         <p className="text-base font-medium">{msg.content}</p>
                       </div>
                     ) : (
@@ -942,9 +942,9 @@ export default function FomiPage() {
                 {/* Streaming indicator */}
                 {streaming && (
                   <div className="flex items-center gap-2 px-2 py-3">
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:0ms]" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:200ms]" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff9500] animate-bounce [animation-delay:400ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#d03a8c] animate-bounce [animation-delay:0ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#d03a8c] animate-bounce [animation-delay:200ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#d03a8c] animate-bounce [animation-delay:400ms]" />
                   </div>
                 )}
               </div>
@@ -960,12 +960,12 @@ export default function FomiPage() {
                       onChange={(e) => setQuestion(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSend()}
                       placeholder="What happens if SGM-004 goes down right now?"
-                      className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#ff9500]/50 transition-colors placeholder:text-white/20"
+                      className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#d03a8c]/50 transition-colors placeholder:text-white/20"
                     />
                     <button
                       onClick={handleSend}
                       disabled={!question.trim() || streaming}
-                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#ff9500] to-[#ff5722] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
+                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
                     >
                       Ask
                     </button>
@@ -976,7 +976,7 @@ export default function FomiPage() {
 
             {/* Drag handle */}
             <div
-              className="w-1.5 cursor-col-resize hover:bg-[#ff9500]/30 active:bg-[#ff9500]/50 transition-colors shrink-0"
+              className="w-1.5 cursor-col-resize hover:bg-[#d03a8c]/30 active:bg-[#d03a8c]/50 transition-colors shrink-0"
               onMouseDown={(e) => {
                 e.preventDefault();
                 const startX = e.clientX;
@@ -1147,9 +1147,9 @@ export default function FomiPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-[#ff9500]/20 bg-[#ff9500]/[0.05] p-4">
-                    <div className="text-xs text-[#ff9500]/70 uppercase tracking-wider font-bold mb-2">Downtime Cost</div>
-                    <div className="text-3xl font-black text-[#ff9500]">{impactCost || "\u2014"}</div>
+                  <div className="rounded-xl border border-[#d03a8c]/20 bg-[#d03a8c]/[0.05] p-4">
+                    <div className="text-xs text-[#d03a8c]/70 uppercase tracking-wider font-bold mb-2">Downtime Cost</div>
+                    <div className="text-3xl font-black text-[#d03a8c]">{impactCost || "\u2014"}</div>
                   </div>
                 </div>
               )}
