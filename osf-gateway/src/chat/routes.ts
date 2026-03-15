@@ -197,7 +197,7 @@ router.delete('/sessions/:id', requireAuth, async (req: Request, res: Response) 
 
 // POST /chat/completions — SSE streaming chat with tool loop
 router.post('/completions', requireAuth, async (req: Request, res: Response) => {
-  const { message, sessionId: reqSessionId, language } = req.body;
+  const { message, sessionId: reqSessionId, language, llmProvider } = req.body;
   if (!message || typeof message !== 'string' || message.length > 10000) {
     res.status(400).json({ error: 'Message required (max 10000 chars)' });
     return;
@@ -307,12 +307,25 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     await saveMessage(sessionId, 'user', message);
 
     // Load all tools, history, and LLM configs in parallel
-    const freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
-    const [allTools, history, llmConfig] = await Promise.all([
+    let freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
+    const [allTools, history, defaultLlmConfig] = await Promise.all([
       getMcpTools(),
       getSessionMessages(sessionId, req.user!.userId, 20),
       getLlmConfig(req.user!.userId, tier),
     ]);
+    let llmConfig = defaultLlmConfig;
+
+    // Override ALL LLM calls with Anthropic Haiku when requested from frontend
+    if (llmProvider === 'haiku' && config.llm.anthropicApiKey) {
+      const haikuConfig: LlmConfig = {
+        baseUrl: config.llm.anthropicUrl,
+        model: config.llm.anthropicModel,
+        apiKey: config.llm.anthropicApiKey,
+      };
+      freeLlmConfig = haikuConfig;
+      llmConfig = haikuConfig;
+      logger.info({ model: haikuConfig.model }, 'LLM override: all calls using Anthropic Haiku');
+    }
 
     // Skills-based tool selection: LLM picks 10-20 relevant tools from skills.md
     const tools = await selectTools(message, allTools, freeLlmConfig, req.user!.userId);
@@ -331,7 +344,8 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     let isComplex: boolean;
     if (ff.forceSimple) {
       isComplex = false;
-    } else if (ff.forceDiscussion) {
+    } else if (ff.forceDiscussion || llmProvider === 'haiku') {
+      // Haiku always goes to discussion — avoids tool role format issues in simple pipeline
       isComplex = true;
     } else {
       // Always use free tier (14B) for classification — fast, consistent, independent of user tier
@@ -350,6 +364,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
           res,
           pipelineAbort.signal,
           language,
+          llmProvider,
         );
 
         // Stream final text as content chunks

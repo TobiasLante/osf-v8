@@ -1867,12 +1867,25 @@ export async function runDynamicDiscussion(
   res: Response,
   signal?: AbortSignal,
   language?: string,
+  llmProvider?: string,
 ): Promise<string> {
-  const [premiumLlmConfig, freeLlmConfig, tools] = await Promise.all([
+  let [premiumLlmConfig, freeLlmConfig, tools] = await Promise.all([
     getLlmConfig(userId, 'premium'),
     getLlmConfig(userId, 'free'),
     getMcpTools(),
   ]);
+
+  // Override with Anthropic Haiku if requested (from FoMI version-click toggle)
+  if (llmProvider === 'haiku' && appConfig.llm.anthropicApiKey) {
+    const haikuConfig: LlmConfig = {
+      baseUrl: appConfig.llm.anthropicUrl,
+      model: appConfig.llm.anthropicModel,
+      apiKey: appConfig.llm.anthropicApiKey,
+    };
+    premiumLlmConfig = haikuConfig;
+    freeLlmConfig = haikuConfig;
+    logger.info({ model: haikuConfig.model }, 'Discussion: all LLM calls using Anthropic Haiku');
+  }
 
   const toolNames = tools.map((t: any) => t.function?.name || t.name).filter(Boolean);
 
