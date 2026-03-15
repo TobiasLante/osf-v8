@@ -40,7 +40,7 @@ if [ "$DO_PULL" = true ]; then
     echo "  Stashing local changes..."
     git stash
   fi
-  git pull origin master 2>&1 | tail -3
+  git pull origin main 2>&1 | tail -3
   green "Git up to date"
 fi
 
