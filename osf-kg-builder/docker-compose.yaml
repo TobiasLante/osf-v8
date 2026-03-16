@@ -1,0 +1,106 @@
+##
+## v9 KG Builder — Full Stack
+## Usage: docker compose up -d
+## Env:   cp .env.example .env && edit .env
+##
+
+services:
+
+  # ── KG Builder API ─────────────────────────────────────────────
+  kg-builder:
+    build: .
+    container_name: osf-kg-builder
+    restart: unless-stopped
+    ports:
+      - "${KG_BUILDER_PORT:-8035}:8035"
+    env_file: .env
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - v9
+
+  # ── v9 Web UI (static export served by nginx) ─────────────────
+  web:
+    image: nginx:1.27-alpine
+    container_name: osf-v9-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3009}:80"
+    volumes:
+      - ./web/out:/usr/share/nginx/html:ro
+    networks:
+      - v9
+
+  # ── Neo4j (Knowledge Graph) ───────────────────────────────────
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: osf-neo4j
+    restart: unless-stopped
+    ports:
+      - "${NEO4J_HTTP_PORT:-37474}:7474"
+      - "${NEO4J_BOLT_PORT:-37687}:7687"
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_server_memory_heap_max__size=1G
+      - NEO4J_server_memory_pagecache_size=512M
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - v9
+
+  # ── PostgreSQL (only for kg_builder_runs table) ───────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: osf-v9-postgres
+    restart: unless-stopped
+    ports:
+      - "${PG_PORT:-35432}:5432"
+    environment:
+      - POSTGRES_DB=${ERP_DB_NAME:-erpdb}
+      - POSTGRES_USER=${ERP_DB_USER:-admin}
+      - POSTGRES_PASSWORD=${ERP_DB_PASSWORD:?Set ERP_DB_PASSWORD in .env}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ERP_DB_USER:-admin}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - v9
+
+  # ── MQTT Curated Broker ───────────────────────────────────────
+  mqtt-curated:
+    image: eclipse-mosquitto:2.0.20
+    container_name: osf-mqtt-curated
+    restart: unless-stopped
+    ports:
+      - "${MQTT_CURATED_PORT:-31884}:1883"
+      - "${MQTT_CURATED_WS_PORT:-31885}:9001"
+    volumes:
+      - ./mosquitto-curated.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-curated-data:/mosquitto/data
+      - mqtt-curated-log:/mosquitto/log
+    networks:
+      - v9
+
+networks:
+  v9:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  pg-data:
+  mqtt-curated-data:
+  mqtt-curated-log:

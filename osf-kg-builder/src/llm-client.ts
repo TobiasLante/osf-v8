@@ -8,9 +8,9 @@ export interface ChatMessage {
 
 export async function callLlm(
   messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean },
+  options?: { temperature?: number; maxTokens?: number; jsonMode?: boolean; model?: string },
 ): Promise<string> {
-  const { temperature = 0.3, maxTokens = config.llm.maxTokens, jsonMode = false } = options || {};
+  const { temperature = 0.3, maxTokens = config.llm.maxTokens, jsonMode = false, model } = options || {};
 
   for (let attempt = 0; attempt < config.llm.maxRetries; attempt++) {
     const controller = new AbortController();
@@ -18,7 +18,7 @@ export async function callLlm(
 
     try {
       const body: any = {
-        model: config.llm.model,
+        model: model || config.llm.model,
         messages,
         temperature,
         max_tokens: maxTokens,

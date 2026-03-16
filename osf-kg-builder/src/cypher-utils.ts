@@ -1,15 +1,32 @@
+import neo4j, { Driver, Session } from 'neo4j-driver';
 import { Pool } from 'pg';
 import { config } from './config';
 import { logger } from './logger';
 
-// Dedicated pool for KG operations (separate from API connections)
+// ── Neo4j Driver (graph operations) ───────────────────────────────
+
+let driver: Driver;
+
+function getDriver(): Driver {
+  if (!driver) {
+    driver = neo4j.driver(
+      config.neo4j.url,
+      neo4j.auth.basic(config.neo4j.user, config.neo4j.password),
+      { maxConnectionPoolSize: 10, connectionAcquisitionTimeout: 10_000 },
+    );
+  }
+  return driver;
+}
+
+// ── PostgreSQL Pool (only for kg_builder_runs table — not graph) ──
+
 export const kgPool = new Pool({
   host: config.db.host,
   port: config.db.port,
   database: config.db.name,
   user: config.db.user,
   password: config.db.password,
-  max: 5,
+  max: 3,
   idleTimeoutMillis: 30_000,
 });
 
@@ -35,7 +52,7 @@ export function escapeId(id: string): string {
     .substring(0, 200);
 }
 
-// ── Cypher Generators ──────────────────────────────────────────────
+// ── Cypher Generators (standard Cypher — works with Neo4j) ────────
 
 export function vertexCypher(label: string, id: string, properties: Record<string, any>): string {
   const safeId = escapeId(id);
@@ -60,29 +77,24 @@ export function edgeCypher(
   return `MATCH (a:${fromLabel} {id: '${safeFromId}'}) MATCH (b:${toLabel} {id: '${safeToId}'}) MERGE (a)-[r:${edgeLabel}]->(b) ${properties ? `SET r = ${propsStr.trim()}` : ''} RETURN r`;
 }
 
-// ── Batch Execution ────────────────────────────────────────────────
+// ── Batch Execution (Neo4j) ───────────────────────────────────────
 
 export async function batchCypher(queries: string[]): Promise<{ success: number; failed: number }> {
   if (queries.length === 0) return { success: 0, failed: 0 };
 
-  const client = await kgPool.connect();
+  const session = getDriver().session({ database: config.neo4j.database });
   let success = 0;
   let failed = 0;
 
   try {
-    await client.query(`LOAD 'age'`);
-    await client.query(`SET search_path = ag_catalog, "${config.db.schema}", public`);
-
     for (const cypher of queries) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await client.query(
-            `SELECT * FROM cypher('${config.graph.name}', $$ ${cypher} $$) AS (result agtype)`
-          );
+          await session.run(cypher);
           success++;
           break;
         } catch (e: any) {
-          if (e.message?.includes('Entity failed to be updated') && attempt < 2) {
+          if (attempt < 2 && (e.code === 'Neo.TransientError.Transaction.DeadlockDetected' || e.message?.includes('concurrent'))) {
             await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
             continue;
           }
@@ -95,7 +107,7 @@ export async function batchCypher(queries: string[]): Promise<{ success: number;
       }
     }
   } finally {
-    client.release();
+    await session.close();
   }
 
   return { success, failed };
@@ -116,69 +128,95 @@ export async function executeBatched(
     totalSuccess += result.success;
     totalFailed += result.failed;
     onProgress?.(Math.min(i + config.batchSize, queries.length), queries.length);
-    if (i + config.batchSize < queries.length) {
-      await new Promise(r => setTimeout(r, 100));
-    }
   }
 
   return { success: totalSuccess, failed: totalFailed };
 }
 
-// ── Graph Initialization ───────────────────────────────────────────
+// ── Graph Initialization (Neo4j) ──────────────────────────────────
 
 export async function initializeGraph(): Promise<boolean> {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('initializeGraph timed out after 10s')), 10_000)
-  );
-
   try {
-    return await Promise.race([initializeGraphInner(), timeout]);
-  } catch (e: any) {
-    logger.warn({ err: e.message }, 'Apache AGE not available');
-    return false;
-  }
-}
+    const session = getDriver().session({ database: config.neo4j.database });
+    try {
+      // Verify connectivity
+      await session.run('RETURN 1');
 
-async function initializeGraphInner(): Promise<boolean> {
-  const client = await kgPool.connect();
-  try {
-    await client.query('CREATE EXTENSION IF NOT EXISTS age');
-    await client.query(`LOAD 'age'`);
-    await client.query(`SET search_path = ag_catalog, "$user", public`);
+      // Create uniqueness constraint on node id (idempotent)
+      await session.run('CREATE CONSTRAINT node_id_unique IF NOT EXISTS FOR (n:Node) REQUIRE n.id IS UNIQUE').catch(() => {});
 
-    const graphCheck = await client.query(
-      `SELECT * FROM ag_catalog.ag_graph WHERE name = $1`, [config.graph.name]
-    );
+      // Create vector index for embeddings (Neo4j 5.11+)
+      await session.run(`
+        CREATE VECTOR INDEX node_embedding IF NOT EXISTS
+        FOR (n:Node) ON (n.embedding)
+        OPTIONS {indexConfig: {
+          \`vector.dimensions\`: ${config.embedding.dim},
+          \`vector.similarity_function\`: 'cosine'
+        }}
+      `).catch((e: any) => {
+        logger.info({ err: e.message }, 'Vector index creation skipped (may already exist or Neo4j < 5.11)');
+      });
 
-    if (graphCheck.rows.length === 0) {
-      await client.query(`SELECT create_graph('${config.graph.name}')`);
-      logger.info({ graph: config.graph.name }, 'Created graph');
+      logger.info({ url: config.neo4j.url, database: config.neo4j.database }, 'Neo4j initialized');
+      return true;
+    } finally {
+      await session.close();
     }
-
-    logger.info('Apache AGE graph initialized');
-    return true;
   } catch (e: any) {
-    logger.warn({ err: e.message }, 'Apache AGE init failed');
+    logger.warn({ err: e.message }, 'Neo4j not available');
     return false;
-  } finally {
-    client.release();
   }
 }
 
-// ── Query helper ───────────────────────────────────────────────────
+// ── Query helper (Neo4j) ──────────────────────────────────────────
 
 export async function cypherQuery(cypher: string): Promise<any[]> {
-  const client = await kgPool.connect();
+  const session = getDriver().session({ database: config.neo4j.database });
   try {
-    await client.query(`LOAD 'age'`);
-    await client.query(`SET search_path = ag_catalog, "${config.db.schema}", public`);
-    const result = await client.query(
-      `SELECT * FROM cypher('${config.graph.name}', $$ ${cypher} $$) AS (result agtype)`
-    );
-    return result.rows.map(r => {
-      try { return JSON.parse(r.result); } catch { return r.result; }
+    const result = await session.run(cypher);
+    return result.records.map(record => {
+      if (record.keys.length === 1) {
+        return toPlainValue(record.get(0));
+      }
+      const obj: Record<string, any> = {};
+      for (const key of record.keys) {
+        obj[key as string] = toPlainValue(record.get(key));
+      }
+      return obj;
     });
   } finally {
-    client.release();
+    await session.close();
   }
+}
+
+// ── Shutdown ──────────────────────────────────────────────────────
+
+export async function closeGraph(): Promise<void> {
+  if (driver) {
+    await driver.close();
+    logger.info('Neo4j driver closed');
+  }
+}
+
+// ── Neo4j value conversion helper ─────────────────────────────────
+
+function toPlainValue(val: any): any {
+  if (val === null || val === undefined) return val;
+  // Neo4j Integer → JS number
+  if (neo4j.isInt(val)) return val.toNumber();
+  // Neo4j Node → plain object
+  if (val.properties) return { ...toPlainProps(val.properties), _labels: val.labels };
+  // Neo4j Relationship → plain object
+  if (val.type && val.properties) return { ...toPlainProps(val.properties), _type: val.type };
+  // Array
+  if (Array.isArray(val)) return val.map(toPlainValue);
+  return val;
+}
+
+function toPlainProps(props: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(props)) {
+    out[k] = neo4j.isInt(v) ? v.toNumber() : v;
+  }
+  return out;
 }

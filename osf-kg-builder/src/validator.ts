@@ -3,6 +3,8 @@ import { callLlm, ChatMessage } from './llm-client';
 import { SchemaProposal } from './schema-planner';
 import { loadDomainConfig } from './domain-config';
 import { logger } from './logger';
+import { generateEmbedding } from './embedding-service';
+import { semanticSearch } from './vector-store';
 
 export interface ValidationReport {
   nodeCounts: Record<string, number>;
@@ -228,11 +230,23 @@ export async function answerGraphQuestion(question: string, schema: SchemaPropos
   const schemaDesc = schema.nodeTypes.map(n => `${n.label}(${n.properties.map(p => p.name).join(',')})`).join(', ');
   const edgeDesc = schema.edgeTypes.map(e => `(${e.fromType})-[${e.label}]->(${e.toType})`).join(', ');
 
+  // Semantic search boost: find relevant nodes via embeddings
+  let semanticHint = '';
+  try {
+    const queryEmb = await generateEmbedding(question);
+    const similar = await semanticSearch(queryEmb, 5, 0.4);
+    if (similar.length > 0) {
+      semanticHint = `\nSemantisch relevante Nodes: ${similar.map(s => `${s.node_label}:${s.node_id} (similarity: ${s.similarity?.toFixed(2)})`).join(', ')}`;
+    }
+  } catch {
+    // Embedding unavailable — continue without semantic boost
+  }
+
   const messages: ChatMessage[] = [
     {
       role: 'system',
       content: `You are a Cypher query expert for Apache AGE. Generate a single Cypher query to answer the user's question.
-Graph schema — Nodes: ${schemaDesc}. Edges: ${edgeDesc}.
+Graph schema — Nodes: ${schemaDesc}. Edges: ${edgeDesc}.${semanticHint}
 Return ONLY the Cypher query, nothing else. Use RETURN with explicit property access (e.g. n.id, n.name).`,
     },
     { role: 'user', content: question },

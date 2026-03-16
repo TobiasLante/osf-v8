@@ -5,7 +5,7 @@ import { logger } from './logger';
 import { loadDomainConfig } from './domain-config';
 import { i3xToSchemaProposal, importI3xToGraph } from './i3x-client';
 import { parseMTP, fetchMTPFromUrl, mtpToSchemaHint, mtpToNodeTypes, mtpToEdgeTypes, MTPSchema } from './mtp-parser';
-import { initializeGraph } from './cypher-utils';
+import { initializeGraph, closeGraph } from './cypher-utils';
 import { discoverAndSample, ToolDiscoveryResult } from './tool-discovery';
 import { fetchSMProfileFromUrl, parseSMProfile, SMProfileSchema } from './sm-profile-parser';
 import { planSchema, formatProposalForChat, applyUserCorrections, SchemaProposal, SchemaRun, saveSchemaRun, NodeTypeSpec, EdgeTypeSpec } from './schema-planner';
@@ -13,6 +13,11 @@ import { executeNodeExtraction } from './entity-extractor';
 import { executeRelationshipBuilding } from './relationship-builder';
 import { runValidation, formatValidationReport, answerGraphQuestion, ValidationReport } from './validator';
 import { autoCorrect, userCorrect, identifyMissingTypes, formatCorrectionProposal } from './corrector';
+import { generateEmbedding } from './embedding-service';
+import { initVectorStore, semanticSearch, getEmbeddingStats } from './vector-store';
+import { generateChart } from './chart-engine';
+import { startTransformService, stopTransformService, getTransformStats } from './mqtt-transform';
+import { startKgBridge, stopKgBridge, getBridgeStats } from './mqtt-kg-bridge';
 
 // ── SSE helpers ────────────────────────────────────────────────────
 
@@ -272,10 +277,20 @@ const app = express();
 app.use(express.json());
 
 let graphAvailable = false;
+let vectorAvailable = false;
 
 // Health
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'osf-kg-builder', graphAvailable });
+  res.json({
+    status: 'ok',
+    service: 'osf-kg-builder',
+    graphAvailable,
+    vectorAvailable,
+    mqtt: {
+      transform: getTransformStats().running,
+      bridge: getBridgeStats().running,
+    },
+  });
 });
 
 // Start a new KG build run
@@ -336,6 +351,101 @@ app.get('/api/kg-builder/runs', async (_req: Request, res: Response) => {
   }
 });
 
+// ── Semantic Search Endpoint ─────────────────────────────────────────
+
+app.post('/api/kg-builder/semantic-search', async (req: Request, res: Response) => {
+  const { query, limit = 10, minSimilarity = 0.3, labelFilter } = req.body || {};
+  if (!query) {
+    res.status(400).json({ error: 'query is required' });
+    return;
+  }
+
+  try {
+    const embedding = await generateEmbedding(query);
+    const results = await semanticSearch(embedding, limit, minSimilarity, labelFilter);
+    res.json({ query, results, count: results.length });
+  } catch (e: any) {
+    logger.error({ err: e.message }, 'Semantic search failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Chart Engine Endpoint ───────────────────────────────────────────
+
+app.post('/api/kg-builder/chart', async (req: Request, res: Response) => {
+  const { question, schema: schemaOverride } = req.body || {};
+  if (!question) {
+    res.status(400).json({ error: 'question is required' });
+    return;
+  }
+
+  // Use provided schema or fetch last confirmed schema from active pipeline
+  let schema: SchemaProposal | null = schemaOverride || null;
+  if (!schema) {
+    // Try to load from latest completed run
+    try {
+      const { kgPool } = await import('./cypher-utils');
+      const result = await kgPool.query(
+        `SELECT confirmed_schema FROM ${config.db.schema}.kg_builder_runs WHERE status = 'complete' AND confirmed_schema IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
+      );
+      if (result.rows[0]?.confirmed_schema) {
+        schema = result.rows[0].confirmed_schema;
+      }
+    } catch { /* no saved runs */ }
+  }
+
+  if (!schema) {
+    res.status(400).json({ error: 'No schema available. Run the pipeline first or provide schema in request body.' });
+    return;
+  }
+
+  // SSE response for streaming
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  try {
+    emitSSE(res, { type: 'chart_status', message: 'Generating Cypher query...' });
+    const result = await generateChart(question, schema);
+
+    emitSSE(res, { type: 'chart_status', message: 'Chart generated' });
+    emitSSE(res, {
+      type: 'chart_data',
+      question: result.question,
+      cypher: result.cypher,
+      chart: result.chart,
+      semanticContext: result.semanticContext,
+    });
+    emitSSE(res, { type: 'done' });
+  } catch (e: any) {
+    emitSSE(res, { type: 'error', message: e.message });
+  } finally {
+    if (!res.writableEnded) res.end();
+  }
+});
+
+// ── Embedding Stats Endpoint ────────────────────────────────────────
+
+app.get('/api/kg-builder/embeddings/stats', async (_req: Request, res: Response) => {
+  try {
+    const stats = await getEmbeddingStats();
+    res.json(stats);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── MQTT Status Endpoint ────────────────────────────────────────────
+
+app.get('/api/kg-builder/mqtt/status', (_req: Request, res: Response) => {
+  res.json({
+    transform: getTransformStats(),
+    bridge: getBridgeStats(),
+  });
+});
+
 // ── Startup ────────────────────────────────────────────────────────
 
 async function main() {
@@ -346,9 +456,28 @@ async function main() {
   graphAvailable = await initializeGraph();
   logger.info({ graphAvailable }, 'Graph status');
 
+  // Initialize pgvector store (non-blocking — if it fails, semantic search is just disabled)
+  vectorAvailable = await initVectorStore();
+  logger.info({ vectorAvailable }, 'Vector store status');
+
+  // Start MQTT transform + KG bridge (non-blocking)
+  startTransformService().catch(e => logger.warn({ err: e.message }, 'MQTT transform start failed'));
+  startKgBridge().catch(e => logger.warn({ err: e.message }, 'MQTT KG bridge start failed'));
+
   app.listen(config.port, () => {
     logger.info({ port: config.port }, 'osf-kg-builder listening');
   });
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    logger.info('Shutting down...');
+    await stopTransformService();
+    await stopKgBridge();
+    await closeGraph();
+    process.exit(0);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 main().catch(e => {

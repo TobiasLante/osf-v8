@@ -1,0 +1,35 @@
+##
+## Neo4j Graph Database for v9 KG Builder
+## Replaces Apache AGE — full Cypher, native vector index, APOC
+##
+## Usage: docker compose -f docker-compose.neo4j.yaml up -d
+## Browser: http://localhost:37474  (bolt: localhost:37687)
+##
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: osf-neo4j
+    restart: unless-stopped
+    ports:
+      - "37474:7474"   # HTTP Browser
+      - "37687:7687"   # Bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/zeroguess
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_memory_heap_max__size=1G
+      - NEO4J_dbms_memory_pagecache_size=512M
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    networks:
+      - osf-graph
+
+networks:
+  osf-graph:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+  neo4j-logs:

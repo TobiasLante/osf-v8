@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #050507;
+  --surface-1: #0c0c10;
+  --surface-2: #141418;
+  --surface-3: #1c1c22;
+  --surface-4: #24242c;
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  --accent: #ff9500;
+  --accent-hover: #ff5722;
+  --accent-glow: rgba(255, 149, 0, 0.4);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-active: rgba(255, 149, 0, 0.3);
+}
+
+html.light {
+  --bg: #f5f5f7;
+  --surface-1: #ffffff;
+  --surface-2: #f0f0f2;
+  --surface-3: #e5e5ea;
+  --surface-4: #d1d1d6;
+  --text: #1c1c1e;
+  --text-muted: #636366;
+  --text-dim: #8e8e93;
+  --accent: #ff9500;
+  --accent-hover: #ff5722;
+  --accent-glow: rgba(255, 149, 0, 0.3);
+  --border: rgba(0, 0, 0, 0.08);
+  --border-active: rgba(255, 149, 0, 0.4);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Card base */
+.card {
+  @apply rounded-lg border bg-[var(--surface-1)] border-[var(--border)] p-4;
+}
+
+.card-interactive {
+  @apply card transition-all cursor-pointer hover:border-[var(--border-active)] hover:shadow-lg hover:shadow-orange-500/5;
+}
+
+/* Badge */
+.badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+}
+.badge-orange { @apply bg-orange-500/10 text-orange-400; }
+.badge-emerald { @apply bg-emerald-500/10 text-emerald-400; }
+.badge-amber { @apply bg-amber-500/10 text-amber-400; }
+.badge-red { @apply bg-red-500/10 text-red-400; }
+.badge-blue { @apply bg-blue-500/10 text-blue-400; }
+.badge-purple { @apply bg-purple-500/10 text-purple-400; }
+
+/* Input */
+.input {
+  @apply w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500/40;
+}
+
+/* Button — primary uses orange gradient */
+.btn-primary {
+  @apply rounded-md px-4 py-2 text-sm text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+  background: linear-gradient(135deg, #ff9500, #ff5722);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ff5722, #e64a19);
+  box-shadow: 0 4px 16px rgba(255, 149, 0, 0.25);
+}
+
+.btn-secondary {
+  @apply rounded-md border border-[var(--border)] px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--surface-3)] transition-colors;
+}

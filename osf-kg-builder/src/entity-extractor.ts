@@ -5,6 +5,8 @@ import { sampleMcpTool } from './tool-discovery';
 import { loadDomainConfig } from './domain-config';
 import { config } from './config';
 import { logger } from './logger';
+import { generateEmbeddings, nodeToText } from './embedding-service';
+import { batchUpsertEmbeddings } from './vector-store';
 
 export interface ExtractedNode {
   id: string;
@@ -144,6 +146,28 @@ export async function executeNodeExtraction(
     onProgress(`${nt.label}: ${unique.length} nodes extracted, ${result.success} committed`, {
       nodeType: nt.label, current: unique.length, total: unique.length,
     });
+
+    // Post-extraction: generate embeddings for committed nodes (batch of 50)
+    if (result.success > 0) {
+      try {
+        const textsForEmbed = unique.map(n => nodeToText(n.id, nt.label, n.props));
+        const embedResults = await generateEmbeddings(textsForEmbed, 50);
+        const items = embedResults
+          .filter((_, idx) => idx < unique.length)
+          .map((er, idx) => ({
+            nodeId: unique[idx].id,
+            nodeLabel: nt.label,
+            textContent: er.text,
+            embedding: er.embedding,
+          }));
+        const embResult = await batchUpsertEmbeddings(items);
+        onProgress(`${nt.label}: ${embResult.success} embeddings stored`, {
+          nodeType: nt.label, embeddings: embResult.success,
+        });
+      } catch (e: any) {
+        logger.warn({ nodeType: nt.label, err: e.message }, 'Embedding generation failed (non-critical)');
+      }
+    }
   }
 
   return report;
