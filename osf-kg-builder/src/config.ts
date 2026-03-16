@@ -42,9 +42,9 @@ export const config = {
     urls: (process.env.MTP_URLS || '').split(',').filter(Boolean),
   },
   embedding: {
-    url: str('EMBEDDING_URL', 'http://llm:5002'),  // llama.cpp 14B — /v1/embeddings
-    model: str('EMBEDDING_MODEL', 'nomic-embed-text'),
-    dim: int('EMBEDDING_DIM', 384),
+    url: str('EMBEDDING_URL', 'http://llm:5001'),  // llama.cpp 32B — /v1/embeddings
+    model: str('EMBEDDING_MODEL', 'qwen2.5-32b-instruct'),
+    dim: int('EMBEDDING_DIM', 5120),
   },
   chart: {
     llmModel: str('CHART_LLM_MODEL', ''),

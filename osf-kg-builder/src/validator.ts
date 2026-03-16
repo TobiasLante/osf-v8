@@ -245,7 +245,7 @@ export async function answerGraphQuestion(question: string, schema: SchemaPropos
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `You are a Cypher query expert for Apache AGE. Generate a single Cypher query to answer the user's question.
+      content: `You are a Neo4j Cypher expert. Generate a single Cypher query to answer the user's question.
 Graph schema — Nodes: ${schemaDesc}. Edges: ${edgeDesc}.${semanticHint}
 Return ONLY the Cypher query, nothing else. Use RETURN with explicit property access (e.g. n.id, n.name).`,
     },

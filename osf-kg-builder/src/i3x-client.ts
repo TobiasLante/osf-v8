@@ -237,7 +237,10 @@ export async function importI3xToGraph(
             const toId = item.targetElementId || item.toElementId || item.relatedElementId;
             if (fromId && toId) {
               // Use generic labels — the vertex merge already set the correct label
-              edgeQueries.push(edgeCypher('_ag_label_vertex', fromId, edgeLabel, '_ag_label_vertex', toId));
+              // Match by id without label constraint (nodes may have various labels)
+              const safeFrom = fromId.replace(/'/g, "\\'");
+              const safeTo = toId.replace(/'/g, "\\'");
+              edgeQueries.push(`MATCH (a {id: '${safeFrom}'}) MATCH (b {id: '${safeTo}'}) MERGE (a)-[r:${edgeLabel}]->(b) RETURN r`);
             }
           }
         } catch (e: any) {

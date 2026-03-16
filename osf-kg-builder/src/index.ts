@@ -46,7 +46,7 @@ async function waitForUserInput(runId: string, prompt: string, res: Response): P
 async function runPipeline(
   runId: string,
   res: Response,
-  options: { smProfileUrl?: string; authToken?: string },
+  options: { smProfileUrl?: string; authToken?: string; mtpUrls?: string[]; i3xEndpoints?: string[] },
 ) {
   const run: SchemaRun = {
     id: runId,
@@ -78,9 +78,10 @@ async function runPipeline(
 
     // ── Phase 0a: MTP Import (if MTP URLs configured) ─────────
     const mtpModules: MTPSchema[] = [];
-    if (config.mtp.urls.length > 0) {
+    const mtpUrlList = options.mtpUrls || config.mtp.urls;
+    if (mtpUrlList.length > 0) {
       emitSSE(res, { type: 'phase', phase: 0, description: 'Importing MTP modules...' });
-      for (const url of config.mtp.urls) {
+      for (const url of mtpUrlList) {
         try {
           const xml = await fetchMTPFromUrl(url);
           const schema = parseMTP(xml);
@@ -97,9 +98,10 @@ async function runPipeline(
 
     // ── Phase 0b: i3X Import (if i3X endpoints configured) ──────
     let i3xProposal: SchemaProposal | undefined;
-    if (config.i3x.endpoints.length > 0) {
+    const i3xEndpointList = options.i3xEndpoints || config.i3x.endpoints;
+    if (i3xEndpointList.length > 0) {
       emitSSE(res, { type: 'phase', phase: 0, description: 'Importing from i3X endpoints...' });
-      for (const endpoint of config.i3x.endpoints) {
+      for (const endpoint of i3xEndpointList) {
         try {
           const result = await importI3xToGraph(endpoint, msg => emitSSE(res, { type: 'phase', phase: 0, description: msg }));
           emitSSE(res, { type: 'phase', phase: 0, description: `i3X imported: ${result.nodes} nodes, ${result.edges} edges from ${endpoint}` });
@@ -109,7 +111,7 @@ async function runPipeline(
       }
       // Also get schema proposal from first endpoint
       try {
-        i3xProposal = await i3xToSchemaProposal(config.i3x.endpoints[0]);
+        i3xProposal = await i3xToSchemaProposal(i3xEndpointList[0]);
       } catch {}
     }
 
@@ -130,13 +132,13 @@ async function runPipeline(
 
     let confirmed = false;
     while (!confirmed) {
-      const userMsg = await waitForUserInput(runId, 'Bestaetige Schema oder gib Korrektur an.', res);
+      const userMsg = await waitForUserInput(runId, 'Confirm schema or provide corrections.', res);
       const lower = userMsg.toLowerCase().trim();
 
       if (['ok', 'ja', 'yes', 'confirm', 'proceed', 'passt', 'gut', 'weiter'].some(w => lower.includes(w))) {
         confirmed = true;
       } else {
-        emitSSE(res, { type: 'phase', phase: 1, description: 'Ueberarbeite Schema...' });
+        emitSSE(res, { type: 'phase', phase: 1, description: 'Revising schema...' });
         proposal = await applyUserCorrections(proposal, userMsg, discovery);
         const revisedMd = formatProposalForChat(proposal);
         emitSSE(res, { type: 'schema_proposal', proposal, markdown: revisedMd });
@@ -197,7 +199,7 @@ async function runPipeline(
       }
 
       // Wait for user input (question, correction, or done)
-      const userMsg = await waitForUserInput(runId, 'Frage stellen, Korrektur angeben, oder "fertig".', res);
+      const userMsg = await waitForUserInput(runId, 'Ask a question, provide corrections, or type "done".', res);
       const lower = userMsg.toLowerCase().trim();
 
       if (['fertig', 'done', 'finish', 'ok', 'passt'].some(w => lower.includes(w))) {
@@ -304,9 +306,9 @@ app.post('/api/kg-builder/start', (req: Request, res: Response) => {
   activePipeline = runId;
 
   const { smProfileUrl, authToken, mtpUrls, i3xEndpoints } = req.body || {};
-  // Override config if provided in request body
-  if (mtpUrls) config.mtp.urls = mtpUrls;
-  if (i3xEndpoints) config.i3x.endpoints = i3xEndpoints;
+  // Per-request overrides (do NOT mutate global config)
+  const runMtpUrls = mtpUrls || config.mtp.urls;
+  const runI3xEndpoints = i3xEndpoints || config.i3x.endpoints;
 
   // Set SSE headers
   res.writeHead(200, {
@@ -319,7 +321,7 @@ app.post('/api/kg-builder/start', (req: Request, res: Response) => {
   emitSSE(res, { type: 'run_start', runId });
 
   // Run pipeline in background
-  runPipeline(runId, res, { smProfileUrl, authToken });
+  runPipeline(runId, res, { smProfileUrl, authToken, mtpUrls: runMtpUrls, i3xEndpoints: runI3xEndpoints });
 });
 
 // Send user message to running pipeline (HITL)

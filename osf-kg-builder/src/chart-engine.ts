@@ -90,19 +90,19 @@ async function generateCypherForChart(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Du bist ein Apache AGE Cypher-Experte. Generiere einen einzelnen Cypher-Query der Daten fuer eine Chart-Visualisierung liefert.
+      content: `You are a Neo4j Cypher expert. Generate a single Cypher query that returns data for chart visualization.
 
 Graph Schema:
   Nodes: ${schemaDesc}
   Edges: ${edgeDesc}
 ${contextHint}
 
-Regeln:
-- Gib NUR den Cypher-Query zurueck, kein Markdown, keine Erklaerung
-- Verwende RETURN mit explizitem Property-Zugriff (z.B. n.name, n.oee)
-- Aliase die Return-Werte sinnvoll (AS machine, AS value, etc.)
-- Bei Aggregationen verwende count(), avg(), sum() etc.
-- Limitiere auf max 50 Ergebnisse`,
+Rules:
+- Return ONLY the Cypher query, no markdown, no explanation
+- Use RETURN with explicit property access (e.g. n.name, n.oee)
+- Alias return values meaningfully (AS machine, AS value, etc.)
+- For aggregations use count(), avg(), sum() etc.
+- Limit to max 50 results`,
     },
     { role: 'user', content: question },
   ];
@@ -132,12 +132,12 @@ async function generateChartConfig(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Du bist ein Datenvisualisierungs-Experte. Generiere eine recharts-kompatible Chart-Konfiguration als JSON.
+      content: `You are a data visualization expert. Generate a recharts-compatible chart configuration as JSON.
 
-Ausgabe-Format (NUR JSON):
+Output format (JSON only):
 {
   "type": "bar|line|pie|area|scatter",
-  "title": "Chart Titel",
+  "title": "Chart Title",
   "xAxis": "key_name_for_x",
   "yAxis": "key_name_for_y",
   "data": [{"x_key": "value", "y_key": 42}, ...],
@@ -145,15 +145,15 @@ Ausgabe-Format (NUR JSON):
   "stacked": false
 }
 
-Regeln:
-- Waehle den passenden Chart-Typ basierend auf den Daten
-- data muss die tatsaechlichen Werte aus den Query-Ergebnissen enthalten
-- Verwende sinnvolle Farben (nicht zu grell)
-- Titel sollte die Frage beantworten`,
+Rules:
+- Choose the appropriate chart type based on the data
+- data must contain actual values from the query results
+- Use sensible colors (not too bright)
+- Title should answer the question`,
     },
     {
       role: 'user',
-      content: `Frage: ${question}\n\nQuery-Ergebnisse:\n${sampleData}`,
+      content: `Question: ${question}\n\nQuery results:\n${sampleData}`,
     },
   ];
 
