@@ -1,18 +1,38 @@
 ##
-## v9 KG Builder — Full Stack
+## v9 KG Platform — Builder (batch job) + Server (always-on)
 ## Usage: docker compose up -d
-## Env:   cp .env.example .env && edit .env
+## Build:  docker compose up kg-builder  (one-shot)
+## Server: docker compose up -d kg-server web neo4j postgres
 ##
 
 services:
 
-  # ── KG Builder API ─────────────────────────────────────────────
+  # ── KG Builder (batch job — runs once, then exits) ──────────────
   kg-builder:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.builder
     container_name: osf-kg-builder
+    restart: "no"
+    env_file: .env
+    command: ["--domain", "${DOMAIN:-discrete}"]
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - v9
+
+  # ── KG Server (always-on: MCP + REST + MQTT bridge) ────────────
+  kg-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: osf-kg-server
     restart: unless-stopped
     ports:
-      - "${KG_BUILDER_PORT:-8035}:8035"
+      - "${KG_SERVER_PORT:-8035}:8035"
     env_file: .env
     depends_on:
       neo4j:
@@ -79,21 +99,6 @@ services:
     networks:
       - v9
 
-  # ── MQTT Curated Broker ───────────────────────────────────────
-  mqtt-curated:
-    image: eclipse-mosquitto:2.0.20
-    container_name: osf-mqtt-curated
-    restart: unless-stopped
-    ports:
-      - "${MQTT_CURATED_PORT:-31884}:1883"
-      - "${MQTT_CURATED_WS_PORT:-31885}:9001"
-    volumes:
-      - ./mosquitto-curated.conf:/mosquitto/config/mosquitto.conf:ro
-      - mqtt-curated-data:/mosquitto/data
-      - mqtt-curated-log:/mosquitto/log
-    networks:
-      - v9
-
 networks:
   v9:
     driver: bridge
@@ -102,5 +107,3 @@ volumes:
   neo4j-data:
   neo4j-logs:
   pg-data:
-  mqtt-curated-data:
-  mqtt-curated-log:

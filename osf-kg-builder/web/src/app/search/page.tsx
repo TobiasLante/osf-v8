@@ -23,7 +23,7 @@ export default function SearchPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/api/kg-builder/semantic-search`, {
+      const res = await fetch(`${API_URL}/api/kg/semantic-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, limit, minSimilarity: 0.3, labelFilter: labelFilter || undefined }),

@@ -1,7 +1,7 @@
-import { config } from './config';
-import { logger } from './logger';
-import { NodeTypeSpec, EdgeTypeSpec, SchemaProposal } from './schema-planner';
-import { vertexCypher, edgeCypher, executeBatched } from './cypher-utils';
+import { config } from '../shared/config';
+import { logger } from '../shared/logger';
+import { NodeTypeSpec, EdgeTypeSpec, SchemaProposal } from '../shared/types';
+import { vertexCypher, edgeCypher, executeBatched } from '../shared/cypher-utils';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -187,7 +187,6 @@ export async function importI3xToGraph(
   const objectTypes = await getObjectTypes(baseUrl);
   onProgress(`Found ${objectTypes.length} object types`);
 
-  // Import objects per type
   for (const ot of objectTypes) {
     const label = sanitizeLabel(ot.displayName);
     onProgress(`Fetching objects of type ${label}...`);
@@ -212,11 +211,9 @@ export async function importI3xToGraph(
     onProgress(`${label}: ${result.success} nodes created (${result.failed} failed)`);
   }
 
-  // Import relationships
   onProgress('Fetching relationship types...');
   const relationshipTypes = await getRelationshipTypes(baseUrl);
 
-  // Collect all object IDs for relationship lookup
   const allObjects = await getObjects(baseUrl);
   const allElementIds = allObjects.map(o => o.elementId);
 
@@ -225,7 +222,6 @@ export async function importI3xToGraph(
       const edgeLabel = sanitizeLabel(rt.displayName).toUpperCase().replace(/\s+/g, '_');
       onProgress(`Fetching ${edgeLabel} relationships...`);
 
-      // Batch element IDs in groups of 100
       const edgeQueries: string[] = [];
       for (let i = 0; i < allElementIds.length; i += 100) {
         const batch = allElementIds.slice(i, i + 100);
@@ -236,8 +232,6 @@ export async function importI3xToGraph(
             const fromId = item.sourceElementId || item.fromElementId || item.elementId;
             const toId = item.targetElementId || item.toElementId || item.relatedElementId;
             if (fromId && toId) {
-              // Use generic labels — the vertex merge already set the correct label
-              // Match by id without label constraint (nodes may have various labels)
               const safeFrom = fromId.replace(/'/g, "\\'");
               const safeTo = toId.replace(/'/g, "\\'");
               edgeQueries.push(`MATCH (a {id: '${safeFrom}'}) MATCH (b {id: '${safeTo}'}) MERGE (a)-[r:${edgeLabel}]->(b) RETURN r`);

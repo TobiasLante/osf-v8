@@ -1,29 +1,8 @@
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { logger } from './logger';
-
-// ── Types ──────────────────────────────────────────────────────────
-
-export interface DomainCheck {
-  type: 'node_min_count' | 'edge_exists' | 'hierarchy';
-  label: string;
-  min?: number;
-  parent?: string;
-  child?: string;
-  edge?: string;
-}
-
-export interface DomainConfig {
-  domain: string;
-  displayName: string;
-  systemPromptContext: string;
-  ontologyHint: string;
-  expectedNodeTypes: string[];
-  expectedEdgeTypes: string[];
-  sampleChecks: DomainCheck[];
-  schemaExamples: { nodeExample: string; edgeExample: string };
-  profileFormat: 'cesmii' | 'mtp' | 'i3x' | 'none';
-  complianceChecks: string[];
-}
+import { DomainConfig, DomainCheck, SchemaTemplate, TemplateNodeType, TemplateEdgeType } from './types';
+import { NodeTypeSpec, EdgeTypeSpec } from './types';
 
 // ── Built-in Presets ───────────────────────────────────────────────
 
@@ -193,4 +172,53 @@ export function domainToSchemaHint(domain: DomainConfig): string {
   }
 
   return lines.join('\n');
+}
+
+// ── Schema Template Loader ─────────────────────────────────────────
+
+const TEMPLATES_DIR = join(__dirname, '../../templates');
+
+export function loadSchemaTemplate(domain: string): SchemaTemplate | null {
+  const filePath = join(TEMPLATES_DIR, `${domain}.json`);
+  if (!existsSync(filePath)) {
+    logger.info({ domain, path: filePath }, 'No schema template found');
+    return null;
+  }
+
+  try {
+    const raw = readFileSync(filePath, 'utf-8');
+    const template = JSON.parse(raw) as SchemaTemplate;
+    logger.info({ domain: template.domain, nodes: template.nodeTypes.length, edges: template.edgeTypes.length }, 'Loaded schema template');
+    return template;
+  } catch (e: any) {
+    logger.error({ err: e.message, path: filePath }, 'Failed to load schema template');
+    return null;
+  }
+}
+
+/**
+ * Convert a SchemaTemplate to NodeTypeSpec[] + EdgeTypeSpec[] for the pipeline.
+ */
+export function templateToSpecs(template: SchemaTemplate): { nodeTypes: NodeTypeSpec[]; edgeTypes: EdgeTypeSpec[] } {
+  const nodeTypes: NodeTypeSpec[] = template.nodeTypes.map(nt => ({
+    label: nt.label,
+    idProperty: nt.idProperty,
+    properties: nt.properties.map(p => ({
+      name: p.name,
+      type: p.type,
+      description: p.description || p.name,
+    })),
+    sourceTool: nt.sourceTool,
+    sourceMapping: `Template: ${template.domain} — ${nt.label} from ${nt.sourceTool}`,
+  }));
+
+  const edgeTypes: EdgeTypeSpec[] = template.edgeTypes.map(et => ({
+    label: et.label,
+    fromType: et.fromType,
+    toType: et.toType,
+    sourceTool: et.sourceTool,
+    sourceMapping: `Template: FK ${et.fkProperty} on ${et.sourceTool}`,
+  }));
+
+  return { nodeTypes, edgeTypes };
 }

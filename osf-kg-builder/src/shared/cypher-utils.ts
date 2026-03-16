@@ -170,10 +170,10 @@ export async function initializeGraph(): Promise<boolean> {
 
 // ── Query helper (Neo4j) ──────────────────────────────────────────
 
-export async function cypherQuery(cypher: string): Promise<any[]> {
+export async function cypherQuery(cypher: string, params?: Record<string, any>): Promise<any[]> {
   const session = getDriver().session({ database: config.neo4j.database });
   try {
-    const result = await session.run(cypher);
+    const result = await session.run(cypher, params);
     return result.records.map(record => {
       if (record.keys.length === 1) {
         return toPlainValue(record.get(0));

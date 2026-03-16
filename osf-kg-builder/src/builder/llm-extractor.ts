@@ -1,12 +1,12 @@
-import { callLlmJson, ChatMessage } from './llm-client';
-import { NodeTypeSpec } from './schema-planner';
-import { vertexCypher, executeBatched } from './cypher-utils';
+import { callLlmJson, ChatMessage } from '../shared/llm-client';
+import { NodeTypeSpec } from '../shared/types';
+import { vertexCypher, executeBatched } from '../shared/cypher-utils';
 import { sampleMcpTool } from './tool-discovery';
-import { loadDomainConfig } from './domain-config';
-import { config } from './config';
-import { logger } from './logger';
-import { generateEmbeddings, nodeToText } from './embedding-service';
-import { batchUpsertEmbeddings } from './vector-store';
+import { loadDomainConfig } from '../shared/domain-config';
+import { config } from '../shared/config';
+import { logger } from '../shared/logger';
+import { generateEmbeddings, nodeToText } from '../shared/embedding-service';
+import { batchUpsertEmbeddings } from '../shared/vector-store';
 
 export interface ExtractedNode {
   id: string;
@@ -70,7 +70,10 @@ Rules:
   return (result.nodes || []).filter(n => n.id);
 }
 
-export async function executeNodeExtraction(
+/**
+ * LLM-based entity extraction — fallback when deterministic extraction fails.
+ */
+export async function llmExtractNodes(
   nodeTypes: NodeTypeSpec[],
   authToken: string | undefined,
   onProgress: (msg: string, detail?: any) => void,
@@ -83,9 +86,8 @@ export async function executeNodeExtraction(
   };
 
   for (const nt of nodeTypes) {
-    onProgress(`Extracting ${nt.label} from ${nt.sourceTool}...`);
+    onProgress(`Extracting ${nt.label} from ${nt.sourceTool} (LLM fallback)...`);
 
-    // Call the MCP tool
     let rawData: string;
     try {
       rawData = await sampleMcpTool(nt.sourceTool, {}, authToken);
@@ -95,17 +97,14 @@ export async function executeNodeExtraction(
       continue;
     }
 
-    // Parse rows for chunking
     let rows: any[];
     try {
       const parsed = JSON.parse(rawData);
       rows = Array.isArray(parsed) ? parsed : (parsed.content ? JSON.parse(parsed.content[0]?.text || '[]') : [parsed]);
     } catch {
-      // If not JSON, treat as single text block
       rows = [rawData];
     }
 
-    // Chunk and extract
     const allNodes: ExtractedNode[] = [];
     const chunks = chunkArray(rows, config.chunkSize);
 
@@ -147,7 +146,7 @@ export async function executeNodeExtraction(
       nodeType: nt.label, current: unique.length, total: unique.length,
     });
 
-    // Post-extraction: generate embeddings for committed nodes (batch of 50)
+    // Post-extraction: generate embeddings
     if (result.success > 0) {
       try {
         const textsForEmbed = unique.map(n => nodeToText(n.id, nt.label, n.props));

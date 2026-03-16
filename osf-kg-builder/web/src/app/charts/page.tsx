@@ -23,7 +23,7 @@ export default function ChartsPage() {
     setStatus('Generating...');
 
     try {
-      const res = await fetch(`${API_URL}/api/kg-builder/chart`, {
+      const res = await fetch(`${API_URL}/api/kg/chart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question }),

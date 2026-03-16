@@ -1,0 +1,167 @@
+{
+  "domain": "automotive",
+  "displayName": "Automotive Manufacturing",
+  "standard": "VDA / IATF 16949",
+  "nodeTypes": [
+    {
+      "label": "Station",
+      "idProperty": "station_id",
+      "sourceTool": "get_stations",
+      "properties": [
+        { "name": "station_id", "type": "string", "required": true, "description": "Assembly station ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Station name" },
+        { "name": "line", "type": "string", "description": "Production line" },
+        { "name": "takt_time_s", "type": "float", "description": "Target takt time in seconds" },
+        { "name": "oee", "type": "float", "description": "Overall Equipment Effectiveness" },
+        { "name": "status", "type": "string", "description": "Current status" }
+      ]
+    },
+    {
+      "label": "Vehicle",
+      "idProperty": "vin",
+      "sourceTool": "get_vehicles",
+      "properties": [
+        { "name": "vin", "type": "string", "required": true, "description": "Vehicle Identification Number" },
+        { "name": "model", "type": "string", "required": true, "description": "Vehicle model" },
+        { "name": "variant", "type": "string", "description": "Model variant / trim" },
+        { "name": "color", "type": "string", "description": "Exterior color" },
+        { "name": "production_date", "type": "string", "description": "Production date" },
+        { "name": "status", "type": "string", "description": "Production status (body, paint, assembly, QC, shipped)" }
+      ]
+    },
+    {
+      "label": "Part",
+      "idProperty": "part_number",
+      "sourceTool": "get_parts",
+      "properties": [
+        { "name": "part_number", "type": "string", "required": true, "description": "Part/component number" },
+        { "name": "name", "type": "string", "required": true, "description": "Part name" },
+        { "name": "category", "type": "string", "description": "Category (body, chassis, electrical, interior)" },
+        { "name": "supplier_id", "type": "string", "description": "Tier 1 supplier" },
+        { "name": "weight_kg", "type": "float", "description": "Part weight" }
+      ]
+    },
+    {
+      "label": "Supplier",
+      "idProperty": "supplier_id",
+      "sourceTool": "get_suppliers",
+      "properties": [
+        { "name": "supplier_id", "type": "string", "required": true, "description": "Supplier DUNS number" },
+        { "name": "name", "type": "string", "required": true, "description": "Supplier name" },
+        { "name": "tier", "type": "integer", "description": "Supply chain tier (1, 2, 3)" },
+        { "name": "country", "type": "string", "description": "Country" },
+        { "name": "iatf_certified", "type": "boolean", "description": "IATF 16949 certified" },
+        { "name": "ppap_status", "type": "string", "description": "PPAP approval status" }
+      ]
+    },
+    {
+      "label": "QualityCheck",
+      "idProperty": "check_id",
+      "sourceTool": "get_quality_checks",
+      "properties": [
+        { "name": "check_id", "type": "string", "required": true, "description": "Quality check ID" },
+        { "name": "vin", "type": "string", "description": "Related vehicle" },
+        { "name": "station_id", "type": "string", "description": "Station where checked" },
+        { "name": "check_type", "type": "string", "description": "Check type (visual, dimensional, functional)" },
+        { "name": "result", "type": "string", "description": "OK / NOK / rework" },
+        { "name": "defect_code", "type": "string", "description": "VDA defect code" },
+        { "name": "checked_at", "type": "string", "description": "Check timestamp" }
+      ]
+    },
+    {
+      "label": "TorqueResult",
+      "idProperty": "torque_id",
+      "sourceTool": "get_torque_results",
+      "properties": [
+        { "name": "torque_id", "type": "string", "required": true, "description": "Torque measurement ID" },
+        { "name": "vin", "type": "string", "description": "Related vehicle" },
+        { "name": "station_id", "type": "string", "description": "Station" },
+        { "name": "bolt_position", "type": "string", "description": "Bolt position identifier" },
+        { "name": "target_nm", "type": "float", "description": "Target torque (Nm)" },
+        { "name": "actual_nm", "type": "float", "description": "Actual torque (Nm)" },
+        { "name": "angle_deg", "type": "float", "description": "Tightening angle (degrees)" },
+        { "name": "status", "type": "string", "description": "OK / NOK" }
+      ]
+    }
+  ],
+  "edgeTypes": [
+    {
+      "label": "ASSEMBLED_AT",
+      "fromType": "Vehicle",
+      "toType": "Station",
+      "fkProperty": "station_id",
+      "sourceTool": "get_vehicle_routing"
+    },
+    {
+      "label": "USES_PART",
+      "fromType": "Vehicle",
+      "toType": "Part",
+      "fkProperty": "part_number",
+      "sourceTool": "get_vehicle_bom"
+    },
+    {
+      "label": "SUPPLIED_BY",
+      "fromType": "Part",
+      "toType": "Supplier",
+      "fkProperty": "supplier_id",
+      "sourceTool": "get_parts"
+    },
+    {
+      "label": "CHECKED_BY",
+      "fromType": "Vehicle",
+      "toType": "QualityCheck",
+      "fkProperty": "vin",
+      "sourceTool": "get_quality_checks"
+    },
+    {
+      "label": "HAS_TORQUE",
+      "fromType": "Vehicle",
+      "toType": "TorqueResult",
+      "fkProperty": "vin",
+      "sourceTool": "get_torque_results"
+    }
+  ],
+  "complianceChecks": [
+    {
+      "name": "Every vehicle must pass final quality check (IATF 16949)",
+      "cypher": "MATCH (v:Vehicle {status: 'shipped'}) WHERE NOT (v)-[:CHECKED_BY]->(:QualityCheck {result: 'OK'}) RETURN count(v) AS violations",
+      "severity": "error"
+    },
+    {
+      "name": "Safety-critical torque results must be documented",
+      "cypher": "MATCH (v:Vehicle) WHERE NOT (v)-[:HAS_TORQUE]->() RETURN count(v) AS violations",
+      "severity": "warning"
+    },
+    {
+      "name": "All Tier 1 suppliers must be IATF certified",
+      "cypher": "MATCH (s:Supplier {tier: 1}) WHERE s.iatf_certified <> true RETURN count(s) AS violations",
+      "severity": "warning"
+    }
+  ],
+  "sampleChecks": [
+    { "type": "node_min_count", "label": "Station", "min": 1 },
+    { "type": "node_min_count", "label": "Vehicle", "min": 1 },
+    { "type": "edge_exists", "label": "ASSEMBLED_AT" },
+    { "type": "edge_exists", "label": "USES_PART" }
+  ],
+  "tools": [
+    {
+      "name": "automotive_defect_summary",
+      "description": "Quality defect summary — NOK checks grouped by station and defect code",
+      "cypher": "MATCH (v:Vehicle)-[:CHECKED_BY]->(q:QualityCheck) WHERE q.result = 'NOK' RETURN q.station_id AS station, q.defect_code AS defect, count(q) AS count ORDER BY count DESC",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "automotive_vehicle_trace",
+      "description": "Full traceability for a vehicle — assembly stations, parts used, quality checks, torque results",
+      "cypher": "MATCH (v:Vehicle {vin: $vin}) OPTIONAL MATCH (v)-[:ASSEMBLED_AT]->(s:Station) OPTIONAL MATCH (v)-[:USES_PART]->(p:Part) OPTIONAL MATCH (v)-[:CHECKED_BY]->(q:QualityCheck) OPTIONAL MATCH (v)-[:HAS_TORQUE]->(t:TorqueResult) RETURN v.vin AS vin, v.model AS model, v.status AS status, collect(DISTINCT s.name) AS stations, collect(DISTINCT p.name) AS parts, collect(DISTINCT {type: q.check_type, result: q.result}) AS checks, count(DISTINCT t) AS torque_count",
+      "inputSchema": { "type": "object", "properties": { "vin": { "type": "string", "description": "Vehicle Identification Number" } }, "required": ["vin"] }
+    },
+    {
+      "name": "automotive_supplier_risk",
+      "description": "Suppliers linked to NOK quality checks — identifies supply chain risk",
+      "cypher": "MATCH (v:Vehicle)-[:CHECKED_BY]->(q:QualityCheck {result: 'NOK'}), (v)-[:USES_PART]->(p:Part)-[:SUPPLIED_BY]->(s:Supplier) RETURN s.name AS supplier, s.tier AS tier, count(DISTINCT q) AS nok_count, collect(DISTINCT p.name) AS affected_parts ORDER BY nok_count DESC",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    }
+  ]
+}

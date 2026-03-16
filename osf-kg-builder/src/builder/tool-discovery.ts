@@ -1,5 +1,5 @@
-import { config } from './config';
-import { logger } from './logger';
+import { config } from '../shared/config';
+import { logger } from '../shared/logger';
 
 export interface McpToolInfo {
   name: string;

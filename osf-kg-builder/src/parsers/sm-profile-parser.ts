@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { logger } from './logger';
+import { logger } from '../shared/logger';
 
 export interface SMProfileAttribute {
   name: string;
@@ -31,7 +31,6 @@ export function parseSMProfile(xmlString: string): SMProfileSchema {
   const types: SMProfileType[] = [];
   const relationships: Array<{ from: string; to: string; referenceType: string }> = [];
 
-  // Extract ObjectTypes
   const objectTypes = nodeSet.UAObjectType || [];
   for (const ot of Array.isArray(objectTypes) ? objectTypes : [objectTypes]) {
     if (!ot) continue;
@@ -41,7 +40,6 @@ export function parseSMProfile(xmlString: string): SMProfileSchema {
 
     const attrs: SMProfileAttribute[] = [];
 
-    // Extract references to find child variables
     const refs = ot.References?.Reference || [];
     for (const ref of Array.isArray(refs) ? refs : [refs]) {
       if (!ref) continue;
@@ -51,7 +49,6 @@ export function parseSMProfile(xmlString: string): SMProfileSchema {
         relationships.push({ from: browseName, to: String(targetId), referenceType: refType });
       }
       if (refType === 'HasSubtype' && ref['@_IsForward'] === 'false') {
-        // Parent type
         types.push({ name: browseName, browseName, parentType: String(targetId), attributes: attrs });
       }
     }
@@ -61,7 +58,6 @@ export function parseSMProfile(xmlString: string): SMProfileSchema {
     }
   }
 
-  // Extract Variables (become attributes on their parent type)
   const variables = nodeSet.UAVariable || [];
   for (const v of Array.isArray(variables) ? variables : [variables]) {
     if (!v) continue;
@@ -70,7 +66,6 @@ export function parseSMProfile(xmlString: string): SMProfileSchema {
     const parentNodeId = v['@_ParentNodeId'] || '';
     const description = v.Description?.['#text'] || v.Description || '';
 
-    // Find parent type and add attribute
     const parentType = types.find(t =>
       relationships.some(r => r.from === t.name && r.to === parentNodeId)
     ) || types.find(t => t.browseName === parentNodeId);

@@ -1,55 +1,20 @@
-import { callLlmJson, ChatMessage } from './llm-client';
+import { callLlmJson, ChatMessage } from '../shared/llm-client';
 import { ToolDiscoveryResult } from './tool-discovery';
-import { SMProfileSchema, smProfileToSchemaHint } from './sm-profile-parser';
-import { loadDomainConfig, domainToSchemaHint } from './domain-config';
-import { kgPool } from './cypher-utils';
-import { config } from './config';
-import { logger } from './logger';
+import { SMProfileSchema, smProfileToSchemaHint } from '../parsers/sm-profile-parser';
+import { loadDomainConfig, domainToSchemaHint, loadSchemaTemplate, templateToSpecs } from '../shared/domain-config';
+import { kgPool } from '../shared/cypher-utils';
+import { config } from '../shared/config';
+import { logger } from '../shared/logger';
+import { SchemaProposal, SchemaRun, NodeTypeSpec, EdgeTypeSpec } from '../shared/types';
 
-// ── Types ──────────────────────────────────────────────────────────
+// Re-export types for backward compatibility
+export type { SchemaProposal, SchemaRun, NodeTypeSpec, EdgeTypeSpec };
 
-export interface NodeTypeSpec {
-  label: string;
-  idProperty: string;
-  properties: Array<{ name: string; type: string; description: string }>;
-  sourceTool: string;
-  sourceMapping: string;
-}
+// ── Schema Planning ─────────────────────────────────────────────────
 
-export interface EdgeTypeSpec {
-  label: string;
-  fromType: string;
-  toType: string;
-  properties?: Array<{ name: string; type: string }>;
-  sourceTool: string;
-  sourceMapping: string;
-}
-
-export interface ToolMapping {
-  toolName: string;
-  produces: string[];
-  impliesEdges: string[];
-}
-
-export interface SchemaProposal {
-  nodeTypes: NodeTypeSpec[];
-  edgeTypes: EdgeTypeSpec[];
-  toolMappings: ToolMapping[];
-}
-
-export interface SchemaRun {
-  id: string;
-  status: 'planning' | 'confirmed' | 'extracting' | 'building' | 'validating' | 'correcting' | 'complete' | 'failed';
-  proposal: SchemaProposal | null;
-  confirmedSchema: SchemaProposal | null;
-  extractionReport: any;
-  validationReport: any;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── Schema Planning (LLM) ─────────────────────────────────────────
-
+/**
+ * Plan schema — Template-based by default, LLM-based as fallback ("custom" mode).
+ */
 export async function planSchema(
   discovery: ToolDiscoveryResult,
   smProfile?: SMProfileSchema,
@@ -59,6 +24,42 @@ export async function planSchema(
 ): Promise<SchemaProposal> {
   const domain = loadDomainConfig();
 
+  // Try template-based planning first
+  const template = loadSchemaTemplate(domain.domain);
+  if (template) {
+    logger.info({ domain: domain.domain }, 'Using schema template (deterministic mode)');
+    const { nodeTypes, edgeTypes } = templateToSpecs(template);
+
+    const result: SchemaProposal = {
+      nodeTypes,
+      edgeTypes,
+      toolMappings: nodeTypes.map(nt => ({
+        toolName: nt.sourceTool,
+        produces: [nt.label],
+        impliesEdges: edgeTypes.filter(et => et.sourceTool === nt.sourceTool).map(et => et.label),
+      })),
+    };
+
+    // Merge external sources (i3X, MTP) into template
+    return mergeExternalSources(result, i3xProposal, mtpNodeTypes, mtpEdgeTypes);
+  }
+
+  // Fallback: LLM-based schema planning ("custom" mode)
+  logger.info({ domain: domain.domain }, 'No template found — using LLM schema planning (custom mode)');
+  return planSchemaWithLlm(discovery, domain, smProfile, i3xProposal, mtpNodeTypes, mtpEdgeTypes);
+}
+
+/**
+ * LLM-based schema planning — only used when no template matches.
+ */
+async function planSchemaWithLlm(
+  discovery: ToolDiscoveryResult,
+  domain: ReturnType<typeof loadDomainConfig>,
+  smProfile?: SMProfileSchema,
+  i3xProposal?: SchemaProposal,
+  mtpNodeTypes?: NodeTypeSpec[],
+  mtpEdgeTypes?: EdgeTypeSpec[],
+): Promise<SchemaProposal> {
   const toolDescriptions = discovery.tools.map(t =>
     `Tool: ${t.name}\n  Description: ${t.description}\n  Sample output (first 500 chars): ${(t.sampleOutput || '').substring(0, 500)}`
   ).join('\n\n');
@@ -113,16 +114,26 @@ ${schemaExamples}`,
     },
   ];
 
-  let result = await callLlmJson<SchemaProposal>(messages, { maxTokens: 4096 });
+  const result = await callLlmJson<SchemaProposal>(messages, { maxTokens: 4096 });
+  return mergeExternalSources(result, i3xProposal, mtpNodeTypes, mtpEdgeTypes);
+}
 
-  // Merge i3X proposal if provided (i3X types take priority — they're ground truth)
+/**
+ * Merge i3X and MTP sources into a schema proposal.
+ */
+function mergeExternalSources(
+  result: SchemaProposal,
+  i3xProposal?: SchemaProposal,
+  mtpNodeTypes?: NodeTypeSpec[],
+  mtpEdgeTypes?: EdgeTypeSpec[],
+): SchemaProposal {
+  // Merge i3X proposal (ground truth — takes priority)
   if (i3xProposal) {
     const existingNodeLabels = new Set(result.nodeTypes.map(n => n.label));
     const existingEdgeLabels = new Set(result.edgeTypes.map(e => `${e.fromType}-${e.label}-${e.toType}`));
 
     for (const nt of i3xProposal.nodeTypes) {
       if (existingNodeLabels.has(nt.label)) {
-        // i3X takes priority — replace existing
         result.nodeTypes = result.nodeTypes.filter(n => n.label !== nt.label);
       }
       result.nodeTypes.push(nt);
@@ -141,7 +152,7 @@ ${schemaExamples}`,
     }
   }
 
-  // Merge MTP node/edge types if provided
+  // Merge MTP node/edge types
   if (mtpNodeTypes && mtpNodeTypes.length > 0) {
     const existingNodeLabels = new Set(result.nodeTypes.map(n => n.label));
     for (const nt of mtpNodeTypes) {

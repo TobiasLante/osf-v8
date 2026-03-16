@@ -1,9 +1,9 @@
-import { callLlmJson, ChatMessage } from './llm-client';
-import { EdgeTypeSpec } from './schema-planner';
-import { edgeCypher, executeBatched, cypherQuery } from './cypher-utils';
+import { callLlmJson, ChatMessage } from '../shared/llm-client';
+import { EdgeTypeSpec } from '../shared/types';
+import { edgeCypher, executeBatched, cypherQuery } from '../shared/cypher-utils';
 import { sampleMcpTool } from './tool-discovery';
-import { loadDomainConfig } from './domain-config';
-import { logger } from './logger';
+import { loadDomainConfig } from '../shared/domain-config';
+import { logger } from '../shared/logger';
 
 export interface ExtractedEdge {
   from: string;
@@ -83,7 +83,6 @@ export async function executeRelationshipBuilding(
   for (const et of edgeTypes) {
     onProgress(`Building ${et.fromType} —[${et.label}]→ ${et.toType}...`);
 
-    // Get existing node IDs for validation
     const fromIds = await getNodeIds(et.fromType);
     const toIds = await getNodeIds(et.toType);
 
@@ -93,7 +92,6 @@ export async function executeRelationshipBuilding(
       continue;
     }
 
-    // Get source data
     let rawData: string;
     try {
       rawData = await sampleMcpTool(et.sourceTool, {}, authToken);
@@ -103,7 +101,6 @@ export async function executeRelationshipBuilding(
       continue;
     }
 
-    // Extract edges
     const dataStr = rawData.substring(0, 8000);
     let edges: ExtractedEdge[];
     try {
@@ -114,7 +111,6 @@ export async function executeRelationshipBuilding(
       continue;
     }
 
-    // Validate: both endpoints must exist
     const fromSet = new Set(fromIds);
     const toSet = new Set(toIds);
     const valid = edges.filter(e => fromSet.has(e.from) && toSet.has(e.to));
@@ -123,7 +119,6 @@ export async function executeRelationshipBuilding(
       logger.warn({ edge: et.label, dropped }, 'Dropped edges with unknown endpoints');
     }
 
-    // Generate and execute Cypher
     const queries = valid.map(e => edgeCypher(et.fromType, e.from, et.label, et.toType, e.to, e.props));
     const result = await executeBatched(queries);
 

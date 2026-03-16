@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
-import { logger } from './logger';
-import { NodeTypeSpec, EdgeTypeSpec } from './schema-planner';
+import { logger } from '../shared/logger';
+import { NodeTypeSpec, EdgeTypeSpec } from '../shared/types';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -96,7 +96,6 @@ function walkElement(el: any, modules: MTPModule[]): void {
 }
 
 function getRoleRef(el: any): string {
-  // Check RoleRequirements, SupportedRoleClass, RefBaseRoleClassPath
   const rr = el.RoleRequirements;
   if (rr) {
     const rrList = Array.isArray(rr) ? rr : [rr];
@@ -122,14 +121,12 @@ function extractModule(el: any, name: string): MTPModule {
   const variables: MTPVariable[] = [];
   let opcuaEndpoint: string | undefined;
 
-  // Walk children for services, variables, OPC-UA endpoints
   const children = el.InternalElement || [];
   for (const child of Array.isArray(children) ? children : [children]) {
     if (!child) continue;
     const childName = child['@_Name'] || '';
     const childRole = getRoleRef(child);
 
-    // Services
     if (
       childRole.toLowerCase().includes('service') ||
       childName.toLowerCase().includes('service')
@@ -138,7 +135,6 @@ function extractModule(el: any, name: string): MTPModule {
       continue;
     }
 
-    // Recurse for nested services
     const nested = child.InternalElement || [];
     for (const n of Array.isArray(nested) ? nested : [nested]) {
       if (!n) continue;
@@ -150,7 +146,6 @@ function extractModule(el: any, name: string): MTPModule {
     }
   }
 
-  // Extract attributes as variables
   const attrs = el.Attribute || [];
   for (const attr of Array.isArray(attrs) ? attrs : [attrs]) {
     if (!attr) continue;
@@ -158,10 +153,8 @@ function extractModule(el: any, name: string): MTPModule {
     if (v) variables.push(v);
   }
 
-  // Deep-extract variables from child elements
   extractVariablesDeep(el, variables);
 
-  // Look for OPC-UA external interfaces
   const extInterfaces = el.ExternalInterface || [];
   for (const ei of Array.isArray(extInterfaces) ? extInterfaces : [extInterfaces]) {
     if (!ei) continue;
@@ -178,7 +171,6 @@ function extractService(el: any, name: string): MTPService {
   const procedures: string[] = [];
   const states: string[] = [];
 
-  // Procedures from child InternalElements
   const children = el.InternalElement || [];
   for (const child of Array.isArray(children) ? children : [children]) {
     if (!child) continue;
@@ -189,7 +181,6 @@ function extractService(el: any, name: string): MTPService {
     }
   }
 
-  // States from attributes or known ISA-88 state names
   const attrs = el.Attribute || [];
   for (const attr of Array.isArray(attrs) ? attrs : [attrs]) {
     if (!attr) continue;
@@ -200,7 +191,6 @@ function extractService(el: any, name: string): MTPService {
     }
   }
 
-  // Default ISA-88 states if none found
   if (states.length === 0) {
     states.push('Idle', 'Starting', 'Running', 'Completing', 'Completed', 'Aborting', 'Aborted', 'Resetting');
   }
@@ -214,7 +204,6 @@ function extractVariable(attr: any): MTPVariable | null {
   const dataType = attr['@_AttributeDataType'] || attr['@_DataType'] || 'String';
   const unit = attr['@_Unit'] || extractAttributeValue(attr, 'Unit') || undefined;
 
-  // Check for nested OPC-UA node ID
   const nested = attr.Attribute || [];
   let opcuaNodeId: string | undefined;
   for (const n of Array.isArray(nested) ? nested : [nested]) {
@@ -310,7 +299,6 @@ export function mtpToNodeTypes(schema: MTPSchema): NodeTypeSpec[] {
   const nodeTypes: NodeTypeSpec[] = [];
 
   for (const mod of schema.modules) {
-    // Equipment node from module
     nodeTypes.push({
       label: 'Equipment',
       idProperty: 'name',
@@ -328,7 +316,6 @@ export function mtpToNodeTypes(schema: MTPSchema): NodeTypeSpec[] {
       sourceMapping: `MTP module ${mod.name}`,
     });
 
-    // Service nodes
     for (const svc of mod.services) {
       nodeTypes.push({
         label: 'Service',
@@ -367,7 +354,6 @@ export function mtpToEdgeTypes(schema: MTPSchema): EdgeTypeSpec[] {
     }
   }
 
-  // Deduplicate PROVIDES edges (one per unique fromType→toType)
   const seen = new Set<string>();
   const deduped: EdgeTypeSpec[] = [];
   for (const et of edgeTypes) {

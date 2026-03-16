@@ -22,7 +22,7 @@ export const config = {
     schema: str('DB_SCHEMA', 'llm_test_v3'),
   },
   graph: {
-    name: str('GRAPH_NAME', 'factory_graph'),  // legacy AGE ref
+    name: str('GRAPH_NAME', 'factory_graph'),
   },
   neo4j: {
     url: str('NEO4J_URL', 'bolt://neo4j:7687'),
@@ -42,16 +42,15 @@ export const config = {
     urls: (process.env.MTP_URLS || '').split(',').filter(Boolean),
   },
   embedding: {
-    url: str('EMBEDDING_URL', 'http://llm:5001'),  // llama.cpp 32B — /v1/embeddings
-    model: str('EMBEDDING_MODEL', 'qwen2.5-32b-instruct'),
-    dim: int('EMBEDDING_DIM', 5120),
+    url: str('EMBEDDING_URL', 'http://llm:5003'),
+    model: str('EMBEDDING_MODEL', 'nomic-embed-text'),
+    dim: int('EMBEDDING_DIM', 768),
   },
   chart: {
     llmModel: str('CHART_LLM_MODEL', ''),
   },
   mqtt: {
     rawUrl: str('MQTT_RAW_URL', 'mqtt://mqtt-raw:1883'),
-    curatedUrl: str('MQTT_CURATED_URL', 'mqtt://mqtt-curated:1883'),
     transformRules: parseTransformRules(process.env.MQTT_TRANSFORM_RULES || ''),
   },
 };

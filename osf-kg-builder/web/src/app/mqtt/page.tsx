@@ -3,18 +3,24 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '@/lib/api';
 
-interface TransformStats { received: number; validated: number; rejected: number; published: number; errors: number; running: boolean; }
-interface BridgeStats { received: number; nodesUpdated: number; errors: number; running: boolean; bufferSize: number; }
+interface BridgeStats {
+  received: number;
+  validated: number;
+  rejected: number;
+  kgUpdated: number;
+  errors: number;
+  running: boolean;
+  bufferSize: number;
+}
 
 export default function MqttPage() {
-  const [transform, setTransform] = useState<TransformStats | null>(null);
-  const [bridge, setBridge] = useState<BridgeStats | null>(null);
+  const [stats, setStats] = useState<BridgeStats | null>(null);
   const [error, setError] = useState('');
 
   const refresh = () => {
-    fetch(`${API_URL}/api/kg-builder/mqtt/status`)
+    fetch(`${API_URL}/api/kg/mqtt/status`)
       .then(r => r.json())
-      .then(d => { setTransform(d.transform); setBridge(d.bridge); setError(''); })
+      .then(d => { setStats(d); setError(''); })
       .catch(e => setError(e.message));
   };
 
@@ -28,9 +34,9 @@ export default function MqttPage() {
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">MQTT Status</h1>
+          <h1 className="text-2xl font-bold tracking-tight">MQTT Bridge</h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">
-            Dual-broker architecture: Raw (31883) \u2192 Transform \u2192 Curated (31884) \u2192 KG Bridge.
+            Unified MQTT bridge: Raw broker &rarr; Validate &rarr; Enrich &rarr; Neo4j KG.
           </p>
         </div>
         <button onClick={refresh} className="btn-secondary text-xs">Refresh</button>
@@ -42,55 +48,34 @@ export default function MqttPage() {
       <div className="card">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)] mb-4">Data Flow</h2>
         <div className="flex items-center justify-between gap-2 text-center">
-          <FlowBox label="Raw Broker" detail="Port 31883" status="ok" />
+          <FlowBox label="Raw Broker" detail="MQTT" status="ok" />
           <Arrow />
-          <FlowBox label="Transform" detail={transform ? `${transform.validated} validated` : 'Loading...'} status={transform?.running ? 'ok' : 'off'} />
+          <FlowBox label="Validate" detail={stats ? `${stats.validated} validated` : 'Loading...'} status={stats?.running ? 'ok' : 'off'} />
           <Arrow />
-          <FlowBox label="Curated Broker" detail="Port 31884" status={transform?.running ? 'ok' : 'off'} />
+          <FlowBox label="Enrich" detail={stats ? `${stats.rejected} rejected` : ''} status={stats?.running ? 'ok' : 'off'} />
           <Arrow />
-          <FlowBox label="KG Bridge" detail={bridge ? `${bridge.nodesUpdated} nodes` : 'Loading...'} status={bridge?.running ? 'ok' : 'off'} />
-          <Arrow />
-          <FlowBox label="Knowledge Graph" detail="Apache AGE" status="ok" />
+          <FlowBox label="Neo4j KG" detail={stats ? `${stats.kgUpdated} nodes` : 'Loading...'} status={stats?.running ? 'ok' : 'off'} />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Transform Stats */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)]">Transform Service</h2>
-            <span className={`badge ${transform?.running ? 'badge-emerald' : 'badge-red'}`}>
-              {transform?.running ? 'Running' : 'Stopped'}
-            </span>
-          </div>
-          {transform && (
-            <div className="grid grid-cols-2 gap-3">
-              <Stat label="Received" value={transform.received} />
-              <Stat label="Validated" value={transform.validated} color="emerald" />
-              <Stat label="Rejected" value={transform.rejected} color="amber" />
-              <Stat label="Published" value={transform.published} color="blue" />
-              <Stat label="Errors" value={transform.errors} color={transform.errors > 0 ? 'red' : undefined} />
-            </div>
-          )}
+      {/* Stats */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)]">Bridge Stats</h2>
+          <span className={`badge ${stats?.running ? 'badge-emerald' : 'badge-red'}`}>
+            {stats?.running ? 'Running' : 'Stopped'}
+          </span>
         </div>
-
-        {/* Bridge Stats */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)]">KG Bridge</h2>
-            <span className={`badge ${bridge?.running ? 'badge-emerald' : 'badge-red'}`}>
-              {bridge?.running ? 'Running' : 'Stopped'}
-            </span>
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Stat label="Received" value={stats.received} />
+            <Stat label="Validated" value={stats.validated} color="emerald" />
+            <Stat label="Rejected" value={stats.rejected} color="amber" />
+            <Stat label="KG Updated" value={stats.kgUpdated} color="blue" />
+            <Stat label="Buffer Size" value={stats.bufferSize} />
+            <Stat label="Errors" value={stats.errors} color={stats.errors > 0 ? 'red' : undefined} />
           </div>
-          {bridge && (
-            <div className="grid grid-cols-2 gap-3">
-              <Stat label="Received" value={bridge.received} />
-              <Stat label="Nodes Updated" value={bridge.nodesUpdated} color="emerald" />
-              <Stat label="Buffer Size" value={bridge.bufferSize} color="blue" />
-              <Stat label="Errors" value={bridge.errors} color={bridge.errors > 0 ? 'red' : undefined} />
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

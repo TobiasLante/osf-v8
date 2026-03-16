@@ -12,14 +12,14 @@ export default function ExplorePage() {
   const [stats, setStats] = useState<EmbeddingStats | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/kg-builder/embeddings/stats`).then(r => r.json()).then(setStats).catch(() => {});
+    fetch(`${API_URL}/api/kg/embeddings/stats`).then(r => r.json()).then(setStats).catch(() => {});
   }, []);
 
   const search = async (q: string) => {
     if (!q.trim()) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/kg-builder/semantic-search`, {
+      const res = await fetch(`${API_URL}/api/kg/semantic-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, limit: 20 }),

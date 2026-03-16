@@ -1,10 +1,7 @@
-import { cypherQuery } from './cypher-utils';
-import { callLlm, ChatMessage } from './llm-client';
-import { SchemaProposal } from './schema-planner';
-import { loadDomainConfig } from './domain-config';
-import { logger } from './logger';
-import { generateEmbedding } from './embedding-service';
-import { semanticSearch } from './vector-store';
+import { cypherQuery } from '../shared/cypher-utils';
+import { loadDomainConfig } from '../shared/domain-config';
+import { logger } from '../shared/logger';
+import { SchemaProposal } from '../shared/types';
 
 export interface ValidationReport {
   nodeCounts: Record<string, number>;
@@ -33,7 +30,6 @@ export async function countNodesByType(confirmedSchema?: SchemaProposal): Promis
   const domain = loadDomainConfig();
   const counts: Record<string, number> = {};
 
-  // Build label set from domain expected types + confirmed schema types
   const labelSet = new Set<string>(domain.expectedNodeTypes);
   if (confirmedSchema) {
     for (const nt of confirmedSchema.nodeTypes) {
@@ -59,7 +55,6 @@ export async function countEdgesByType(confirmedSchema?: SchemaProposal): Promis
   const domain = loadDomainConfig();
   const counts: Record<string, number> = {};
 
-  // Build edge label set from domain expected types + confirmed schema types
   const edgeLabelSet = new Set<string>(domain.expectedEdgeTypes);
   if (confirmedSchema) {
     for (const et of confirmedSchema.edgeTypes) {
@@ -137,7 +132,6 @@ export async function runComplianceChecks(): Promise<ComplianceCheck[]> {
   }
 
   for (const rule of domain.complianceChecks) {
-    // Check hierarchy-type compliance rules from sampleChecks
     const hierarchyCheck = (domain.sampleChecks || []).find(
       sc => sc.type === 'hierarchy' && rule.toLowerCase().includes(sc.child?.toLowerCase() || '') && rule.toLowerCase().includes(sc.parent?.toLowerCase() || '')
     );
@@ -157,7 +151,6 @@ export async function runComplianceChecks(): Promise<ComplianceCheck[]> {
         checks.push({ rule, passed: false, detail: e.message });
       }
     } else {
-      // Informational — log the compliance rule as passed (advisory)
       checks.push({
         rule,
         passed: true,
@@ -220,45 +213,5 @@ export function formatValidationReport(report: ValidationReport): string {
     for (const issue of report.issues) lines.push(`- ${issue}`);
   }
 
-  lines.push('\nFrage mich etwas ueber den Graph ("Was weisst du ueber SGM-004?") oder sage "fertig".');
   return lines.join('\n');
-}
-
-// ── Graph QA ───────────────────────────────────────────────────────
-
-export async function answerGraphQuestion(question: string, schema: SchemaProposal): Promise<string> {
-  const schemaDesc = schema.nodeTypes.map(n => `${n.label}(${n.properties.map(p => p.name).join(',')})`).join(', ');
-  const edgeDesc = schema.edgeTypes.map(e => `(${e.fromType})-[${e.label}]->(${e.toType})`).join(', ');
-
-  // Semantic search boost: find relevant nodes via embeddings
-  let semanticHint = '';
-  try {
-    const queryEmb = await generateEmbedding(question);
-    const similar = await semanticSearch(queryEmb, 5, 0.4);
-    if (similar.length > 0) {
-      semanticHint = `\nSemantisch relevante Nodes: ${similar.map(s => `${s.node_label}:${s.node_id} (similarity: ${s.similarity?.toFixed(2)})`).join(', ')}`;
-    }
-  } catch {
-    // Embedding unavailable — continue without semantic boost
-  }
-
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `You are a Neo4j Cypher expert. Generate a single Cypher query to answer the user's question.
-Graph schema — Nodes: ${schemaDesc}. Edges: ${edgeDesc}.${semanticHint}
-Return ONLY the Cypher query, nothing else. Use RETURN with explicit property access (e.g. n.id, n.name).`,
-    },
-    { role: 'user', content: question },
-  ];
-
-  const cypher = (await callLlm(messages, { maxTokens: 500 })).trim().replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
-
-  try {
-    const rows = await cypherQuery(cypher);
-    const formatted = rows.slice(0, 10).map(r => typeof r === 'object' ? JSON.stringify(r) : String(r)).join('\n');
-    return `**Query:** \`${cypher}\`\n\n**Result (${rows.length} rows):**\n${formatted || 'No results'}`;
-  } catch (e: any) {
-    return `**Query failed:** \`${cypher}\`\n**Error:** ${e.message}`;
-  }
 }

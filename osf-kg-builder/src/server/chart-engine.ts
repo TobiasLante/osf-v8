@@ -1,10 +1,10 @@
-import { callLlm, callLlmJson, ChatMessage } from './llm-client';
-import { cypherQuery } from './cypher-utils';
-import { semanticSearch } from './vector-store';
-import { generateEmbedding } from './embedding-service';
-import { SchemaProposal } from './schema-planner';
-import { config } from './config';
-import { logger } from './logger';
+import { callLlm, callLlmJson, ChatMessage } from '../shared/llm-client';
+import { cypherQuery } from '../shared/cypher-utils';
+import { semanticSearch } from '../shared/vector-store';
+import { generateEmbedding } from '../shared/embedding-service';
+import { SchemaProposal } from '../shared/types';
+import { config } from '../shared/config';
+import { logger } from '../shared/logger';
 
 /**
  * Chart Engine — LLM-powered chart generation from Knowledge Graph data.
@@ -36,7 +36,7 @@ export async function generateChart(
   question: string,
   schema: SchemaProposal,
 ): Promise<ChartResult> {
-  // Step 0: Semantic boost — find relevant nodes via embeddings
+  // Step 0: Semantic boost
   let semanticContext: string[] = [];
   try {
     const queryEmb = await generateEmbedding(question);
@@ -68,9 +68,6 @@ export async function generateChart(
   return { question, cypher, rawData, chart, semanticContext };
 }
 
-/**
- * Step 1: Generate Cypher query from question + schema.
- */
 async function generateCypherForChart(
   question: string,
   schema: SchemaProposal,
@@ -111,7 +108,7 @@ Rules:
   const raw = await callLlm(messages, { maxTokens: 500, model });
   const cypher = raw.trim().replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
 
-  // Guard: only allow read-only Cypher (MATCH/RETURN)
+  // Guard: only allow read-only Cypher
   const upper = cypher.toUpperCase();
   if (['DELETE', 'REMOVE', 'CREATE', 'DROP', 'SET '].some(kw => upper.includes(kw) && !upper.includes('OFFSET'))) {
     throw new Error(`Chart Cypher query contains write operation — blocked: ${cypher.substring(0, 100)}`);
@@ -120,9 +117,6 @@ Rules:
   return cypher;
 }
 
-/**
- * Step 3: Generate recharts-compatible chart config from data.
- */
 async function generateChartConfig(
   question: string,
   data: any[],
@@ -159,13 +153,11 @@ Rules:
 
   const chart = await callLlmJson<ChartConfig>(messages);
 
-  // Validate minimum fields
   const validTypes = ['bar', 'line', 'pie', 'area', 'scatter'];
   if (!chart.type || !validTypes.includes(chart.type) || !chart.data || !Array.isArray(chart.data)) {
     throw new Error(`LLM generated invalid chart config (type: ${chart.type})`);
   }
 
-  // Default colors if missing
   if (!chart.colors || chart.colors.length === 0) {
     chart.colors = ['#d03a8c', '#7b2d85', '#4a90d9', '#2ecc71', '#e67e22', '#e74c3c'];
   }
