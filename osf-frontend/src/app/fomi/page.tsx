@@ -400,6 +400,7 @@ export default function FomiPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
+  const [chatSources, setChatSources] = useState<SourceInfo[]>([]);
   const [chatDone, setChatDone] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
@@ -538,7 +539,7 @@ export default function FomiPage() {
         if (last?.role === "assistant") {
           updated[updated.length - 1] = { ...last, ...patch };
         } else {
-          updated.push({ role: "assistant", content: patch.content ?? "", toolCalls: patch.toolCalls });
+          updated.push({ role: "assistant", content: patch.content ?? "", toolCalls: patch.toolCalls, sources: patch.sources });
         }
         return updated;
       });
@@ -559,6 +560,7 @@ export default function FomiPage() {
           const tc = pendingToolCalls.find((t) => t.name === event.name && t.status === "running");
           if (tc) { tc.result = event.result; tc.status = "done"; }
           collectedSources.push({ name: event.name, resultSize: event.result ? JSON.stringify(event.result).length : 0, duration: event.duration });
+          setChatSources([...collectedSources]);
           upsert({ toolCalls: [...pendingToolCalls], sources: [...collectedSources] });
           break;
         }
@@ -689,6 +691,7 @@ export default function FomiPage() {
     setStreaming(true);
     setChatDone(false);
     setReportUrl(null);
+    setChatSources([]);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     startDeadAirWatch();
 
@@ -1026,6 +1029,24 @@ export default function FomiPage() {
 
                 {/* ── Synthesis ──────────────────────────────────── */}
                 {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
+
+                {/* ── Source Attribution ────────────────────────── */}
+                {!streaming && chatSources.length > 0 && (
+                  <details className="mt-1 text-[11px]">
+                    <summary className="cursor-pointer text-white/40 hover:text-white/60 select-none py-0.5">
+                      {chatSources.length} {chatSources.length === 1 ? "Quelle" : "Quellen"}
+                    </summary>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {chatSources.map((s, si) => (
+                        <span key={si} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.06] border border-white/[0.1] text-white/60">
+                          <span className="text-[10px]">📄</span>
+                          {s.name.replace(/_/g, " ")}
+                          {s.resultSize > 0 && <span className="text-white/30">({s.resultSize > 1024 ? `${(s.resultSize / 1024).toFixed(1)}k` : `${s.resultSize}B`})</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                )}
 
                 {/* Streaming indicator */}
                 {streaming && (
