@@ -137,6 +137,55 @@ export async function startContainer(configOrSocket: string | { socketPath?: str
   await container.start();
 }
 
+export async function getContainerLogs(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string, lines = 50): Promise<string> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
+  const container = docker.getContainer(containerId);
+  const logs = await container.logs({ stdout: true, stderr: true, tail: lines, timestamps: true });
+  // Dockerode returns Buffer or string; strip stream headers (8-byte prefix per line)
+  const raw = typeof logs === 'string' ? logs : logs.toString('utf8');
+  return raw.replace(/[\x00-\x08]/g, '').trim();
+}
+
+export async function execInContainer(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string, command: string[]): Promise<string> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
+  const container = docker.getContainer(containerId);
+  const exec = await container.exec({ Cmd: command, AttachStdout: true, AttachStderr: true });
+  const stream = await exec.start({ Detach: false, Tty: false });
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    stream.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
+      resolve(raw.replace(/[\x00-\x08]/g, '').trim());
+    });
+  });
+}
+
+export async function dockerStats(configOrSocket: string | { socketPath?: string; host?: string; port?: number }): Promise<Array<{ name: string; cpu: string; memory: string; memLimit: string }>> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
+  const containers = await docker.listContainers();
+  const stats = await Promise.all(containers.map(async (c) => {
+    const name = (c.Names?.[0] || c.Id).replace(/^\//, '');
+    try {
+      const container = docker.getContainer(c.Id);
+      const s = await container.stats({ stream: false });
+      const cpuDelta = s.cpu_stats.cpu_usage.total_usage - (s.precpu_stats?.cpu_usage?.total_usage || 0);
+      const sysDelta = s.cpu_stats.system_cpu_usage - (s.precpu_stats?.system_cpu_usage || 0);
+      const cpuPct = sysDelta > 0 ? ((cpuDelta / sysDelta) * (s.cpu_stats.online_cpus || 1) * 100).toFixed(1) + '%' : '0%';
+      const memUsage = ((s.memory_stats.usage || 0) / 1024 / 1024).toFixed(0) + 'MB';
+      const memLimit = ((s.memory_stats.limit || 0) / 1024 / 1024 / 1024).toFixed(1) + 'GB';
+      return { name, cpu: cpuPct, memory: memUsage, memLimit };
+    } catch { return { name, cpu: '?', memory: '?', memLimit: '?' }; }
+  }));
+  return stats;
+}
+
 export async function removeContainer(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string): Promise<void> {
   const docker = typeof configOrSocket === 'string'
     ? new Dockerode({ socketPath: configOrSocket })

@@ -1,5 +1,6 @@
 import { K8sClient, ClusterSnapshot } from './k8s-client';
 import { isPodProtected, getIncidents, ClusterRow, pool } from './db';
+import { stopContainer, startContainer, restartContainer, getContainerLogs, execInContainer, dockerStats } from './docker-client';
 import { config } from './config';
 import { logger } from './logger';
 import { broadcast } from './sse';
@@ -170,6 +171,91 @@ export const TOOL_DEFINITIONS: ToolDef[] = [
       },
     },
   },
+  // Docker diagnostics
+  {
+    type: 'function',
+    function: {
+      name: 'docker_logs',
+      description: 'Fetch recent logs from a Docker container. Use this when asked about container errors, crashes, or what a container is doing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pod_name: { type: 'string', description: 'Container name' },
+          lines: { type: 'number', description: 'Number of log lines (default 50)' },
+        },
+        required: ['pod_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'docker_stats',
+      description: 'Get CPU and memory usage of all running Docker containers. Use when asked about resource usage, performance, or which container uses most resources.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'exec_command',
+      description: 'Execute a whitelisted command inside a running Docker container. Allowed commands: nvidia-smi, df, free, uptime, ps, top, cat /proc/meminfo, cat /proc/cpuinfo. Use for GPU status, disk space, memory, system diagnostics.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pod_name: { type: 'string', description: 'Container to exec into (e.g. "llamacpp-server" for GPU commands)' },
+          command: { type: 'string', description: 'Command to run (must be whitelisted)' },
+        },
+        required: ['pod_name', 'command'],
+      },
+    },
+  },
+  // Docker container actions (user-initiated, bypass readonly)
+  {
+    type: 'function',
+    function: {
+      name: 'stop_container',
+      description: 'Stop a Docker container. Only works on Docker clusters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          namespace: { type: 'string', description: 'Always "docker"' },
+          pod_name: { type: 'string', description: 'Container name' },
+        },
+        required: ['pod_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'start_container',
+      description: 'Start a stopped Docker container. Only works on Docker clusters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          namespace: { type: 'string', description: 'Always "docker"' },
+          pod_name: { type: 'string', description: 'Container name' },
+        },
+        required: ['pod_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'restart_container',
+      description: 'Restart a Docker container. Only works on Docker clusters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          namespace: { type: 'string', description: 'Always "docker"' },
+          pod_name: { type: 'string', description: 'Container name' },
+        },
+        required: ['pod_name'],
+      },
+    },
+  },
   // Critical tools
   {
     type: 'function',
@@ -333,6 +419,85 @@ const toolList: ToolMeta[] = [
       if (!ctx.k8sClient) return { error: 'No K8s client available — cannot delete pods on Docker clusters' };
       await ctx.k8sClient.deletePod(params.namespace, params.pod_name);
       return { success: true, message: `Pod ${params.namespace}/${params.pod_name} deleted` };
+    },
+  },
+  // Docker: docker_logs
+  {
+    name: 'docker_logs',
+    dangerLevel: 'safe',
+    execute: async (params, ctx) => {
+      if (!ctx.cluster || ctx.cluster.type !== 'docker') return { error: 'Only available on Docker clusters' };
+      const dockerConf = ctx.cluster.config as any;
+      const opts = dockerConf.host ? { host: dockerConf.host, port: dockerConf.port || 2375 } : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      const logs = await getContainerLogs(opts, params.pod_name, params.lines || 50);
+      return { container: params.pod_name, logs };
+    },
+  },
+  // Docker: docker_stats
+  {
+    name: 'docker_stats',
+    dangerLevel: 'safe',
+    execute: async (_params, ctx) => {
+      if (!ctx.cluster || ctx.cluster.type !== 'docker') return { error: 'Only available on Docker clusters' };
+      const dockerConf = ctx.cluster.config as any;
+      const opts = dockerConf.host ? { host: dockerConf.host, port: dockerConf.port || 2375 } : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      return await dockerStats(opts);
+    },
+  },
+  // Docker: exec_command (whitelisted)
+  {
+    name: 'exec_command',
+    dangerLevel: 'safe',
+    execute: async (params, ctx) => {
+      if (!ctx.cluster || ctx.cluster.type !== 'docker') return { error: 'Only available on Docker clusters' };
+      const allowed = ['nvidia-smi', 'df -h', 'free -m', 'uptime', 'ps aux', 'top -bn1', 'cat /proc/meminfo', 'cat /proc/cpuinfo'];
+      const cmd = (params.command || '').trim();
+      if (!allowed.some(a => cmd === a || cmd.startsWith(a + ' '))) {
+        return { error: `Command not allowed. Permitted: ${allowed.join(', ')}` };
+      }
+      const dockerConf = ctx.cluster.config as any;
+      const opts = dockerConf.host ? { host: dockerConf.host, port: dockerConf.port || 2375 } : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      const output = await execInContainer(opts, params.pod_name, ['sh', '-c', cmd]);
+      return { container: params.pod_name, command: cmd, output };
+    },
+  },
+  // Docker: stop_container (safe — explicit user action)
+  {
+    name: 'stop_container',
+    dangerLevel: 'safe',
+    execute: async (params, ctx) => {
+      if (!ctx.cluster || ctx.cluster.type !== 'docker') return { error: 'Only available on Docker clusters' };
+      const dockerConf = ctx.cluster.config as any;
+      const opts = dockerConf.host ? { host: dockerConf.host, port: dockerConf.port || 2375 } : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      await stopContainer(opts, params.pod_name);
+      broadcast('container_action', { action: 'stop', container: params.pod_name, clusterId: ctx.clusterId });
+      return { success: true, message: `Container ${params.pod_name} stopped` };
+    },
+  },
+  // Docker: start_container (safe — explicit user action)
+  {
+    name: 'start_container',
+    dangerLevel: 'safe',
+    execute: async (params, ctx) => {
+      if (!ctx.cluster || ctx.cluster.type !== 'docker') return { error: 'Only available on Docker clusters' };
+      const dockerConf = ctx.cluster.config as any;
+      const opts = dockerConf.host ? { host: dockerConf.host, port: dockerConf.port || 2375 } : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      await startContainer(opts, params.pod_name);
+      broadcast('container_action', { action: 'start', container: params.pod_name, clusterId: ctx.clusterId });
+      return { success: true, message: `Container ${params.pod_name} started` };
+    },
+  },
+  // Docker: restart_container (safe — explicit user action)
+  {
+    name: 'restart_container',
+    dangerLevel: 'safe',
+    execute: async (params, ctx) => {
+      if (!ctx.cluster || ctx.cluster.type !== 'docker') return { error: 'Only available on Docker clusters' };
+      const dockerConf = ctx.cluster.config as any;
+      const opts = dockerConf.host ? { host: dockerConf.host, port: dockerConf.port || 2375 } : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      await restartContainer(opts, params.pod_name);
+      broadcast('container_action', { action: 'restart', container: params.pod_name, clusterId: ctx.clusterId });
+      return { success: true, message: `Container ${params.pod_name} restarted` };
     },
   },
   // Critical: rollback_deployment
