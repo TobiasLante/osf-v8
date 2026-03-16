@@ -48,6 +48,7 @@ export default function PodOverview() {
   const [protectNs, setProtectNs] = useState('');
   const [protectPattern, setProtectPattern] = useState('');
   const [protectReason, setProtectReason] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const isDocker = activeCluster?.type === 'docker';
   const entityLabel = isDocker ? 'Containers' : 'Pods';
@@ -117,6 +118,16 @@ export default function PodOverview() {
     setProtectReason('');
     await fetchRules();
     await fetchPods();
+  }
+
+  async function containerAction(name: string, action: 'stop' | 'start' | 'restart') {
+    if (!activeClusterId) return;
+    setActionLoading(`${name}:${action}`);
+    try {
+      await fetch(`${AGENT_URL}/api/containers/${encodeURIComponent(name)}/${action}?cluster_id=${activeClusterId}`, { method: 'POST' });
+      setTimeout(fetchPods, 1500);
+    } catch {}
+    setActionLoading(null);
   }
 
   const namespaces = ['all', ...Array.from(new Set(pods.map(p => p.namespace)))];
@@ -286,6 +297,7 @@ export default function PodOverview() {
               <th className="text-left py-1 px-2">Ready</th>
               <th className="text-left py-1 px-2">Restarts</th>
               <th className="text-left py-1 px-2">Node</th>
+              {isDocker && <th className="text-left py-1 px-2">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -314,6 +326,41 @@ export default function PodOverview() {
                   {pod.restartCount}
                 </td>
                 <td className="py-1 px-2 text-gray-400 dark:text-gray-500 text-xs truncate max-w-[120px]">{pod.nodeName || '-'}</td>
+                {isDocker && (
+                  <td className="py-1 px-2">
+                    <div className="flex gap-1">
+                      {pod.phase === 'Running' ? (
+                        <>
+                          <button
+                            onClick={() => containerAction(pod.name, 'stop')}
+                            disabled={actionLoading === `${pod.name}:stop`}
+                            className="px-1.5 py-0.5 text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 border border-red-500/20 rounded disabled:opacity-50"
+                            title="Stop container"
+                          >
+                            {actionLoading === `${pod.name}:stop` ? '...' : 'Stop'}
+                          </button>
+                          <button
+                            onClick={() => containerAction(pod.name, 'restart')}
+                            disabled={actionLoading === `${pod.name}:restart`}
+                            className="px-1.5 py-0.5 text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 dark:text-blue-400 border border-blue-500/20 rounded disabled:opacity-50"
+                            title="Restart container"
+                          >
+                            {actionLoading === `${pod.name}:restart` ? '...' : 'Restart'}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => containerAction(pod.name, 'start')}
+                          disabled={actionLoading === `${pod.name}:start`}
+                          className="px-1.5 py-0.5 text-[10px] bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 rounded disabled:opacity-50"
+                          title="Start container"
+                        >
+                          {actionLoading === `${pod.name}:start` ? '...' : 'Start'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

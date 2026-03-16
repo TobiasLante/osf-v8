@@ -14,7 +14,7 @@ import { dryRunRunbook } from './runbook-engine';
 import { runPredictions } from './predictor';
 import { addClient, broadcast } from './sse';
 import { ClusterSnapshot, createK8sClient, K8sClient } from './k8s-client';
-import { fetchDockerSnapshot, removeContainer, restartContainer } from './docker-client';
+import { fetchDockerSnapshot, removeContainer, restartContainer, stopContainer, startContainer } from './docker-client';
 import { runChecks } from './checker';
 import { diagnoseIssues } from './diagnoser';
 import { remediateIssues, approveIncident, rejectIncident } from './remediator';
@@ -268,6 +268,62 @@ app.get('/api/pods', async (req, res) => {
   }
 });
 
+// --- Docker Container Actions ---
+
+app.post('/api/containers/:name/stop', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    if (!clusterId) return res.status(400).json({ error: 'cluster_id required' });
+    const cluster = await getClusterById(clusterId);
+    if (!cluster || cluster.type !== 'docker') return res.status(400).json({ error: 'Not a Docker cluster' });
+    const dockerConf = cluster.config as any;
+    const dockerOpts = dockerConf.host
+      ? { host: dockerConf.host, port: dockerConf.port || 2375 }
+      : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+    await stopContainer(dockerOpts, req.params.name);
+    broadcast('container_action', { action: 'stop', container: req.params.name, clusterId });
+    res.json({ ok: true, action: 'stop', container: req.params.name });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/containers/:name/start', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    if (!clusterId) return res.status(400).json({ error: 'cluster_id required' });
+    const cluster = await getClusterById(clusterId);
+    if (!cluster || cluster.type !== 'docker') return res.status(400).json({ error: 'Not a Docker cluster' });
+    const dockerConf = cluster.config as any;
+    const dockerOpts = dockerConf.host
+      ? { host: dockerConf.host, port: dockerConf.port || 2375 }
+      : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+    await startContainer(dockerOpts, req.params.name);
+    broadcast('container_action', { action: 'start', container: req.params.name, clusterId });
+    res.json({ ok: true, action: 'start', container: req.params.name });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/containers/:name/restart', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    if (!clusterId) return res.status(400).json({ error: 'cluster_id required' });
+    const cluster = await getClusterById(clusterId);
+    if (!cluster || cluster.type !== 'docker') return res.status(400).json({ error: 'Not a Docker cluster' });
+    const dockerConf = cluster.config as any;
+    const dockerOpts = dockerConf.host
+      ? { host: dockerConf.host, port: dockerConf.port || 2375 }
+      : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+    await restartContainer(dockerOpts, req.params.name);
+    broadcast('container_action', { action: 'restart', container: req.params.name, clusterId });
+    res.json({ ok: true, action: 'restart', container: req.params.name });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Remediation Mode ---
 
 app.get('/api/mode', (_req, res) => {
@@ -489,8 +545,11 @@ async function checkLoopForCluster(clusterId: string, cluster: any): Promise<voi
     // 1. Fetch snapshot based on cluster type
     let snapshot: ClusterSnapshot;
     if (clusterRow.type === 'docker') {
-      const socketPath = (clusterRow.config as any).socketPath || config.docker.socketPath;
-      snapshot = await fetchDockerSnapshot(socketPath);
+      const dockerConf = clusterRow.config as any;
+      const dockerOpts = dockerConf.host
+        ? { host: dockerConf.host, port: dockerConf.port || 2375 }
+        : { socketPath: dockerConf.socketPath || config.docker.socketPath };
+      snapshot = await fetchDockerSnapshot(dockerOpts);
     } else {
       const client = k8sClients.get(clusterId);
       if (!client) throw new Error(`No K8s client for cluster ${clusterRow.name}`);

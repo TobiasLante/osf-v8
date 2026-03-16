@@ -2,8 +2,17 @@ import Dockerode from 'dockerode';
 import { logger } from './logger';
 import type { ClusterSnapshot, NodeInfo, PodInfo, ContainerStatusInfo } from './k8s-client';
 
-export async function fetchDockerSnapshot(socketPath: string): Promise<ClusterSnapshot> {
-  const docker = new Dockerode({ socketPath });
+export function createDockerClient(config: { socketPath?: string; host?: string; port?: number }): Dockerode {
+  if (config.host) {
+    return new Dockerode({ host: config.host, port: config.port || 2375 });
+  }
+  return new Dockerode({ socketPath: config.socketPath || '/var/run/docker.sock' });
+}
+
+export async function fetchDockerSnapshot(configOrSocket: string | { socketPath?: string; host?: string; port?: number }): Promise<ClusterSnapshot> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
 
   const [containers, info] = await Promise.all([
     docker.listContainers({ all: true }),
@@ -101,15 +110,37 @@ export async function fetchDockerSnapshot(socketPath: string): Promise<ClusterSn
   };
 }
 
-export async function restartContainer(socketPath: string, containerId: string): Promise<void> {
-  const docker = new Dockerode({ socketPath });
+export async function restartContainer(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string): Promise<void> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
   const container = docker.getContainer(containerId);
   logger.info({ containerId }, 'Restarting Docker container');
   await container.restart();
 }
 
-export async function removeContainer(socketPath: string, containerId: string): Promise<void> {
-  const docker = new Dockerode({ socketPath });
+export async function stopContainer(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string): Promise<void> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
+  const container = docker.getContainer(containerId);
+  logger.info({ containerId }, 'Stopping Docker container');
+  await container.stop();
+}
+
+export async function startContainer(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string): Promise<void> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
+  const container = docker.getContainer(containerId);
+  logger.info({ containerId }, 'Starting Docker container');
+  await container.start();
+}
+
+export async function removeContainer(configOrSocket: string | { socketPath?: string; host?: string; port?: number }, containerId: string): Promise<void> {
+  const docker = typeof configOrSocket === 'string'
+    ? new Dockerode({ socketPath: configOrSocket })
+    : createDockerClient(configOrSocket);
   const container = docker.getContainer(containerId);
   logger.info({ containerId }, 'Removing Docker container');
   await container.remove({ force: true });

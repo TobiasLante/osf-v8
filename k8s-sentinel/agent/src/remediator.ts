@@ -138,8 +138,11 @@ async function applyFix(issue: DiagnosedIssue, incident: Incident, cluster?: Clu
       switch (issue.type) {
         case 'CrashLoopBackOff':
         case 'EvictedPod':
-          const socketPath = (cluster.config as any).socketPath || '/var/run/docker.sock';
-          await removeContainer(socketPath, issue.resourceName);
+          const dockerConf = cluster.config as any;
+          const dockerOpts = dockerConf.host
+            ? { host: dockerConf.host, port: dockerConf.port || 2375 }
+            : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+          await removeContainer(dockerOpts, issue.resourceName);
           logger.info({ type: issue.type, container: issue.resourceName }, 'Container removed');
           return true;
         default:

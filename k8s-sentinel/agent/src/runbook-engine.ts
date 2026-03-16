@@ -160,8 +160,11 @@ async function executeStep(
 
     case 'restart_container': {
       if (cluster.type !== 'docker') return { success: false, detail: 'restart_container only for Docker clusters' };
-      const socketPath = (cluster.config as any).socketPath || '/var/run/docker.sock';
-      await restartContainer(socketPath, resource);
+      const dockerConf = cluster.config as any;
+      const dockerOpts = dockerConf.host
+        ? { host: dockerConf.host, port: dockerConf.port || 2375 }
+        : { socketPath: dockerConf.socketPath || '/var/run/docker.sock' };
+      await restartContainer(dockerOpts, resource);
       return { success: true, detail: `Docker container ${resource} restarted` };
     }
 
