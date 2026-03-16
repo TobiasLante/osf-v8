@@ -301,10 +301,17 @@ interface ToolCall {
   status: "running" | "done" | "error";
 }
 
+interface SourceInfo {
+  name: string;
+  resultSize: number;
+  duration?: number;
+}
+
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;
   toolCalls?: ToolCall[];
+  sources?: SourceInfo[];
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -520,6 +527,7 @@ export default function FomiPage() {
      ═════════════════════════════════════════════════════════════════════ */
   const processChatStream = useCallback(async (eventSource: AsyncGenerator<SSEEvent>) => {
     const pendingToolCalls: ToolCall[] = [];
+    const collectedSources: SourceInfo[] = [];
     let assistantContent = "";
     let hasDiscussion = false;
 
@@ -550,7 +558,8 @@ export default function FomiPage() {
         case "tool_result": {
           const tc = pendingToolCalls.find((t) => t.name === event.name && t.status === "running");
           if (tc) { tc.result = event.result; tc.status = "done"; }
-          upsert({ toolCalls: [...pendingToolCalls] });
+          collectedSources.push({ name: event.name, resultSize: event.result ? JSON.stringify(event.result).length : 0, duration: event.duration });
+          upsert({ toolCalls: [...pendingToolCalls], sources: [...collectedSources] });
           break;
         }
 
@@ -558,7 +567,7 @@ export default function FomiPage() {
           // Skip content text if discussion ran — the final text is shown as its own bubble
           if (hasDiscussion) break;
           assistantContent += event.text;
-          upsert({ content: assistantContent, toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined });
+          upsert({ content: assistantContent, toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined, sources: collectedSources.length > 0 ? [...collectedSources] : undefined });
           extractImpactStats(assistantContent);
           break;
 
@@ -910,6 +919,22 @@ export default function FomiPage() {
                             className={`text-sm leading-relaxed text-white/80 ${mdClasses}`}
                             dangerouslySetInnerHTML={{ __html: safeMarkdown(msg.content) }}
                           />
+                        )}
+                        {msg.sources && msg.sources.length > 0 && (
+                          <details className="mt-1.5 text-[11px]">
+                            <summary className="cursor-pointer text-white/40 hover:text-white/60 select-none py-0.5">
+                              {msg.sources.length} {msg.sources.length === 1 ? "Quelle" : "Quellen"}
+                            </summary>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {msg.sources.map((s, si) => (
+                                <span key={si} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.06] border border-white/[0.1] text-white/60">
+                                  <span className="text-[10px]">📄</span>
+                                  {s.name.replace(/_/g, " ")}
+                                  {s.resultSize > 0 && <span className="text-white/30">({s.resultSize > 1024 ? `${(s.resultSize / 1024).toFixed(1)}k` : `${s.resultSize}B`})</span>}
+                                </span>
+                              ))}
+                            </div>
+                          </details>
                         )}
                       </div>
                     )}
