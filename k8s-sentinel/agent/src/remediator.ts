@@ -1,7 +1,7 @@
 import { DiagnosedIssue } from './diagnoser';
 import { K8sClient } from './k8s-client';
 import { removeContainer } from './docker-client';
-import { insertIncident, updateIncidentStatus, Incident, isPodProtected, ClusterRow } from './db';
+import { insertIncident, updateIncidentStatus, Incident, isPodProtected, ClusterRow, hasOpenIncident } from './db';
 import { findMatchingRunbook, executeRunbook } from './runbook-engine';
 import { broadcast } from './sse';
 import { config } from './config';
@@ -32,6 +32,11 @@ export async function remediateIssues(
   let fixed = 0, proposed = 0, alerted = 0;
 
   for (const issue of issues) {
+    // Skip if an open incident already exists for this resource
+    if (await hasOpenIncident(issue.type, issue.resourceName, clusterId)) {
+      continue;
+    }
+
     const incident = await insertIncident({
       type: issue.type,
       severity: issue.severity,

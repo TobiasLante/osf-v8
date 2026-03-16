@@ -220,6 +220,14 @@ export async function getIncidentById(id: string): Promise<Incident | null> {
   return result.rows[0] || null;
 }
 
+export async function hasOpenIncident(type: string, resourceName: string, clusterId?: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM incidents WHERE type = $1 AND resource_name = $2 AND fix_status IN ('pending', 'proposed', 'alert') AND ($3::uuid IS NULL OR cluster_id = $3) LIMIT 1`,
+    [type, resourceName, clusterId || null]
+  );
+  return result.rows.length > 0;
+}
+
 export async function updateIncidentStatus(id: string, fix_status: string, resolved_at?: Date): Promise<Incident | null> {
   const result = await pool.query(
     `UPDATE incidents SET fix_status = $1, resolved_at = $2 WHERE id = $3 RETURNING *`,
