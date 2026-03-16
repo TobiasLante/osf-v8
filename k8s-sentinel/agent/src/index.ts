@@ -8,7 +8,7 @@ import {
   updateCluster, deleteCluster, getNotificationConfigs, insertNotificationConfig,
   deleteNotificationConfig, getActivePredictions, acknowledgePrediction, ClusterRow,
   getRunbooks, getRunbookById, insertRunbook, updateRunbook, deleteRunbook,
-  getExecutions, getExecutionById, seedRunbookTemplates,
+  getExecutions, getExecutionById, seedRunbookTemplates, pool,
 } from './db';
 import { dryRunRunbook } from './runbook-engine';
 import { runPredictions } from './predictor';
@@ -101,6 +101,46 @@ app.post('/api/incidents/:id/reject', async (req, res) => {
     const updated = await rejectIncident(req.params.id);
     if (!updated) return res.status(404).json({ error: 'Not found' });
     res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Bulk Resolve Duplicate Incidents ---
+
+app.post('/api/incidents/bulk-resolve-duplicates', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    // Keep only the newest incident per type+resource_name, resolve the rest
+    const result = await pool.query(`
+      UPDATE incidents SET fix_status = 'resolved', resolved_at = NOW()
+      WHERE fix_status IN ('pending', 'proposed', 'alert')
+        AND ($1::uuid IS NULL OR cluster_id = $1)
+        AND id NOT IN (
+          SELECT DISTINCT ON (type, resource_name) id
+          FROM incidents
+          WHERE fix_status IN ('pending', 'proposed', 'alert')
+            AND ($1::uuid IS NULL OR cluster_id = $1)
+          ORDER BY type, resource_name, created_at DESC
+        )
+    `, [clusterId || null]);
+    broadcast('incidents_updated', { resolved: result.rowCount });
+    res.json({ resolved: result.rowCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/incidents/bulk-resolve-all', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    const result = await pool.query(`
+      UPDATE incidents SET fix_status = 'resolved', resolved_at = NOW()
+      WHERE fix_status IN ('pending', 'proposed', 'alert')
+        AND ($1::uuid IS NULL OR cluster_id = $1)
+    `, [clusterId || null]);
+    broadcast('incidents_updated', { resolved: result.rowCount });
+    res.json({ resolved: result.rowCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -263,6 +303,24 @@ app.get('/api/pods', async (req, res) => {
       }),
     }));
     res.json(pods);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- K8s Pod Actions ---
+
+app.post('/api/pods/:namespace/:name/restart', async (req, res) => {
+  try {
+    const clusterId = req.query.cluster_id as string;
+    if (!clusterId) return res.status(400).json({ error: 'cluster_id required' });
+    const cluster = await getClusterById(clusterId);
+    if (!cluster || cluster.type !== 'k8s') return res.status(400).json({ error: 'Not a K8s cluster' });
+    const client = k8sClients.get(clusterId);
+    if (!client) return res.status(500).json({ error: 'No K8s client for this cluster' });
+    await client.deletePod(req.params.namespace, req.params.name);
+    broadcast('pod_action', { action: 'restart', pod: req.params.name, namespace: req.params.namespace, clusterId });
+    res.json({ ok: true, action: 'restart', pod: `${req.params.namespace}/${req.params.name}` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

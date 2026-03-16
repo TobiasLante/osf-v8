@@ -130,6 +130,23 @@ export default function PodOverview() {
     setActionLoading(null);
   }
 
+  async function podAction(namespace: string, name: string, action: 'restart') {
+    if (!activeClusterId) return;
+    setActionLoading(`${name}:${action}`);
+    try {
+      await fetch(`${AGENT_URL}/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${action}?cluster_id=${activeClusterId}`, { method: 'POST' });
+      setTimeout(fetchPods, 2000);
+    } catch {}
+    setActionLoading(null);
+  }
+
+  async function bulkResolveDuplicates() {
+    try {
+      const query = activeClusterId ? `?cluster_id=${activeClusterId}` : '';
+      await fetch(`${AGENT_URL}/api/incidents/bulk-resolve-duplicates${query}`, { method: 'POST' });
+    } catch {}
+  }
+
   const namespaces = ['all', ...Array.from(new Set(pods.map(p => p.namespace)))];
   // Unique deployment prefixes for pattern dropdown
   const podPrefixes = Array.from(new Set(
@@ -297,7 +314,7 @@ export default function PodOverview() {
               <th className="text-left py-1 px-2">Ready</th>
               <th className="text-left py-1 px-2">Restarts</th>
               <th className="text-left py-1 px-2">Node</th>
-              {isDocker && <th className="text-left py-1 px-2">Actions</th>}
+              <th className="text-left py-1 px-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -326,10 +343,10 @@ export default function PodOverview() {
                   {pod.restartCount}
                 </td>
                 <td className="py-1 px-2 text-gray-400 dark:text-gray-500 text-xs truncate max-w-[120px]">{pod.nodeName || '-'}</td>
-                {isDocker && (
-                  <td className="py-1 px-2">
-                    <div className="flex gap-1">
-                      {pod.phase === 'Running' ? (
+                <td className="py-1 px-2">
+                  <div className="flex gap-1">
+                    {isDocker ? (
+                      pod.phase === 'Running' ? (
                         <>
                           <button
                             onClick={() => containerAction(pod.name, 'stop')}
@@ -357,10 +374,21 @@ export default function PodOverview() {
                         >
                           {actionLoading === `${pod.name}:start` ? '...' : 'Start'}
                         </button>
-                      )}
-                    </div>
-                  </td>
-                )}
+                      )
+                    ) : (
+                      pod.phase === 'Running' && (
+                        <button
+                          onClick={() => podAction(pod.namespace, pod.name, 'restart')}
+                          disabled={actionLoading === `${pod.name}:restart`}
+                          className="px-1.5 py-0.5 text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 dark:text-blue-400 border border-blue-500/20 rounded disabled:opacity-50"
+                          title="Restart pod (delete & recreate)"
+                        >
+                          {actionLoading === `${pod.name}:restart` ? '...' : 'Restart'}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
