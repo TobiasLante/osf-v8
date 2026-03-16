@@ -110,7 +110,7 @@ spec:
               key: NODE_RED_SECRET
               optional: true
         - name: APP_VERSION
-          value: "8.10.0" # APP_VERSION
+          value: "8.11.0" # APP_VERSION
         - name: NODE_ENV
           value: "production"
         - name: FRONTEND_URL
