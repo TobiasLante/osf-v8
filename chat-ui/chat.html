@@ -462,6 +462,37 @@
             border-color: color-mix(in srgb, var(--accent-primary) 12%, transparent);
         }
 
+        /* Source attribution */
+        .message-sources {
+            margin-top: 6px;
+            font-size: 11px;
+        }
+        .sources-toggle {
+            color: var(--text-2);
+            cursor: pointer;
+            user-select: none;
+            padding: 3px 0;
+        }
+        .sources-toggle:hover { color: var(--text-1); }
+        .sources-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .source-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 8px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-1);
+            font-size: 11px;
+        }
+        .source-icon { font-size: 10px; }
+
         /* Message content formatting */
         .message-content h1, .message-content h2, .message-content h3 {
             margin: 18px 0 8px 0;
@@ -3705,6 +3736,7 @@
             const typingId = addTyping();
             let agentOutput = '';
             let agentReportUrl = null;
+            const agentSources = [];
 
             try {
                 currentFetchController = new AbortController();
@@ -3738,6 +3770,7 @@
                             break;
                         case 'tool_result':
                             handleProgressEvent({ type: 'tool_call_end', toolName: event.name, toolResult: event.result, timestamp: new Date().toISOString() });
+                            agentSources.push({ name: event.name, resultSize: event.result ? JSON.stringify(event.result).length : 0, duration: event.duration });
                             break;
                         case 'content':
                             agentOutput += (event.text || '');
@@ -3772,7 +3805,7 @@
                     const reportLink = agentReportUrl + (agentReportUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(getToken());
                     finalOutput += `\n\n---\n📊 **[Report öffnen](${reportLink})**`;
                 }
-                addMessage('assistant', finalOutput);
+                addMessage('assistant', finalOutput, agentSources);
                 addNewChatButton();
 
             } catch (err) {
@@ -3814,6 +3847,7 @@
             addMessage('user', text);
             const typingId = addTyping();
             let assistantText = '';
+            const collectedSources = [];
 
             try {
                 currentFetchController = new AbortController();
@@ -3851,6 +3885,7 @@
                             break;
                         case 'tool_result':
                             handleProgressEvent({ type: 'tool_call_end', toolName: event.name, toolResult: event.result, timestamp: new Date().toISOString() });
+                            collectedSources.push({ name: event.name, resultSize: event.result ? JSON.stringify(event.result).length : 0, duration: event.duration });
                             break;
                         case 'kg_traversal_start':
                         case 'kg_nodes_discovered':
@@ -3890,7 +3925,7 @@
 
                 currentFetchController = null;
                 removeTyping(typingId);
-                addMessage('assistant', assistantText || t('msg.noAnswer'));
+                addMessage('assistant', assistantText || t('msg.noAnswer'), collectedSources);
 
             } catch (err) {
                 currentFetchController = null;
@@ -3943,13 +3978,28 @@
             }
         }
 
-        function addMessage(type, content) {
+        function addMessage(type, content, sources) {
             const msg = document.createElement('div');
             msg.className = `message ${type}`;
 
             const avatar = type === 'assistant' ? '⚡' : '👤';
             const sender = type === 'assistant' ? 'ZeroGuess AI' : t('msg.you');
             const time = new Date().toLocaleTimeString(currentLanguage === 'en' ? 'en-US' : 'de-DE', { hour: '2-digit', minute: '2-digit' });
+
+            let sourcesHtml = '';
+            if (sources && sources.length > 0) {
+                const sourceItems = sources.map(s => {
+                    const name = formatToolName(s.name);
+                    const meta = s.resultSize ? ` (${formatBytes(s.resultSize)})` : '';
+                    const duration = s.duration ? ` ${formatDuration(s.duration)}` : '';
+                    return `<span class="source-item"><span class="source-icon">📄</span>${escapeHtml(name)}${meta}${duration}</span>`;
+                }).join('');
+                sourcesHtml = `
+                    <details class="message-sources">
+                        <summary class="sources-toggle">${sources.length} ${sources.length === 1 ? 'Quelle' : 'Quellen'}</summary>
+                        <div class="sources-list">${sourceItems}</div>
+                    </details>`;
+            }
 
             msg.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
@@ -3959,6 +4009,7 @@
                         <span class="message-time">${time}</span>
                     </div>
                     <div class="message-content">${renderMarkdown(content)}</div>
+                    ${sourcesHtml}
                 </div>
             `;
 
