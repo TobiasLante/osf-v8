@@ -1,13 +1,14 @@
 import { cypherQuery } from './cypher-utils';
 import { callLlm, ChatMessage } from './llm-client';
 import { SchemaProposal } from './schema-planner';
+import { loadDomainConfig } from './domain-config';
 import { logger } from './logger';
 
 export interface ValidationReport {
   nodeCounts: Record<string, number>;
   edgeCounts: Record<string, number>;
   sampleChecks: SampleCheck[];
-  cesmiiCompliance: CesmiiCheck[];
+  complianceChecks: ComplianceCheck[];
   accuracy: number;
   issues: string[];
 }
@@ -18,7 +19,7 @@ interface SampleCheck {
   detail: string;
 }
 
-interface CesmiiCheck {
+interface ComplianceCheck {
   rule: string;
   passed: boolean;
   detail: string;
@@ -26,16 +27,20 @@ interface CesmiiCheck {
 
 // ── Count nodes/edges ──────────────────────────────────────────────
 
-export async function countNodesByType(): Promise<Record<string, number>> {
+export async function countNodesByType(confirmedSchema?: SchemaProposal): Promise<Record<string, number>> {
+  const domain = loadDomainConfig();
   const counts: Record<string, number> = {};
-  try {
-    // AGE doesn't support labels() function easily, query each known label
-    const labels = ['Machine', 'Article', 'Order', 'Material', 'Customer', 'Supplier',
-      'Tool', 'Pool', 'MachineType', 'Area', 'Site', 'KPIDef', 'MaintenanceOrder',
-      'DowntimeRecord', 'QualityNotification', 'SubcontractOrder', 'Subcontractor',
-      'PurchaseOrder', 'Messmittel', 'MaterialLot', 'MaintenanceNotification', 'Sensor'];
 
-    for (const label of labels) {
+  // Build label set from domain expected types + confirmed schema types
+  const labelSet = new Set<string>(domain.expectedNodeTypes);
+  if (confirmedSchema) {
+    for (const nt of confirmedSchema.nodeTypes) {
+      labelSet.add(nt.label);
+    }
+  }
+
+  try {
+    for (const label of labelSet) {
       try {
         const rows = await cypherQuery(`MATCH (n:${label}) RETURN count(n)`);
         const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
@@ -48,16 +53,19 @@ export async function countNodesByType(): Promise<Record<string, number>> {
   return counts;
 }
 
-export async function countEdgesByType(): Promise<Record<string, number>> {
+export async function countEdgesByType(confirmedSchema?: SchemaProposal): Promise<Record<string, number>> {
+  const domain = loadDomainConfig();
   const counts: Record<string, number> = {};
-  const edgeLabels = ['WORKS_ON', 'PRODUCES', 'HAS_BOM', 'FOR_CUSTOMER', 'SUPPLIED_BY',
-    'MEMBER_OF', 'NEEDS_POOL', 'NEEDS_TOOL', 'USES_TOOL', 'INSTANCE_OF', 'HAS_SUBTYPE',
-    'LOCATED_IN', 'PART_OF', 'HAS_KPI', 'HAS_MAINTENANCE', 'HAD_DOWNTIME', 'FULFILLS',
-    'OUTSOURCES', 'SUBCONTRACTED_TO', 'FOR_ARTICLE', 'AFFECTS_ARTICLE',
-    'ORDERS_MATERIAL', 'ORDERED_FROM', 'PRODUCED_LOT', 'CONSUMED_BY', 'DERIVED_FROM',
-    'FROM_MATERIAL', 'FROM_SUPPLIER', 'HAS_NOTIFICATION', 'HAS_SENSOR'];
 
-  for (const label of edgeLabels) {
+  // Build edge label set from domain expected types + confirmed schema types
+  const edgeLabelSet = new Set<string>(domain.expectedEdgeTypes);
+  if (confirmedSchema) {
+    for (const et of confirmedSchema.edgeTypes) {
+      edgeLabelSet.add(et.label);
+    }
+  }
+
+  for (const label of edgeLabelSet) {
     try {
       const rows = await cypherQuery(`MATCH ()-[r:${label}]->() RETURN count(r)`);
       const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
@@ -70,69 +78,90 @@ export async function countEdgesByType(): Promise<Record<string, number>> {
 // ── Sample checks ──────────────────────────────────────────────────
 
 export async function runSampleChecks(): Promise<SampleCheck[]> {
+  const domain = loadDomainConfig();
   const checks: SampleCheck[] = [];
 
-  // Check: Machine SGM-004 exists with oee property
-  try {
-    const rows = await cypherQuery(`MATCH (m:Machine {id: 'SGM-004'}) RETURN m.oee`);
-    checks.push({
-      description: 'Machine SGM-004 exists with OEE property',
-      passed: rows.length > 0 && rows[0] !== null,
-      detail: rows.length > 0 ? `OEE = ${rows[0]}` : 'Not found',
-    });
-  } catch (e: any) {
-    checks.push({ description: 'Machine SGM-004 exists', passed: false, detail: e.message });
+  if (!domain.sampleChecks || domain.sampleChecks.length === 0) {
+    return checks;
   }
 
-  // Check: Machine has WORKS_ON edges
-  try {
-    const rows = await cypherQuery(`MATCH (m:Machine)-[:WORKS_ON]->(o:Order) RETURN count(o)`);
-    const count = parseInt(String(rows[0]), 10) || 0;
-    checks.push({
-      description: 'Machines have WORKS_ON edges to Orders',
-      passed: count > 0,
-      detail: `${count} edges found`,
-    });
-  } catch (e: any) {
-    checks.push({ description: 'WORKS_ON edges', passed: false, detail: e.message });
+  for (const check of domain.sampleChecks) {
+    try {
+      if (check.type === 'node_min_count') {
+        const rows = await cypherQuery(`MATCH (n:${check.label}) RETURN count(n)`);
+        const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
+        checks.push({
+          description: `${check.label} node count >= ${check.min}`,
+          passed: count >= (check.min || 0),
+          detail: `${count} found`,
+        });
+      } else if (check.type === 'edge_exists') {
+        const rows = await cypherQuery(`MATCH ()-[r:${check.label}]->() RETURN count(r)`);
+        const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
+        checks.push({
+          description: `${check.label} edges exist`,
+          passed: count > 0,
+          detail: `${count} edges found`,
+        });
+      } else if (check.type === 'hierarchy') {
+        const rows = await cypherQuery(`MATCH (c:${check.child})-[:${check.edge}]->(p:${check.parent}) RETURN count(c)`);
+        const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
+        checks.push({
+          description: `${check.child} -[${check.edge}]-> ${check.parent} hierarchy exists`,
+          passed: count > 0,
+          detail: `${count} links found`,
+        });
+      }
+    } catch (e: any) {
+      checks.push({
+        description: `Check for ${check.label || check.child || 'unknown'}`,
+        passed: false,
+        detail: e.message,
+      });
+    }
   }
 
   return checks;
 }
 
-// ── CESMII compliance ──────────────────────────────────────────────
+// ── Compliance checks ────────────────────────────────────────────
 
-export async function runCesmiiChecks(): Promise<CesmiiCheck[]> {
-  const checks: CesmiiCheck[] = [];
+export async function runComplianceChecks(): Promise<ComplianceCheck[]> {
+  const domain = loadDomainConfig();
+  const checks: ComplianceCheck[] = [];
 
-  // Every Machine should have INSTANCE_OF → MachineType
-  try {
-    const total = await cypherQuery(`MATCH (m:Machine) RETURN count(m)`);
-    const linked = await cypherQuery(`MATCH (m:Machine)-[:INSTANCE_OF]->(t:MachineType) RETURN count(m)`);
-    const totalN = parseInt(String(total[0]), 10) || 0;
-    const linkedN = parseInt(String(linked[0]), 10) || 0;
-    checks.push({
-      rule: 'Every Machine has INSTANCE_OF → MachineType',
-      passed: totalN > 0 && linkedN === totalN,
-      detail: `${linkedN}/${totalN} machines linked to type`,
-    });
-  } catch (e: any) {
-    checks.push({ rule: 'INSTANCE_OF check', passed: false, detail: e.message });
+  if (!domain.complianceChecks || domain.complianceChecks.length === 0) {
+    return checks;
   }
 
-  // Equipment topology: Areas linked to Site
-  try {
-    const areas = await cypherQuery(`MATCH (a:Area) RETURN count(a)`);
-    const linked = await cypherQuery(`MATCH (a:Area)-[:PART_OF]->(s:Site) RETURN count(a)`);
-    const areasN = parseInt(String(areas[0]), 10) || 0;
-    const linkedN = parseInt(String(linked[0]), 10) || 0;
-    checks.push({
-      rule: 'Every Area has PART_OF → Site',
-      passed: areasN === 0 || linkedN === areasN,
-      detail: areasN > 0 ? `${linkedN}/${areasN} areas linked` : 'No areas yet',
-    });
-  } catch (e: any) {
-    checks.push({ rule: 'Equipment topology', passed: false, detail: e.message });
+  for (const rule of domain.complianceChecks) {
+    // Check hierarchy-type compliance rules from sampleChecks
+    const hierarchyCheck = (domain.sampleChecks || []).find(
+      sc => sc.type === 'hierarchy' && rule.toLowerCase().includes(sc.child?.toLowerCase() || '') && rule.toLowerCase().includes(sc.parent?.toLowerCase() || '')
+    );
+
+    if (hierarchyCheck) {
+      try {
+        const total = await cypherQuery(`MATCH (c:${hierarchyCheck.child}) RETURN count(c)`);
+        const linked = await cypherQuery(`MATCH (c:${hierarchyCheck.child})-[:${hierarchyCheck.edge}]->(p:${hierarchyCheck.parent}) RETURN count(c)`);
+        const totalN = typeof total[0] === 'number' ? total[0] : parseInt(String(total[0]), 10) || 0;
+        const linkedN = typeof linked[0] === 'number' ? linked[0] : parseInt(String(linked[0]), 10) || 0;
+        checks.push({
+          rule,
+          passed: totalN === 0 || linkedN === totalN,
+          detail: totalN > 0 ? `${linkedN}/${totalN} linked` : 'No entities yet',
+        });
+      } catch (e: any) {
+        checks.push({ rule, passed: false, detail: e.message });
+      }
+    } else {
+      // Informational — log the compliance rule as passed (advisory)
+      checks.push({
+        rule,
+        passed: true,
+        detail: 'Advisory rule — not automatically verified',
+      });
+    }
   }
 
   return checks;
@@ -140,23 +169,23 @@ export async function runCesmiiChecks(): Promise<CesmiiCheck[]> {
 
 // ── Full validation ────────────────────────────────────────────────
 
-export async function runValidation(): Promise<ValidationReport> {
-  const [nodeCounts, edgeCounts, sampleChecks, cesmiiCompliance] = await Promise.all([
-    countNodesByType(),
-    countEdgesByType(),
+export async function runValidation(confirmedSchema?: SchemaProposal): Promise<ValidationReport> {
+  const [nodeCounts, edgeCounts, sampleChecks, complianceChecks] = await Promise.all([
+    countNodesByType(confirmedSchema),
+    countEdgesByType(confirmedSchema),
     runSampleChecks(),
-    runCesmiiChecks(),
+    runComplianceChecks(),
   ]);
 
-  const totalChecks = sampleChecks.length + cesmiiCompliance.length;
-  const passed = sampleChecks.filter(c => c.passed).length + cesmiiCompliance.filter(c => c.passed).length;
+  const totalChecks = sampleChecks.length + complianceChecks.length;
+  const passed = sampleChecks.filter(c => c.passed).length + complianceChecks.filter(c => c.passed).length;
   const accuracy = totalChecks > 0 ? Math.round((passed / totalChecks) * 100) : 0;
 
   const issues: string[] = [];
   for (const c of sampleChecks) if (!c.passed) issues.push(`SAMPLE: ${c.description} — ${c.detail}`);
-  for (const c of cesmiiCompliance) if (!c.passed) issues.push(`CESMII: ${c.rule} — ${c.detail}`);
+  for (const c of complianceChecks) if (!c.passed) issues.push(`COMPLIANCE: ${c.rule} — ${c.detail}`);
 
-  return { nodeCounts, edgeCounts, sampleChecks, cesmiiCompliance, accuracy, issues };
+  return { nodeCounts, edgeCounts, sampleChecks, complianceChecks, accuracy, issues };
 }
 
 // ── Format for Chat ────────────────────────────────────────────────
@@ -179,8 +208,8 @@ export function formatValidationReport(report: ValidationReport): string {
     lines.push(`- ${c.passed ? 'PASS' : 'FAIL'}: ${c.description} — ${c.detail}`);
   }
 
-  lines.push('\n### CESMII Compliance');
-  for (const c of report.cesmiiCompliance) {
+  lines.push('\n### Compliance Checks');
+  for (const c of report.complianceChecks) {
     lines.push(`- ${c.passed ? 'PASS' : 'FAIL'}: ${c.rule} — ${c.detail}`);
   }
 

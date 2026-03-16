@@ -2,6 +2,7 @@ import { callLlmJson, ChatMessage } from './llm-client';
 import { EdgeTypeSpec } from './schema-planner';
 import { edgeCypher, executeBatched, cypherQuery } from './cypher-utils';
 import { sampleMcpTool } from './tool-discovery';
+import { loadDomainConfig } from './domain-config';
 import { logger } from './logger';
 
 export interface ExtractedEdge {
@@ -36,7 +37,7 @@ async function extractEdgesFromData(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: 'You are a data extraction specialist. Extract relationships between manufacturing entities. Output ONLY valid JSON.',
+      content: `You are a data extraction specialist. Extract relationships between ${loadDomainConfig().systemPromptContext} entities. Output ONLY valid JSON.`,
     },
     {
       role: 'user',

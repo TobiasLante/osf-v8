@@ -1,6 +1,7 @@
 import { callLlmJson, ChatMessage } from './llm-client';
 import { ToolDiscoveryResult } from './tool-discovery';
 import { SMProfileSchema, smProfileToSchemaHint } from './sm-profile-parser';
+import { loadDomainConfig, domainToSchemaHint } from './domain-config';
 import { kgPool } from './cypher-utils';
 import { config } from './config';
 import { logger } from './logger';
@@ -52,18 +53,41 @@ export interface SchemaRun {
 export async function planSchema(
   discovery: ToolDiscoveryResult,
   smProfile?: SMProfileSchema,
+  i3xProposal?: SchemaProposal,
+  mtpNodeTypes?: NodeTypeSpec[],
+  mtpEdgeTypes?: EdgeTypeSpec[],
 ): Promise<SchemaProposal> {
+  const domain = loadDomainConfig();
+
   const toolDescriptions = discovery.tools.map(t =>
     `Tool: ${t.name}\n  Description: ${t.description}\n  Sample output (first 500 chars): ${(t.sampleOutput || '').substring(0, 500)}`
   ).join('\n\n');
 
   const smHint = smProfile ? `\n\n${smProfileToSchemaHint(smProfile)}` : '';
 
+  const complianceSection = domain.complianceChecks.length > 0
+    ? `- ${domain.complianceChecks.join('. ')}`
+    : '';
+
+  const schemaExamples = domain.schemaExamples || `{
+  "nodeTypes": [
+    {"label": "Entity", "idProperty": "id", "properties": [{"name": "name", "type": "string", "description": "Name"}], "sourceTool": "tool_name", "sourceMapping": "Each row is one entity"}
+  ],
+  "edgeTypes": [
+    {"label": "RELATES_TO", "fromType": "Entity", "toType": "Entity", "sourceTool": "tool_name", "sourceMapping": "Mapping description"}
+  ],
+  "toolMappings": [
+    {"toolName": "tool_name", "produces": ["Entity"], "impliesEdges": []}
+  ]
+}`;
+
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `You are a manufacturing Knowledge Graph architect specializing in CESMII Smart Manufacturing Profiles.
-You design graph schemas from data source descriptions. Your schemas follow ISA-95 equipment hierarchy patterns.`,
+      content: `You are a ${domain.displayName} Knowledge Graph architect.
+You design graph schemas from data source descriptions.
+${domain.ontologyHint}
+${domainToSchemaHint(domain)}`,
     },
     {
       role: 'user',
@@ -74,32 +98,70 @@ AVAILABLE TOOLS:
 ${toolDescriptions}
 
 Design a KG schema with:
-1. Node Types (entities like Machine, Order, Article, Material, Customer, Supplier, etc.)
-2. Edge Types (relationships like WORKS_ON, PRODUCES, HAS_BOM, etc.)
+1. Node Types (entities like ${domain.expectedNodeTypes.join(', ')})
+2. Edge Types (relationships like ${domain.expectedEdgeTypes.join(', ')})
 3. Tool Mappings (which tool provides data for which node/edge type)
 
 Rules:
 - Each Node Type MUST have a clearly DISTINCT perspective. No overlap.
-- Include CESMII-aligned types: MachineType (with INSTANCE_OF), Area/Site (ISA-95 hierarchy), KPIDef (Smart Attributes)
+${complianceSection}
 - idProperty should be the field from the tool output that uniquely identifies the entity
 - sourceMapping should describe how to extract entities from the tool output
 
 RESPONSE FORMAT: Pure JSON.
-{
-  "nodeTypes": [
-    {"label": "Machine", "idProperty": "maschine_id", "properties": [{"name": "oee", "type": "number", "description": "Overall Equipment Effectiveness"}], "sourceTool": "factory_get_latest_oee", "sourceMapping": "Each row is one Machine with maschine_id as ID"}
-  ],
-  "edgeTypes": [
-    {"label": "WORKS_ON", "fromType": "Machine", "toType": "Order", "sourceTool": "factory_get_cm21_orders", "sourceMapping": "Each order row has maschine field linking to Machine"}
-  ],
-  "toolMappings": [
-    {"toolName": "factory_get_latest_oee", "produces": ["Machine"], "impliesEdges": []}
-  ]
-}`,
+${schemaExamples}`,
     },
   ];
 
-  return callLlmJson<SchemaProposal>(messages, { maxTokens: 4096 });
+  let result = await callLlmJson<SchemaProposal>(messages, { maxTokens: 4096 });
+
+  // Merge i3X proposal if provided (i3X types take priority — they're ground truth)
+  if (i3xProposal) {
+    const existingNodeLabels = new Set(result.nodeTypes.map(n => n.label));
+    const existingEdgeLabels = new Set(result.edgeTypes.map(e => `${e.fromType}-${e.label}-${e.toType}`));
+
+    for (const nt of i3xProposal.nodeTypes) {
+      if (existingNodeLabels.has(nt.label)) {
+        // i3X takes priority — replace existing
+        result.nodeTypes = result.nodeTypes.filter(n => n.label !== nt.label);
+      }
+      result.nodeTypes.push(nt);
+    }
+
+    for (const et of i3xProposal.edgeTypes) {
+      const key = `${et.fromType}-${et.label}-${et.toType}`;
+      if (existingEdgeLabels.has(key)) {
+        result.edgeTypes = result.edgeTypes.filter(e => `${e.fromType}-${e.label}-${e.toType}` !== key);
+      }
+      result.edgeTypes.push(et);
+    }
+
+    if (i3xProposal.toolMappings) {
+      result.toolMappings = [...result.toolMappings, ...i3xProposal.toolMappings];
+    }
+  }
+
+  // Merge MTP node/edge types if provided
+  if (mtpNodeTypes && mtpNodeTypes.length > 0) {
+    const existingNodeLabels = new Set(result.nodeTypes.map(n => n.label));
+    for (const nt of mtpNodeTypes) {
+      if (!existingNodeLabels.has(nt.label)) {
+        result.nodeTypes.push(nt);
+      }
+    }
+  }
+
+  if (mtpEdgeTypes && mtpEdgeTypes.length > 0) {
+    const existingEdgeLabels = new Set(result.edgeTypes.map(e => `${e.fromType}-${e.label}-${e.toType}`));
+    for (const et of mtpEdgeTypes) {
+      const key = `${et.fromType}-${et.label}-${et.toType}`;
+      if (!existingEdgeLabels.has(key)) {
+        result.edgeTypes.push(et);
+      }
+    }
+  }
+
+  return result;
 }
 
 // ── Format for Chat ────────────────────────────────────────────────
@@ -141,7 +203,7 @@ export async function applyUserCorrections(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: 'You are a manufacturing Knowledge Graph architect. Revise the schema based on user feedback.',
+      content: `You are a ${loadDomainConfig().displayName} Knowledge Graph architect. Revise the schema based on user feedback.`,
     },
     {
       role: 'user',

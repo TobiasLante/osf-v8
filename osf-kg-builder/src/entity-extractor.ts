@@ -2,6 +2,7 @@ import { callLlmJson, ChatMessage } from './llm-client';
 import { NodeTypeSpec } from './schema-planner';
 import { vertexCypher, executeBatched } from './cypher-utils';
 import { sampleMcpTool } from './tool-discovery';
+import { loadDomainConfig } from './domain-config';
 import { config } from './config';
 import { logger } from './logger';
 
@@ -35,7 +36,7 @@ async function extractNodesFromChunk(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: 'You are a data extraction specialist. Extract structured entities from manufacturing data. Output ONLY valid JSON.',
+      content: `You are a data extraction specialist. Extract structured entities from ${loadDomainConfig().systemPromptContext} data. Output ONLY valid JSON.`,
     },
     {
       role: 'user',

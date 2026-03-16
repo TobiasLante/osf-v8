@@ -27,4 +27,14 @@ export const config = {
   batchSize: int('BATCH_SIZE', 200),
   chunkSize: int('CHUNK_SIZE', 500),
   smProfileUrl: process.env.SM_PROFILE_URL || '',
+  domain: str('DOMAIN', 'manufacturing'),  // manufacturing, pharma, chemical, medtech
+  domainConfigPath: process.env.DOMAIN_CONFIG_PATH || '',  // optional custom JSON
+  i3x: {
+    endpoints: (process.env.I3X_ENDPOINTS || '').split(',').filter(Boolean),
+    // e.g. ['https://customer-smip.cesmii.net/v0']
+  },
+  mtp: {
+    urls: (process.env.MTP_URLS || '').split(',').filter(Boolean),
+    // e.g. ['https://example.com/reaktor.aml', '/data/filter.aml']
+  },
 };

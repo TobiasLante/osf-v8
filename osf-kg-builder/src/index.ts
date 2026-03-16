@@ -2,10 +2,13 @@ import express, { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from './config';
 import { logger } from './logger';
+import { loadDomainConfig } from './domain-config';
+import { i3xToSchemaProposal, importI3xToGraph } from './i3x-client';
+import { parseMTP, fetchMTPFromUrl, mtpToSchemaHint, mtpToNodeTypes, mtpToEdgeTypes, MTPSchema } from './mtp-parser';
 import { initializeGraph } from './cypher-utils';
 import { discoverAndSample, ToolDiscoveryResult } from './tool-discovery';
 import { fetchSMProfileFromUrl, parseSMProfile, SMProfileSchema } from './sm-profile-parser';
-import { planSchema, formatProposalForChat, applyUserCorrections, SchemaProposal, SchemaRun, saveSchemaRun } from './schema-planner';
+import { planSchema, formatProposalForChat, applyUserCorrections, SchemaProposal, SchemaRun, saveSchemaRun, NodeTypeSpec, EdgeTypeSpec } from './schema-planner';
 import { executeNodeExtraction } from './entity-extractor';
 import { executeRelationshipBuilding } from './relationship-builder';
 import { runValidation, formatValidationReport, answerGraphQuestion, ValidationReport } from './validator';
@@ -68,13 +71,50 @@ async function runPipeline(
       }
     }
 
+    // ── Phase 0a: MTP Import (if MTP URLs configured) ─────────
+    const mtpModules: MTPSchema[] = [];
+    if (config.mtp.urls.length > 0) {
+      emitSSE(res, { type: 'phase', phase: 0, description: 'Importing MTP modules...' });
+      for (const url of config.mtp.urls) {
+        try {
+          const xml = await fetchMTPFromUrl(url);
+          const schema = parseMTP(xml);
+          mtpModules.push(schema);
+          emitSSE(res, { type: 'phase', phase: 0, description: `MTP loaded: ${schema.modules.length} modules from ${url}` });
+        } catch (e: any) {
+          emitSSE(res, { type: 'error', message: `MTP import failed for ${url}: ${e.message}` });
+        }
+      }
+    }
+    // Merge all MTP modules
+    const allMtpNodeTypes = mtpModules.flatMap(m => mtpToNodeTypes(m));
+    const allMtpEdgeTypes = mtpModules.flatMap(m => mtpToEdgeTypes(m));
+
+    // ── Phase 0b: i3X Import (if i3X endpoints configured) ──────
+    let i3xProposal: SchemaProposal | undefined;
+    if (config.i3x.endpoints.length > 0) {
+      emitSSE(res, { type: 'phase', phase: 0, description: 'Importing from i3X endpoints...' });
+      for (const endpoint of config.i3x.endpoints) {
+        try {
+          const result = await importI3xToGraph(endpoint, msg => emitSSE(res, { type: 'phase', phase: 0, description: msg }));
+          emitSSE(res, { type: 'phase', phase: 0, description: `i3X imported: ${result.nodes} nodes, ${result.edges} edges from ${endpoint}` });
+        } catch (e: any) {
+          emitSSE(res, { type: 'error', message: `i3X import failed for ${endpoint}: ${e.message}` });
+        }
+      }
+      // Also get schema proposal from first endpoint
+      try {
+        i3xProposal = await i3xToSchemaProposal(config.i3x.endpoints[0]);
+      } catch {}
+    }
+
     // ── Phase 1: Tool Discovery + Schema Planning ──────────────
     emitSSE(res, { type: 'phase', phase: 1, description: 'Discovering MCP tools...' });
 
     const discovery = await discoverAndSample(options.authToken);
     emitSSE(res, { type: 'phase', phase: 1, description: `Discovered ${discovery.tools.length} tools. Planning schema...` });
 
-    let proposal = await planSchema(discovery, smProfile);
+    let proposal = await planSchema(discovery, smProfile, i3xProposal, allMtpNodeTypes, allMtpEdgeTypes);
     run.proposal = proposal;
     run.status = 'planning';
     await saveSchemaRun(run);
@@ -248,7 +288,10 @@ app.post('/api/kg-builder/start', (req: Request, res: Response) => {
   const runId = uuidv4();
   activePipeline = runId;
 
-  const { smProfileUrl, authToken } = req.body || {};
+  const { smProfileUrl, authToken, mtpUrls, i3xEndpoints } = req.body || {};
+  // Override config if provided in request body
+  if (mtpUrls) config.mtp.urls = mtpUrls;
+  if (i3xEndpoints) config.i3x.endpoints = i3xEndpoints;
 
   // Set SSE headers
   res.writeHead(200, {
@@ -296,6 +339,8 @@ app.get('/api/kg-builder/runs', async (_req: Request, res: Response) => {
 // ── Startup ────────────────────────────────────────────────────────
 
 async function main() {
+  const domain = loadDomainConfig();
+  logger.info({ domain: domain.domain, displayName: domain.displayName }, 'Domain config loaded');
   logger.info({ port: config.port, llm: config.llm.url, mcpProxy: config.mcpProxy.url }, 'Starting osf-kg-builder');
 
   graphAvailable = await initializeGraph();
