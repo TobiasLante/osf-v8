@@ -53,6 +53,9 @@ export const config = {
     rawUrl: str('MQTT_RAW_URL', 'mqtt://mqtt-raw:1883'),
     transformRules: parseTransformRules(process.env.MQTT_TRANSFORM_RULES || ''),
   },
+  historian: {
+    url: process.env.HISTORIAN_URL || '',  // empty = skip historian discovery
+  },
   gateway: {
     dbUrl: process.env.GATEWAY_DB_URL || '',  // empty = skip registration
   },
