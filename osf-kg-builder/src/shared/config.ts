@@ -53,6 +53,10 @@ export const config = {
     rawUrl: str('MQTT_RAW_URL', 'mqtt://mqtt-raw:1883'),
     transformRules: parseTransformRules(process.env.MQTT_TRANSFORM_RULES || ''),
   },
+  gateway: {
+    dbUrl: process.env.GATEWAY_DB_URL || '',  // empty = skip registration
+  },
+  kgServerUrl: str('KG_SERVER_URL', 'http://kg-server:8035'),
 };
 
 function parseTransformRules(raw: string): Array<{

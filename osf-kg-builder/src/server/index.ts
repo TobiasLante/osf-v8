@@ -7,6 +7,7 @@ import { initVectorStore } from '../shared/vector-store';
 import { startMqttBridge, stopMqttBridge } from './mqtt-bridge';
 import { createRouter } from './routes';
 import { loadDomainTools } from './kg-tools';
+import { registerWithGateway, deregisterFromGateway } from './register-mcp';
 
 /**
  * KG Server — Always-on service providing:
@@ -40,13 +41,16 @@ async function main() {
   // Mount all routes
   app.use(createRouter(graphAvailable, vectorAvailable));
 
-  app.listen(config.port, () => {
+  app.listen(config.port, async () => {
     logger.info({ port: config.port }, 'osf-kg-server listening');
+    // Register with gateway after server is ready to accept connections
+    await registerWithGateway();
   });
 
   // Graceful shutdown
   const shutdown = async () => {
     logger.info('Shutting down...');
+    await deregisterFromGateway();
     await stopMqttBridge();
     await closeGraph();
     process.exit(0);
