@@ -29,6 +29,8 @@ Shared: Factory Sim v3 (read-only MCP), LLM Server, MQTT Broker.
 │  │     ├──→ KG Server ──→ Neo4j                                 │  │
 │  │     │    :8035         :7687                                  │  │
 │  │     │    MCP+REST+MQTT                                        │  │
+│  │     ├──→ Historian ──→ PG Factory (TimescaleDB)              │  │
+│  │     │    :8030    MQTT→PG + History MCP Tools                 │  │
 │  │     │                                                         │  │
 │  │  PG(v9)   Redis(v9)   KG Builder (Job, on-demand)            │  │
 │  │  :5432    :6379                                               │  │
@@ -56,6 +58,7 @@ Shared: Factory Sim v3 (read-only MCP), LLM Server, MQTT Broker.
 | **Neo4j** | — | osf-neo4j:7687 |
 | **KG Builder** | — | Job (on-demand) |
 | **Web UI (v9)** | — | osf-v9-web:3009 |
+| **Historian** | — | historian:8030 |
 | **Factory Sim** | shared (factory ns) | shared (factory ns) |
 | **LLM Server** | shared (.120) | shared (.120) |
 | **MQTT Broker** | shared (.150:31883) | shared (.150:31883) |
@@ -85,22 +88,120 @@ Shared: Factory Sim v3 (read-only MCP), LLM Server, MQTT Broker.
 | Neo4j | StatefulSet | `neo4j:5.26-community` | 7687, 7474 |
 | KG Server | Deployment | `192.168.178.150:32000/osf-kg-server:v9` | 8035 |
 | KG Builder | Job | `192.168.178.150:32000/osf-kg-builder:v9` | — |
+| Historian | Deployment | `192.168.178.150:32000/osf-historian:2.0.0` | 8030 |
 | v9 Web UI | Deployment | `nginx:1.27-alpine` | 3009, NodePort 30909 |
 
-## DB-Trennung
+## DB-Schema — Komplett-Uebersicht
 
-| DB | Instanz | Verwendet von |
-|---|---------|---------------|
-| osf-postgres (osf ns) | v8 Gateway DB | v8 Gateway: users, sessions, mcp_servers |
-| osf-postgres-v9 (osf-v9 ns) | v9 Gateway DB | v9 Gateway: users, sessions, mcp_servers |
-| PG Factory (.150:30432) | `llm_test_v3` | Sim v3, beide Gateways via MCP |
-| PG Factory (.150:30432) | `llm_test_v3.kg_builder_runs` | KG Builder |
-| Neo4j (osf-v9 ns) | `neo4j` | KG Server, KG Builder |
+### Instanzen
+
+| DB-Instanz | Namespace | Verwendet von |
+|---|---|---|
+| osf-postgres (osf ns) | osf | v8 Gateway (UNBERUEHRT) |
+| osf-postgres-v9 (osf-v9 ns) | osf-v9 | v9 Gateway |
+| PG Factory (.150:30432) | extern | Sim v3, KG Builder |
+| Neo4j (osf-v9 ns) | osf-v9 | KG Server, KG Builder |
+
+### osf-postgres-v9 — Schema (v9 Gateway DB)
+
+Gateway erstellt ~30 Tabellen automatisch via `initSchema()` beim Start.
+Aber: **leere DB reicht nicht** — Seed-Daten muessen rein.
+
+**Init-Script (`k8s/v9/init-db.sql`):**
+
+```sql
+-- 1. Database anlegen (laeuft als postgres initdb)
+-- (Wird via POSTGRES_DB env var im Container erstellt)
+
+-- 2. Admin-User seeden (nach Gateway initSchema)
+-- Gateway erstellt Tabellen automatisch, aber der erste User muss manuell:
+INSERT INTO users (id, email, name, password_hash, role, email_verified)
+VALUES (
+  gen_random_uuid(),
+  'admin@zeroguess.ai',
+  'Admin',
+  '$2b$10$PLACEHOLDER_HASH',  -- bcrypt hash, wird beim ersten Login via UI gesetzt
+  'admin',
+  true
+) ON CONFLICT (email) DO NOTHING;
+
+-- 3. MCP Server registrieren (Sim v3 + Historian + KG Server)
+INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
+VALUES
+  ('erp', 'http://factory-v3-fertigung.factory.svc.cluster.local:8020', 'none', 'pending', 0, '{erp}'),
+  ('oee', 'http://factory-v3-fertigung.factory.svc.cluster.local:8020', 'none', 'pending', 0, '{oee}'),
+  ('qms', 'http://factory-v3-fertigung.factory.svc.cluster.local:8020', 'none', 'pending', 0, '{qms}'),
+  ('history', 'http://historian:8030', 'none', 'pending', 6, '{history}')
+ON CONFLICT (name) DO NOTHING;
+-- kg-v9 wird automatisch via register-mcp.ts beim KG-Server-Start registriert
+```
+
+**Hinweis:** Gateway's `initSchema()` laeuft beim Container-Start und erstellt alle Tabellen:
+- `users`, `refresh_tokens`, `chat_sessions`, `chat_messages`, `agent_runs`
+- `agents`, `agent_chains`, `chain_runs`, `email_tokens`
+- `nodered_flows`, `nodered_credentials`, `nodered_settings`, `nodered_library`
+- `user_flows`, `flow_runs`, `flow_run_events`, `flow_pending_inputs`
+- `github_connections`, `code_agents`, `code_agent_runs`, `code_agent_storage`
+- `oauth_states`, `news`, `banner`, `nodered_pods`, `nodered_pod_events`
+- `challenge_attempts`, `mcp_servers`, `user_deployed_agents`
+- + Migrations (ALTER TABLE für security columns, LLM provider, token quota, etc.)
+
+### PG Factory (.150:30432) — Aenderungen
+
+**Neues im Schema `llm_test_v3`:**
+
+```sql
+-- kg_builder_runs Tabelle (wird automatisch vom KG Builder erstellt)
+-- Aber: Schema muss existieren
+CREATE SCHEMA IF NOT EXISTS llm_test_v3;
+
+-- Tabelle wird von schema-planner.ts saveSchemaRun() automatisch erstellt:
+-- CREATE TABLE IF NOT EXISTS llm_test_v3.kg_builder_runs (...)
+-- Kein manuelles SQL noetig.
+```
+
+**Bestehende Factory-Daten (UNBERUEHRT):**
+- `llm_test_v3.maschinen`, `llm_test_v3.auftraege`, `llm_test_v3.artikel`, etc.
+- Werden von Sim v3 geschrieben, von beiden Gateways via MCP gelesen
+
+### Neo4j (osf-v9 ns) — Schema
+
+```cypher
+-- Wird automatisch von initializeGraph() erstellt:
+
+-- Uniqueness Constraint
+CREATE CONSTRAINT node_id_unique IF NOT EXISTS
+FOR (n:Node) REQUIRE n.id IS UNIQUE;
+
+-- Vector Index (768d nomic-embed-text)
+CREATE VECTOR INDEX node_embedding IF NOT EXISTS
+FOR (n:Node) ON (n.embedding)
+OPTIONS {indexConfig: {
+  `vector.dimensions`: 768,
+  `vector.similarity_function`: 'cosine'
+}};
+```
+
+Nach KG Builder Job:
+- Node Labels: Machine, Article, Order, Material, Customer, Supplier, BOM (discrete Template)
+- Edge Types: RUNS_ON, PRODUCES, HAS_BOM, FOR_CUSTOMER, SUPPLIED_BY
+- Embeddings auf allen Nodes (768d, nomic-embed-text)
+
+### Zusammenfassung DB-Isolation
+
+```
+v8 Gateway → osf-postgres (osf ns)        ← UNBERUEHRT
+v9 Gateway → osf-postgres-v9 (osf-v9 ns)  ← EIGENE INSTANZ
+Sim v3     → PG Factory (.150:30432)       ← SHARED, read-only via MCP
+KG Builder → PG Factory (kg_builder_runs)  ← EIGENE TABELLE, kein Konflikt
+KG Server  → Neo4j (osf-v9 ns)            ← EIGENE INSTANZ
+```
 
 - v8 und v9 haben **komplett getrennte Gateway-DBs**
-- v9 Gateway hat `kg-v9` in seiner eigenen `mcp_servers` Tabelle
+- v9 Gateway hat Sim v3 MCP Server + kg-v9 in seiner eigenen `mcp_servers` Tabelle
 - v8 Gateway weiss nichts von v9 — null Risiko
-- Factory-Daten (llm_test_v3) sind shared/read-only via MCP Tools
+- Factory-Daten sind shared/read-only via MCP Tools
+- Neo4j ist v9-exklusiv, keine Kollision moeglich
 
 ## K8s Manifests (k8s/v9/)
 
@@ -116,9 +217,11 @@ Shared: Factory Sim v3 (read-only MCP), LLM Server, MQTT Broker.
 | `chat-ui.yaml` | Chat UI Deployment + Service + NodePort 30813 |
 | `kg-server.yaml` | KG Server Deployment + Service |
 | `kg-builder-job.yaml` | KG Builder Job (one-shot) |
+| `historian.yaml` | Historian (MQTT→TimescaleDB + History MCP :8030) |
 | `v9-web.yaml` | v9 Admin Web UI + NodePort 30909 |
 | `v9-config.yaml` | ConfigMap (alle Env Vars) |
 | `v9-secrets.yaml.example` | Secrets Template |
+| `init-db.sql` | Seed: Admin-User + MCP Server Registration |
 
 ### Zu loeschen (alt, veraltet)
 
@@ -149,6 +252,16 @@ MCP_URL_QMS: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
 MCP_URL_TMS: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
 MCP_URL_UNS: "http://factory-v3-fertigung.factory.svc.cluster.local:8025"
 MCP_URL_KG: "http://osf-kg-server:8035"
+HISTORIAN_URL: "http://historian:8030"
+
+# Historian
+HISTORIAN_DB_HOST: "192.168.178.150"
+HISTORIAN_DB_PORT: "30432"
+HISTORIAN_DB_NAME: "bigdata_homelab"
+HISTORIAN_DB_USER: "admin"
+HISTORIAN_MCP_PORT: "8030"
+HISTORIAN_FLUSH_MS: "5000"
+MQTT_BROKER_URL: "mqtt://192.168.178.150:31883"
 
 # KG Server
 NEO4J_URL: "bolt://osf-neo4j:7687"
@@ -189,18 +302,22 @@ kubectl wait --for=condition=ready pod -l app=osf-neo4j -n osf-v9 --timeout=120s
 kubectl apply -f k8s/v9/gateway.yaml -f k8s/v9/chat-ui.yaml
 kubectl wait --for=condition=ready pod -l app=osf-gateway-v9 -n osf-v9 --timeout=60s
 
-# 3. KG Server (registriert sich automatisch in v9 Gateway DB)
+# 3. Historian (MQTT→TimescaleDB + History MCP Tools)
+kubectl apply -f k8s/v9/historian.yaml
+kubectl wait --for=condition=ready pod -l app=historian -n osf-v9 --timeout=60s
+
+# 4. KG Server (registriert sich automatisch in v9 Gateway DB)
 kubectl apply -f k8s/v9/kg-server.yaml
 kubectl wait --for=condition=ready pod -l app=osf-kg-server -n osf-v9 --timeout=60s
 
-# 4. KG Builder Job (baut Graph, dann exit)
+# 5. KG Builder Job (baut Graph, dann exit)
 kubectl apply -f k8s/v9/kg-builder-job.yaml
 kubectl wait --for=condition=complete job/osf-kg-builder -n osf-v9 --timeout=300s
 
-# 5. Web UI (Admin, optional)
+# 6. Web UI (Admin, optional)
 kubectl apply -f k8s/v9/v9-web.yaml
 
-# 6. Verify
+# 7. Verify
 kubectl exec deploy/osf-kg-server -n osf-v9 -- node dist/builder/verify.js --domain discrete
 ```
 
