@@ -14,7 +14,7 @@ import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
 import { runValidation, formatValidationReport } from '../builder/validator';
 import { saveSchemaRun } from '../builder/schema-planner';
-import { loadAllProfiles, loadAllOpcUaMappings, loadAllUnsMappings, validateSchemaRefs } from '../builder/schema-loader';
+import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas } from '../builder/schema-kg-builder';
 import { config as appConfig } from '../shared/config';
 
@@ -332,19 +332,19 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
     try {
       const basePath = appConfig.schemaRepo.localPath;
       const profiles = loadAllProfiles(basePath);
-      const opcuaMappings = loadAllOpcUaMappings(basePath);
-      const unsMappings = loadAllUnsMappings(basePath);
+      const sources = loadAllSources(basePath);
+      const syncs = loadAllSyncs(basePath);
 
       if (profiles.length === 0) {
         return res.status(400).json({ error: 'No profiles found. Is the schema repo cloned?', path: basePath });
       }
 
-      const refErrors = validateSchemaRefs(profiles, opcuaMappings, unsMappings);
+      const refErrors = validateSchemaRefs(profiles, sources, syncs);
       if (refErrors.length > 0) {
         return res.status(400).json({ error: 'Schema validation failed', errors: refErrors });
       }
 
-      const report = await buildFromSchemas(profiles, opcuaMappings, unsMappings);
+      const report = await buildFromSchemas(profiles, sources, syncs);
       res.json(report);
     } catch (err) {
       logger.error({ err: (err as Error).message }, '[Route] build-from-schemas failed');

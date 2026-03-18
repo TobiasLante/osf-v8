@@ -9,7 +9,7 @@ import { createRouter } from './routes';
 import { loadDomainTools } from './kg-tools';
 import { registerWithGateway, deregisterFromGateway } from './register-mcp';
 import { SchemaSync } from '../builder/schema-sync';
-import { loadAllProfiles, loadAllOpcUaMappings, loadAllUnsMappings, validateSchemaRefs } from '../builder/schema-loader';
+import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas, stopLiveUpdates } from '../builder/schema-kg-builder';
 
 /**
@@ -50,21 +50,21 @@ async function main() {
     try {
       const basePath = schemaSync.getLocalPath();
       const profiles = loadAllProfiles(basePath);
-      const opcuaMappings = loadAllOpcUaMappings(basePath);
-      const unsMappings = loadAllUnsMappings(basePath);
+      const sources = loadAllSources(basePath);
+      const syncs = loadAllSyncs(basePath);
 
       if (profiles.length === 0) {
         logger.warn('[SchemaSync] No profiles found — skipping build');
         return;
       }
 
-      const errors = validateSchemaRefs(profiles, opcuaMappings, unsMappings);
+      const errors = validateSchemaRefs(profiles, sources, syncs);
       if (errors.length > 0) {
         logger.warn({ errorCount: errors.length }, '[SchemaSync] Schema validation errors — skipping build');
         return;
       }
 
-      await buildFromSchemas(profiles, opcuaMappings, unsMappings);
+      await buildFromSchemas(profiles, sources, syncs);
     } catch (err) {
       logger.error({ err: (err as Error).message }, '[SchemaSync] Auto-rebuild failed');
     }

@@ -1,9 +1,14 @@
 import mqtt, { MqttClient } from 'mqtt';
-import { SMProfile, OpcUaMapping, UnsMapping, SchemaBuildReport } from '../shared/schema-types';
-import { vertexCypher, edgeCypher, batchCypher, executeBatched } from '../shared/cypher-utils';
+import { Pool } from 'pg';
+import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
+import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId } from '../shared/cypher-utils';
 import { logger } from '../shared/logger';
 import { config } from '../shared/config';
 import neo4j from 'neo4j-driver';
+
+// Backward-compat aliases
+type OpcUaMapping = SourceSchema;
+type UnsMapping = SyncSchema;
 
 // ── Phase 1: Type System (from SM Profiles) ─────────────────────
 
@@ -57,33 +62,34 @@ export async function buildInstances(
     const idProp = profile.kgIdProperty;
 
     // Build properties from static props + machine metadata
+    const machineId = m.machineId || m.sourceId || '';
     const props: Record<string, any> = {
-      [idProp]: m.machineId,
-      name: m.machineName,
-      opcua_endpoint: m.endpoint,
-      ...m.staticProperties,
+      [idProp]: machineId,
+      name: m.machineName || '',
+      opcua_endpoint: m.endpoint || '',
+      ...(m.staticProperties || {}),
     };
 
-    queries.push(vertexCypher(label, m.machineId, props));
+    queries.push(vertexCypher(label, machineId, props));
 
     // ISA-95 hierarchy: Site → Area → Line → Machine
     const loc = m.location;
-    if (loc.site) {
+    if (loc?.site) {
       hierarchyQueries.push(vertexCypher('Site', loc.site, { name: loc.site, enterprise: loc.enterprise || '' }));
     }
-    if (loc.area) {
+    if (loc?.area) {
       hierarchyQueries.push(vertexCypher('Area', loc.area, { name: loc.area }));
       if (loc.site) {
         hierarchyQueries.push(edgeCypher('Area', loc.area, 'PART_OF', 'Site', loc.site));
       }
     }
-    if (loc.line) {
+    if (loc?.line) {
       hierarchyQueries.push(vertexCypher('ProductionLine', loc.line, { name: loc.line }));
       if (loc.area) {
         hierarchyQueries.push(edgeCypher('ProductionLine', loc.line, 'PART_OF', 'Area', loc.area));
       }
       // Machine → Line
-      hierarchyQueries.push(edgeCypher(label, m.machineId, 'PART_OF', 'ProductionLine', loc.line));
+      hierarchyQueries.push(edgeCypher(label, machineId, 'PART_OF', 'ProductionLine', loc.line));
     }
   }
 
@@ -119,22 +125,25 @@ export async function startLiveUpdates(
   const machineToProfile = new Map<string, { label: string; idProp: string }>();
   for (const m of opcuaMappings) {
     const p = profileMap.get(m.profileRef);
-    if (p) {
+    if (p && m.machineId) {
       machineToProfile.set(m.machineId, { label: p.kgNodeLabel, idProp: p.kgIdProperty });
-      // Also map by machineName (UNS topics use display names)
-      machineToProfile.set(m.machineName, { label: p.kgNodeLabel, idProp: p.kgIdProperty });
+      if (m.machineName) {
+        machineToProfile.set(m.machineName, { label: p.kgNodeLabel, idProp: p.kgIdProperty });
+      }
     }
   }
 
   // Also build machineId lookup from machineName
   const nameToId = new Map<string, string>();
   for (const m of opcuaMappings) {
-    nameToId.set(m.machineName, m.machineId);
+    if (m.machineName && m.machineId) nameToId.set(m.machineName, m.machineId);
   }
 
   let subscriptionCount = 0;
 
   for (const uns of unsMappings) {
+    if (!uns.broker || !uns.attributeMapping || !uns.machineIdResolution || !uns.topicStructure) continue;
+
     const { host, port } = uns.broker;
     const brokerUrl = `mqtt://${host}:${port}`;
 
@@ -151,15 +160,16 @@ export async function startLiveUpdates(
       const client = mqtt.connect(brokerUrl, {
         reconnectPeriod: 5000,
         connectTimeout: 10_000,
-        clientId: `kg-schema-${uns.mappingId}-${Date.now()}`,
+        clientId: `kg-schema-${uns.syncId}-${Date.now()}`,
       });
 
       client.on('connect', () => {
-        client.subscribe(uns.topicStructure.subscribeFilter, { qos: 0 }, (err) => {
+        const filter = uns.topicStructure!.subscribeFilter;
+        client.subscribe(filter, { qos: 0 }, (err) => {
           if (err) {
-            logger.error({ filter: uns.topicStructure.subscribeFilter, err: err.message }, '[SchemaLive] Subscribe failed');
+            logger.error({ filter, err: err.message }, '[SchemaLive] Subscribe failed');
           } else {
-            logger.info({ filter: uns.topicStructure.subscribeFilter, broker: brokerUrl }, '[SchemaLive] Subscribed');
+            logger.info({ filter, broker: brokerUrl }, '[SchemaLive] Subscribed');
           }
         });
       });
@@ -199,10 +209,10 @@ export async function startLiveUpdates(
 
           // Parse payload
           const data = JSON.parse(payload.toString());
-          const value = extractJsonPath(data, uns.payloadSchema.valuePath);
+          const value = extractJsonPath(data, uns.payloadSchema!.valuePath);
           if (value === undefined || value === null) return;
 
-          const timestamp = extractJsonPath(data, uns.payloadSchema.timestampPath);
+          const timestamp = extractJsonPath(data, uns.payloadSchema!.timestampPath);
 
           // Build SET query
           const safeAttr = smAttribute.replace(/[^a-zA-Z0-9_]/g, '_');
@@ -246,22 +256,228 @@ export async function stopLiveUpdates(): Promise<void> {
     try { client.end(true); } catch { /* ignore */ }
   }
   mqttClients = [];
+  stopPolling();
+}
+
+// ── Phase 2b: Instance Nodes from PostgreSQL Sources ────────────
+
+export async function buildInstancesFromPostgres(
+  sources: SourceSchema[],
+  profiles: SMProfile[],
+): Promise<{ nodesMerged: number; edgesCreated: number }> {
+  const profileMap = new Map(profiles.map(p => [p.profileId, p]));
+  let totalNodes = 0;
+  let totalEdges = 0;
+
+  for (const src of sources) {
+    if (src.sourceType !== 'postgresql' || !src.connection || !src.columnMappings) continue;
+
+    const profile = profileMap.get(src.profileRef);
+    if (!profile) {
+      logger.warn({ sourceId: src.sourceId, profileRef: src.profileRef }, '[SchemaBuild] Profile not found, skipping');
+      continue;
+    }
+
+    const conn = src.connection;
+    const pool = new Pool({
+      host: conn.host, port: conn.port, database: conn.database,
+      user: process.env.PG_USER || 'admin',
+      password: process.env.PG_PASSWORD || process.env.ERP_DB_PASSWORD || '',
+      max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000,
+    });
+
+    try {
+      const idCol = src.columnMappings.find(c => c.isId);
+      if (!idCol) {
+        logger.warn({ sourceId: src.sourceId }, '[SchemaBuild] No isId column defined, skipping');
+        continue;
+      }
+
+      let query = `SELECT * FROM ${conn.schema}.${conn.table}`;
+      if (src.filter) query += ` WHERE ${src.filter}`;
+
+      const result = await pool.query(query);
+      const nodeQueries: string[] = [];
+      const edgeQueries: string[] = [];
+
+      for (const row of result.rows) {
+        const id = String(row[idCol.column] || '');
+        if (!id) continue;
+
+        const props: Record<string, any> = {};
+        for (const cm of src.columnMappings) {
+          const val = row[cm.column];
+          if (val !== null && val !== undefined) {
+            props[cm.smAttribute] = val;
+          }
+        }
+
+        nodeQueries.push(vertexCypher(profile.kgNodeLabel, id, props));
+
+        // Create edges
+        if (src.edges) {
+          for (const edge of src.edges) {
+            const fkValue = row[edge.fkColumn];
+            if (!fkValue) continue;
+            const targetLabel = edge.targetLabel === 'auto' ? 'Node' : edge.targetLabel;
+            edgeQueries.push(
+              edgeCypher(profile.kgNodeLabel, id, edge.type, targetLabel, String(fkValue))
+            );
+          }
+        }
+      }
+
+      const nodeResult = await executeBatched(nodeQueries);
+      totalNodes += nodeResult.success;
+
+      if (edgeQueries.length > 0) {
+        const edgeResult = await executeBatched(edgeQueries);
+        totalEdges += edgeResult.success;
+      }
+
+      logger.info({
+        sourceId: src.sourceId, table: conn.table,
+        nodes: nodeResult.success, edges: edgeQueries.length
+      }, '[SchemaBuild] PostgreSQL source loaded');
+
+    } catch (err) {
+      logger.error({ sourceId: src.sourceId, err: (err as Error).message }, '[SchemaBuild] PostgreSQL source failed');
+    } finally {
+      await pool.end();
+    }
+  }
+
+  return { nodesMerged: totalNodes, edgesCreated: totalEdges };
+}
+
+// ── Phase 3b: Polling Sync ──────────────────────────────────────
+
+let pollingTimers: NodeJS.Timeout[] = [];
+const lastPollTimestamps = new Map<string, string>();
+
+export function stopPolling(): void {
+  for (const t of pollingTimers) clearInterval(t);
+  pollingTimers = [];
+  lastPollTimestamps.clear();
+}
+
+export async function startPollingSync(
+  pollSyncs: SyncSchema[],
+  allSources: SourceSchema[],
+  profiles: SMProfile[],
+): Promise<number> {
+  stopPolling();
+
+  const sourceMap = new Map(allSources.map(s => [s.sourceId, s]));
+  const profileMap = new Map(profiles.map(p => [p.profileId, p]));
+  let jobCount = 0;
+
+  for (const sync of pollSyncs) {
+    if (sync.syncType !== 'polling' || !sync.sources) continue;
+
+    const intervalMs = sync.pollIntervalMs || 30000;
+
+    const pollFn = async () => {
+      for (const ref of sync.sources!) {
+        const src = sourceMap.get(ref.sourceRef);
+        if (!src || src.sourceType !== 'postgresql' || !src.connection || !src.columnMappings) continue;
+
+        const profile = profileMap.get(src.profileRef);
+        if (!profile) continue;
+
+        const conn = src.connection;
+        const pool = new Pool({
+          host: conn.host, port: conn.port, database: conn.database,
+          user: process.env.PG_USER || 'admin',
+          password: process.env.PG_PASSWORD || process.env.ERP_DB_PASSWORD || '',
+          max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 5000,
+        });
+
+        try {
+          const idCol = src.columnMappings.find(c => c.isId);
+          if (!idCol) continue;
+
+          let query = `SELECT * FROM ${conn.schema}.${conn.table}`;
+          const conditions: string[] = [];
+          if (src.filter) conditions.push(`(${src.filter})`);
+
+          if (ref.changeDetection === 'timestamp' && ref.timestampColumn) {
+            const lastTs = lastPollTimestamps.get(ref.sourceRef);
+            if (lastTs) {
+              conditions.push(`${ref.timestampColumn} > '${lastTs}'`);
+            }
+          }
+
+          if (conditions.length > 0) query += ` WHERE ${conditions.join(' AND ')}`;
+          if (ref.batchSize) query += ` LIMIT ${ref.batchSize}`;
+
+          const result = await pool.query(query);
+          if (result.rows.length === 0) { await pool.end(); continue; }
+
+          const nodeQueries: string[] = [];
+          for (const row of result.rows) {
+            const id = String(row[idCol.column] || '');
+            if (!id) continue;
+            const props: Record<string, any> = {};
+            for (const cm of src.columnMappings) {
+              const val = row[cm.column];
+              if (val !== null && val !== undefined) props[cm.smAttribute] = val;
+            }
+            nodeQueries.push(vertexCypher(profile.kgNodeLabel, id, props));
+          }
+
+          await batchCypher(nodeQueries);
+
+          // Track last timestamp
+          if (ref.changeDetection === 'timestamp' && ref.timestampColumn) {
+            const lastRow = result.rows[result.rows.length - 1];
+            const ts = lastRow[ref.timestampColumn];
+            if (ts) lastPollTimestamps.set(ref.sourceRef, new Date(ts).toISOString());
+          }
+
+        } catch (err) {
+          logger.debug({ sourceRef: ref.sourceRef, err: (err as Error).message }, '[SchemaPoll] Poll failed');
+        } finally {
+          await pool.end();
+        }
+      }
+    };
+
+    // Initial poll
+    pollFn().catch(() => {});
+
+    // Start interval
+    const timer = setInterval(pollFn, intervalMs);
+    pollingTimers.push(timer);
+    jobCount++;
+
+    logger.info({ syncId: sync.syncId, intervalMs, sourceCount: sync.sources.length }, '[SchemaPoll] Polling started');
+  }
+
+  return jobCount;
 }
 
 // ── Full Schema Build Pipeline ──────────────────────────────────
 
 export async function buildFromSchemas(
   profiles: SMProfile[],
-  opcuaMappings: OpcUaMapping[],
-  unsMappings: UnsMapping[],
+  sources: SourceSchema[],
+  syncs: SyncSchema[],
 ): Promise<SchemaBuildReport> {
   const start = Date.now();
   const errors: string[] = [];
 
+  const opcuaSources = sources.filter(s => s.sourceType === 'opcua');
+  const pgSources = sources.filter(s => s.sourceType === 'postgresql');
+  const mqttSyncs = syncs.filter(s => s.syncType === 'mqtt');
+  const pollSyncs = syncs.filter(s => s.syncType === 'polling');
+
   logger.info({
     profiles: profiles.length,
-    machines: opcuaMappings.length,
-    unsMappings: unsMappings.length,
+    opcua: opcuaSources.length,
+    postgresql: pgSources.length,
+    mqtt: mqttSyncs.length,
+    polling: pollSyncs.length,
   }, '[SchemaBuild] Starting schema-driven KG build...');
 
   // Phase 1: Type System
@@ -272,33 +488,51 @@ export async function buildFromSchemas(
     errors.push(`Phase 1 (Type System): ${(err as Error).message}`);
   }
 
-  // Phase 2: Instance Nodes
+  // Phase 2a: OPC-UA Instance Nodes
   let nodesMerged = 0;
   let edgesCreated = 0;
   try {
-    const result = await buildInstances(opcuaMappings, profiles);
-    nodesMerged = result.nodesMerged;
-    edgesCreated = result.edgesCreated;
+    const result = await buildInstances(opcuaSources, profiles);
+    nodesMerged += result.nodesMerged;
+    edgesCreated += result.edgesCreated;
   } catch (err) {
-    errors.push(`Phase 2 (Instances): ${(err as Error).message}`);
+    errors.push(`Phase 2a (OPC-UA Instances): ${(err as Error).message}`);
   }
 
-  // Phase 3: Live MQTT Subscriptions
+  // Phase 2b: PostgreSQL Instance Nodes
+  try {
+    const result = await buildInstancesFromPostgres(pgSources, profiles);
+    nodesMerged += result.nodesMerged;
+    edgesCreated += result.edgesCreated;
+  } catch (err) {
+    errors.push(`Phase 2b (PG Instances): ${(err as Error).message}`);
+  }
+
+  // Phase 3a: Live MQTT Subscriptions
   let mqttSubscriptions = 0;
   try {
-    mqttSubscriptions = await startLiveUpdates(unsMappings, opcuaMappings, profiles);
+    mqttSubscriptions = await startLiveUpdates(mqttSyncs, opcuaSources, profiles);
   } catch (err) {
-    errors.push(`Phase 3 (MQTT): ${(err as Error).message}`);
+    errors.push(`Phase 3a (MQTT): ${(err as Error).message}`);
+  }
+
+  // Phase 3b: Polling Sync
+  let pollingJobs = 0;
+  try {
+    pollingJobs = await startPollingSync(pollSyncs, sources, profiles);
+  } catch (err) {
+    errors.push(`Phase 3b (Polling): ${(err as Error).message}`);
   }
 
   const report: SchemaBuildReport = {
     profiles: profiles.length,
-    machines: opcuaMappings.length,
-    unsMappings: unsMappings.length,
+    sources: { opcua: opcuaSources.length, postgresql: pgSources.length, rest: 0 },
+    syncs: { mqtt: mqttSubscriptions, polling: pollingJobs },
     constraintsCreated,
     nodesMerged,
     edgesCreated,
     mqttSubscriptions,
+    pollingJobs,
     errors,
     duration: Date.now() - start,
   };

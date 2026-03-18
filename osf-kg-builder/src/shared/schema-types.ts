@@ -31,49 +31,61 @@ export interface SMProfileRelationship {
   description?: string;
 }
 
-// ── Schema 2: OPC-UA → SM Mapping (Instance Binding) ────────────
+// ── Schema 2: Source Schema (generic — OPC-UA, PostgreSQL, REST) ─
 
-export interface OpcUaMapping {
-  mappingId: string;
+export interface SourceSchema {
+  sourceId: string;
   version: string;
-  discoveredAt: string;
-  endpoint: string;
-  machineId: string;
-  machineName: string;
+  sourceType: 'opcua' | 'postgresql' | 'rest';
   profileRef: string;
-  location: {
-    enterprise?: string;
-    site?: string;
-    area?: string;
-    line?: string;
-  };
-  nodeMappings: OpcUaNodeMapping[];
-  staticProperties: Record<string, any>;
+  // OPC-UA specific
+  endpoint?: string;
+  machineId?: string;
+  machineName?: string;
+  location?: { enterprise?: string; site?: string; area?: string; line?: string };
+  nodeMappings?: OpcUaNodeMapping[];
+  staticProperties?: Record<string, any>;
+  // PostgreSQL specific
+  connection?: PostgresConnection;
+  columnMappings?: ColumnMapping[];
+  filter?: string | null;
+  edges?: EdgeMapping[];
 }
 
-export interface OpcUaNodeMapping {
-  opcuaNodeId: string;
-  browsePath: string[];
+export interface PostgresConnection {
+  host: string;
+  port: number;
+  database: string;
+  schema: string;
+  table: string;
+}
+
+export interface ColumnMapping {
+  column: string;
   smAttribute: string;
-  dataType: string;
+  isId?: boolean;
 }
 
-// ── Schema 3: SM → UNS Mapping (MQTT Runtime Binding) ───────────
+export interface EdgeMapping {
+  type: string;
+  fkColumn: string;
+  targetLabel: string;
+}
 
-export interface UnsMapping {
-  mappingId: string;
+// ── Schema 3: Sync Schema (generic — MQTT, polling, pg-notify) ──
+
+export interface SyncSchema {
+  syncId: string;
   version: string;
-  description?: string;
-  broker: {
-    host: string;
-    port: number;
-  };
-  topicStructure: {
+  syncType: 'mqtt' | 'polling' | 'pg-notify';
+  // MQTT specific
+  broker?: { host: string; port: number };
+  topicStructure?: {
     pattern: string;
     segments: Record<string, { index: number; description?: string }>;
     subscribeFilter: string;
   };
-  payloadSchema: {
+  payloadSchema?: {
     format: string;
     valuePath: string;
     timestampPath: string;
@@ -82,18 +94,45 @@ export interface UnsMapping {
     qualityPath?: string;
     datatypePath?: string;
   };
-  attributeMapping: {
+  attributeMapping?: {
     strategy: string;
     categorySegment?: number;
     attributeSegment?: number;
     mappings: UnsAttributeMapping[];
   };
-  machineIdResolution: {
+  machineIdResolution?: {
     strategy: string;
     segment: number;
     description?: string;
   };
+  // Polling specific
+  pollIntervalMs?: number;
+  sources?: PollSourceRef[];
 }
+
+export interface PollSourceRef {
+  sourceRef: string;
+  changeDetection: 'timestamp' | 'full_refresh';
+  timestampColumn?: string;
+  batchSize?: number;
+  refreshIntervalMs?: number;
+}
+
+// ── Legacy alias (backward compat with existing code) ───────────
+
+export type OpcUaMapping = SourceSchema;
+export type UnsMapping = SyncSchema;
+
+// ── OPC-UA Node Mapping (used in SourceSchema.nodeMappings) ─────
+
+export interface OpcUaNodeMapping {
+  opcuaNodeId: string;
+  browsePath: string[];
+  smAttribute: string;
+  dataType: string;
+}
+
+// ── UNS Attribute Mapping (used in SyncSchema.attributeMapping) ──
 
 export interface UnsAttributeMapping {
   topicAttribute: string;
@@ -104,12 +143,13 @@ export interface UnsAttributeMapping {
 
 export interface SchemaBuildReport {
   profiles: number;
-  machines: number;
-  unsMappings: number;
+  sources: { opcua: number; postgresql: number; rest: number };
+  syncs: { mqtt: number; polling: number };
   constraintsCreated: number;
   nodesMerged: number;
   edgesCreated: number;
   mqttSubscriptions: number;
+  pollingJobs: number;
   errors: string[];
   duration: number;
 }

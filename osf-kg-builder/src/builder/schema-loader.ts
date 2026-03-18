@@ -1,33 +1,60 @@
-import { readdirSync, readFileSync } from 'fs';
+import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { SMProfile, OpcUaMapping, UnsMapping } from '../shared/schema-types';
+import { SMProfile, SourceSchema, SyncSchema } from '../shared/schema-types';
 import { logger } from '../shared/logger';
 
 // ── Load all schemas from a synced repo directory ────────────────
 
 export function loadAllProfiles(basePath: string): SMProfile[] {
-  return loadJsonDir<SMProfile>(join(basePath, 'profiles'));
+  const profileDir = join(basePath, 'profiles');
+  return loadJsonDirRecursive<SMProfile>(profileDir);
 }
 
-export function loadAllOpcUaMappings(basePath: string): OpcUaMapping[] {
-  return loadJsonDir<OpcUaMapping>(join(basePath, 'mappings', 'opcua'));
+export function loadAllSources(basePath: string): SourceSchema[] {
+  const sourceDir = join(basePath, 'sources');
+  return loadJsonDirRecursive<SourceSchema>(sourceDir);
 }
 
-export function loadAllUnsMappings(basePath: string): UnsMapping[] {
-  return loadJsonDir<UnsMapping>(join(basePath, 'mappings', 'uns'));
+export function loadAllSyncs(basePath: string): SyncSchema[] {
+  const syncDir = join(basePath, 'sync');
+  return loadJsonDirRecursive<SyncSchema>(syncDir);
 }
 
-function loadJsonDir<T>(dirPath: string): T[] {
-  try {
-    const files = readdirSync(dirPath).filter(f => f.endsWith('.json'));
-    return files.map(f => {
-      const raw = readFileSync(join(dirPath, f), 'utf-8');
-      return JSON.parse(raw) as T;
-    });
-  } catch (err) {
-    logger.warn({ dirPath, err: (err as Error).message }, '[SchemaLoader] Directory not found or empty');
-    return [];
+// Backward-compat aliases
+export function loadAllOpcUaMappings(basePath: string): SourceSchema[] {
+  return loadAllSources(basePath).filter(s => s.sourceType === 'opcua');
+}
+
+export function loadAllUnsMappings(basePath: string): SyncSchema[] {
+  return loadAllSyncs(basePath).filter(s => s.syncType === 'mqtt');
+}
+
+/**
+ * Recursively load all .json files from a directory and its subdirectories.
+ */
+function loadJsonDirRecursive<T>(dirPath: string): T[] {
+  const results: T[] = [];
+  if (!existsSync(dirPath)) {
+    logger.warn({ dirPath }, '[SchemaLoader] Directory not found');
+    return results;
   }
+
+  const entries = readdirSync(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...loadJsonDirRecursive<T>(fullPath));
+    } else if (entry.name.endsWith('.json')) {
+      try {
+        const raw = readFileSync(fullPath, 'utf-8');
+        results.push(JSON.parse(raw) as T);
+      } catch (err) {
+        logger.warn({ file: fullPath, err: (err as Error).message }, '[SchemaLoader] Failed to parse JSON');
+      }
+    }
+  }
+
+  return results;
 }
 
 // ── Cross-Reference Validation ──────────────────────────────────
@@ -40,55 +67,41 @@ export interface ValidationError {
 
 export function validateSchemaRefs(
   profiles: SMProfile[],
-  opcuaMappings: OpcUaMapping[],
-  unsMappings: UnsMapping[],
+  sources: SourceSchema[],
+  syncs: SyncSchema[],
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const profileIds = new Set(profiles.map(p => p.profileId));
-  const allSmAttributes = new Map<string, Set<string>>();
 
   // Build attribute lookup per profile
+  const allSmAttributes = new Map<string, Set<string>>();
   for (const p of profiles) {
     allSmAttributes.set(p.profileId, new Set(p.attributes.map(a => a.name)));
   }
 
-  // Validate OPC-UA mappings reference valid profiles
-  for (const m of opcuaMappings) {
-    if (!profileIds.has(m.profileRef)) {
+  // Validate all sources reference valid profiles
+  for (const s of sources) {
+    if (!profileIds.has(s.profileRef)) {
       errors.push({
-        file: `mappings/opcua/${m.machineId}.json`,
+        file: `sources/${s.sourceType}/${s.sourceId}`,
         field: 'profileRef',
-        message: `Profile "${m.profileRef}" not found. Available: ${[...profileIds].join(', ')}`,
+        message: `Profile "${s.profileRef}" not found. Available: ${[...profileIds].join(', ')}`,
       });
     }
+  }
 
-    // Validate node mappings reference valid SM attributes
-    const profileAttrs = allSmAttributes.get(m.profileRef);
-    if (profileAttrs) {
-      for (const nm of m.nodeMappings) {
-        if (!profileAttrs.has(nm.smAttribute)) {
+  // Validate polling syncs reference valid sources
+  const sourceIds = new Set(sources.map(s => s.sourceId));
+  for (const sync of syncs) {
+    if (sync.syncType === 'polling' && sync.sources) {
+      for (const ref of sync.sources) {
+        if (!sourceIds.has(ref.sourceRef)) {
           errors.push({
-            file: `mappings/opcua/${m.machineId}.json`,
-            field: `nodeMappings.smAttribute`,
-            message: `Attribute "${nm.smAttribute}" not in profile "${m.profileRef}"`,
+            file: `sync/polling/${sync.syncId}`,
+            field: 'sources.sourceRef',
+            message: `Source "${ref.sourceRef}" not found.`,
           });
         }
-      }
-    }
-  }
-
-  // Validate UNS mappings reference attributes that exist in at least one profile
-  const allAttributes = new Set<string>();
-  for (const attrs of allSmAttributes.values()) {
-    for (const a of attrs) allAttributes.add(a);
-  }
-
-  for (const u of unsMappings) {
-    for (const am of u.attributeMapping.mappings) {
-      if (!allAttributes.has(am.smAttribute)) {
-        // Warning only — UNS may map attributes that not all profiles have
-        logger.debug({ mapping: u.mappingId, attr: am.smAttribute },
-          '[SchemaLoader] UNS attribute not in any profile (may be type-specific)');
       }
     }
   }
@@ -100,7 +113,7 @@ export function validateSchemaRefs(
     }
   } else {
     logger.info(
-      { profiles: profiles.length, opcuaMappings: opcuaMappings.length, unsMappings: unsMappings.length },
+      { profiles: profiles.length, sources: sources.length, syncs: syncs.length },
       '[SchemaLoader] All schema cross-references valid',
     );
   }
