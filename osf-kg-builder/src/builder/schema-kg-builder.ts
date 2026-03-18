@@ -257,6 +257,7 @@ export async function stopLiveUpdates(): Promise<void> {
   }
   mqttClients = [];
   stopPolling();
+  stopPgNotify();
 }
 
 // ── Phase 2b: Instance Nodes from PostgreSQL Sources ────────────
@@ -269,6 +270,11 @@ export async function buildInstancesFromPostgres(
   let totalNodes = 0;
   let totalEdges = 0;
 
+  // Two-pass approach: first all nodes, then all edges.
+  // This ensures target nodes exist before edges reference them.
+  const allEdgeQueries: string[] = [];
+
+  // ── Pass 1: Create all nodes ──────────────────────────────────
   for (const src of sources) {
     if (src.sourceType !== 'postgresql' || !src.connection || !src.columnMappings) continue;
 
@@ -298,7 +304,6 @@ export async function buildInstancesFromPostgres(
 
       const result = await pool.query(query);
       const nodeQueries: string[] = [];
-      const edgeQueries: string[] = [];
 
       for (const row of result.rows) {
         const id = String(row[idCol.column] || '');
@@ -314,13 +319,13 @@ export async function buildInstancesFromPostgres(
 
         nodeQueries.push(vertexCypher(profile.kgNodeLabel, id, props));
 
-        // Create edges
+        // Collect edges for pass 2
         if (src.edges) {
           for (const edge of src.edges) {
             const fkValue = row[edge.fkColumn];
             if (!fkValue) continue;
             const targetLabel = edge.targetLabel === 'auto' ? 'Node' : edge.targetLabel;
-            edgeQueries.push(
+            allEdgeQueries.push(
               edgeCypher(profile.kgNodeLabel, id, edge.type, targetLabel, String(fkValue))
             );
           }
@@ -330,21 +335,23 @@ export async function buildInstancesFromPostgres(
       const nodeResult = await executeBatched(nodeQueries);
       totalNodes += nodeResult.success;
 
-      if (edgeQueries.length > 0) {
-        const edgeResult = await executeBatched(edgeQueries);
-        totalEdges += edgeResult.success;
-      }
-
       logger.info({
-        sourceId: src.sourceId, table: conn.table,
-        nodes: nodeResult.success, edges: edgeQueries.length
-      }, '[SchemaBuild] PostgreSQL source loaded');
+        sourceId: src.sourceId, table: conn.table, nodes: nodeResult.success,
+      }, '[SchemaBuild] PostgreSQL nodes loaded');
 
     } catch (err) {
       logger.error({ sourceId: src.sourceId, err: (err as Error).message }, '[SchemaBuild] PostgreSQL source failed');
     } finally {
       await pool.end();
     }
+  }
+
+  // ── Pass 2: Create all edges (all target nodes now exist) ─────
+  if (allEdgeQueries.length > 0) {
+    logger.info({ edgeCount: allEdgeQueries.length }, '[SchemaBuild] Creating edges (pass 2)...');
+    const edgeResult = await executeBatched(allEdgeQueries);
+    totalEdges = edgeResult.success;
+    logger.info({ success: edgeResult.success, failed: edgeResult.failed }, '[SchemaBuild] Edges created');
   }
 
   return { nodesMerged: totalNodes, edgesCreated: totalEdges };
@@ -457,6 +464,120 @@ export async function startPollingSync(
   return jobCount;
 }
 
+// ── Phase 3c: PostgreSQL LISTEN/NOTIFY Sync ─────────────────────
+
+import { Client } from 'pg';
+
+let pgNotifyClients: Client[] = [];
+
+export function stopPgNotify(): void {
+  for (const c of pgNotifyClients) {
+    try { c.end(); } catch { /* ignore */ }
+  }
+  pgNotifyClients = [];
+}
+
+export async function startPgNotifySync(
+  notifySyncs: SyncSchema[],
+  allSources: SourceSchema[],
+  profiles: SMProfile[],
+): Promise<number> {
+  stopPgNotify();
+
+  const sourceMap = new Map(allSources.map(s => [s.sourceId, s]));
+  const profileMap = new Map(profiles.map(p => [p.profileId, p]));
+  let channelCount = 0;
+
+  for (const sync of notifySyncs) {
+    if (sync.syncType !== 'pg-notify' || !sync.sources) continue;
+
+    // Group sources by connection (host:port:database)
+    const connGroups = new Map<string, { conn: { host: string; port: number; database: string }; refs: PollSourceRef[] }>();
+
+    for (const ref of sync.sources) {
+      const src = sourceMap.get(ref.sourceRef);
+      if (!src?.connection) continue;
+      const key = `${src.connection.host}:${src.connection.port}:${src.connection.database}`;
+      if (!connGroups.has(key)) {
+        connGroups.set(key, { conn: src.connection, refs: [] });
+      }
+      connGroups.get(key)!.refs.push(ref);
+    }
+
+    for (const [connKey, group] of connGroups) {
+      const client = new Client({
+        host: group.conn.host,
+        port: group.conn.port,
+        database: group.conn.database,
+        user: process.env.PG_USER || 'admin',
+        password: process.env.PG_PASSWORD || process.env.ERP_DB_PASSWORD || '',
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 30000,
+      });
+
+      try {
+        await client.connect();
+
+        // Build channel → source lookup
+        const channelToSource = new Map<string, { src: SourceSchema; profile: SMProfile }>();
+        for (const ref of group.refs) {
+          const src = sourceMap.get(ref.sourceRef)!;
+          const profile = profileMap.get(src.profileRef);
+          if (!profile) continue;
+
+          // Channel name convention: schema_table_notify (e.g. llm_test_v3_machineid_nodeid_notify)
+          const channel = `${src.connection!.schema}_${src.connection!.table}_notify`;
+          channelToSource.set(channel, { src, profile });
+
+          await client.query(`LISTEN ${channel}`);
+          channelCount++;
+          logger.info({ channel, sourceRef: ref.sourceRef }, '[SchemaPgNotify] Listening');
+        }
+
+        client.on('notification', async (msg) => {
+          if (!msg.payload) return;
+          const entry = channelToSource.get(msg.channel);
+          if (!entry) return;
+
+          try {
+            const row = JSON.parse(msg.payload);
+            const idCol = entry.src.columnMappings?.find(c => c.isId);
+            if (!idCol) return;
+
+            const id = String(row[idCol.column] || '');
+            if (!id) return;
+
+            const props: Record<string, any> = {};
+            for (const cm of entry.src.columnMappings!) {
+              const val = row[cm.column];
+              if (val !== null && val !== undefined) props[cm.smAttribute] = val;
+            }
+
+            const cypher = vertexCypher(entry.profile.kgNodeLabel, id, props);
+            await batchCypher([cypher]);
+          } catch {
+            // Skip unparseable notifications
+          }
+        });
+
+        client.on('error', (err) => {
+          logger.warn({ connKey, err: err.message }, '[SchemaPgNotify] Client error');
+        });
+
+        client.on('end', () => {
+          logger.warn({ connKey }, '[SchemaPgNotify] Disconnected');
+        });
+
+        pgNotifyClients.push(client);
+      } catch (err) {
+        logger.error({ connKey, err: (err as Error).message }, '[SchemaPgNotify] Failed to connect');
+      }
+    }
+  }
+
+  return channelCount;
+}
+
 // ── Full Schema Build Pipeline ──────────────────────────────────
 
 export async function buildFromSchemas(
@@ -522,6 +643,15 @@ export async function buildFromSchemas(
     pollingJobs = await startPollingSync(pollSyncs, sources, profiles);
   } catch (err) {
     errors.push(`Phase 3b (Polling): ${(err as Error).message}`);
+  }
+
+  // Phase 3c: PG LISTEN/NOTIFY Sync
+  const pgNotifySyncs = syncs.filter(s => s.syncType === 'pg-notify');
+  let pgNotifyChannels = 0;
+  try {
+    pgNotifyChannels = await startPgNotifySync(pgNotifySyncs, sources, profiles);
+  } catch (err) {
+    errors.push(`Phase 3c (PG Notify): ${(err as Error).message}`);
   }
 
   const report: SchemaBuildReport = {
