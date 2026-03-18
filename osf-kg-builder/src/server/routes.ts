@@ -14,6 +14,9 @@ import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
 import { runValidation, formatValidationReport } from '../builder/validator';
 import { saveSchemaRun } from '../builder/schema-planner';
+import { loadAllProfiles, loadAllOpcUaMappings, loadAllUnsMappings, validateSchemaRefs } from '../builder/schema-loader';
+import { buildFromSchemas } from '../builder/schema-kg-builder';
+import { config as appConfig } from '../shared/config';
 
 // ── SSE helpers ────────────────────────────────────────────────────
 
@@ -321,6 +324,31 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
     } catch (e: any) {
       logger.error({ err: e.message }, 'Review failed');
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Schema-Driven KG Build ─────────────────────────────────────
+  router.post('/api/kg/build-from-schemas', async (req: Request, res: Response) => {
+    try {
+      const basePath = appConfig.schemaRepo.localPath;
+      const profiles = loadAllProfiles(basePath);
+      const opcuaMappings = loadAllOpcUaMappings(basePath);
+      const unsMappings = loadAllUnsMappings(basePath);
+
+      if (profiles.length === 0) {
+        return res.status(400).json({ error: 'No profiles found. Is the schema repo cloned?', path: basePath });
+      }
+
+      const refErrors = validateSchemaRefs(profiles, opcuaMappings, unsMappings);
+      if (refErrors.length > 0) {
+        return res.status(400).json({ error: 'Schema validation failed', errors: refErrors });
+      }
+
+      const report = await buildFromSchemas(profiles, opcuaMappings, unsMappings);
+      res.json(report);
+    } catch (err) {
+      logger.error({ err: (err as Error).message }, '[Route] build-from-schemas failed');
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 

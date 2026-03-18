@@ -60,6 +60,13 @@ export const config = {
     dbUrl: process.env.GATEWAY_DB_URL || '',  // empty = skip registration
   },
   kgServerUrl: str('KG_SERVER_URL', 'http://kg-server:8035'),
+  schemaRepo: {
+    url: str('SCHEMA_REPO_URL', 'https://github.com/TobiasLante/osf-schemas.git'),
+    branch: str('SCHEMA_REPO_BRANCH', 'main'),
+    localPath: str('SCHEMA_LOCAL_PATH', '/tmp/osf-schemas'),
+    pollIntervalMs: int('SCHEMA_POLL_INTERVAL_MS', 60_000),
+    token: process.env.SCHEMA_REPO_TOKEN || '',
+  },
 };
 
 function parseTransformRules(raw: string): Array<{
