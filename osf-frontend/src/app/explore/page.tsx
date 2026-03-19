@@ -755,13 +755,12 @@ function UNSTab() {
         <div className="rounded-md border border-purple-500/30 bg-purple-500/5 p-4">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-7 h-7 rounded-sm bg-purple-500/10 flex items-center justify-center text-purple-400 text-xs font-bold">M</div>
-            <h3 className="font-semibold text-sm">OPC-UA &amp; MTP Ready</h3>
+            <h3 className="font-semibold text-sm">OPC-UA Server Integration</h3>
           </div>
           <p className="text-xs text-text-muted leading-relaxed">
-            The platform includes an MTP parser (VDI 2658) that extracts equipment
-            models from AutomationML files, mapping services, variables, and
-            procedures into the Knowledge Graph. OPC-UA discovery is on the roadmap
-            for automatic machine registration.
+            Connect to OPC-UA servers on your machines (CNC, PLC, robots) via
+            Edge Gateways. Data flows through MQTT into the Historian, Knowledge
+            Graph, and live dashboards. MTP support for process industry modules.
           </p>
         </div>
         <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4">

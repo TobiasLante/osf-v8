@@ -85,9 +85,9 @@ export const wikiArticles: WikiArticle[] = [
   },
   {
     slug: "opcua-mtp",
-    title: "OPC-UA & MTP Integration",
+    title: "OPC-UA Server Integration",
     description:
-      "AutomationML parser (VDI 2658), CESMII SM Profiles, OPC-UA mappings, ISA-95 hierarchy",
+      "OPC-UA Server anbinden, Edge Gateway, MQTT UNS Pipeline, MTP fur Prozessindustrie, ISA-95",
     category: "Architektur",
   },
   {
