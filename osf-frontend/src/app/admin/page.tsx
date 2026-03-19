@@ -462,6 +462,7 @@ function UsersTab() {
                     className="bg-bg border border-border rounded px-2 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
                   >
                     <option value="user">user</option>
+                    <option value="demo">demo</option>
                     <option value="admin">admin</option>
                   </select>
                 </td>
@@ -630,6 +631,7 @@ function CreateUserModal({
             className="w-full px-3 py-2 bg-bg border border-border rounded text-text text-sm [&>option]:text-gray-900 [&>option]:bg-white"
           >
             <option value="user">User</option>
+            <option value="demo">Demo</option>
             <option value="admin">Admin</option>
           </select>
           <div className="flex gap-3 justify-end pt-2">
