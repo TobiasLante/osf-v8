@@ -11,6 +11,7 @@ const logger = pino({
 const PORT = parseInt(process.env.PORT || '8032', 10);
 const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const FLUSH_INTERVAL_MS = 15_000;
+const MAX_PENDING = 10_000;
 const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://localhost:8030';
 const PROFILE_RELOAD_MS = 30_000;
 
@@ -44,7 +45,10 @@ const pendingUpdates = new Map<string, PendingUpdate>();
 let mqttClient: mqtt.MqttClient | null = null;
 let flushTimer: NodeJS.Timeout | null = null;
 let kgAvailable = false;
+let mqttConnected = false;
 let stats = { discovered: 0, updates: 0, errors: 0 };
+let httpServer: import('http').Server | null = null;
+const allIntervals: NodeJS.Timeout[] = [];
 
 function escapeStr(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\$/g, '').slice(0, 200);
@@ -208,6 +212,11 @@ function onMessage(topic: string, payload: Buffer): void {
     stats.discovered++;
   }
 
+  if (pendingUpdates.size >= MAX_PENDING && !pendingUpdates.has(sensorId)) {
+    logger.warn({ size: pendingUpdates.size, max: MAX_PENDING }, 'pendingUpdates limit reached, skipping new sensor');
+    return;
+  }
+
   pendingUpdates.set(sensorId, {
     lastValue: value,
     unit,
@@ -269,7 +278,19 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'osf-kg-agent',
-    mqttConnected: mqttClient?.connected ?? false,
+    mqttConnected,
+    kgAvailable,
+    machines: knownMachines.size,
+    sensors: knownSensors.size,
+  });
+});
+
+app.get('/health/ready', (_req, res) => {
+  const ready = mqttConnected && kgAvailable;
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'not_ready',
+    service: 'osf-kg-agent',
+    mqttConnected,
     kgAvailable,
     machines: knownMachines.size,
     sensors: knownSensors.size,
@@ -302,13 +323,13 @@ async function main() {
   }
 
   // Periodically check KG availability
-  setInterval(async () => {
+  allIntervals.push(setInterval(async () => {
     kgAvailable = await checkKgAvailable();
-  }, 60_000);
+  }, 60_000));
 
   // Load topic profiles from Historian API
   await loadProfilesFromHistorian();
-  setInterval(loadProfilesFromHistorian, PROFILE_RELOAD_MS);
+  allIntervals.push(setInterval(loadProfilesFromHistorian, PROFILE_RELOAD_MS));
 
   // Connect MQTT
   mqttClient = mqtt.connect(MQTT_BROKER, {
@@ -319,11 +340,20 @@ async function main() {
   });
 
   mqttClient.on('connect', () => {
+    mqttConnected = true;
     logger.info('MQTT connected');
     const subs = getActiveSubscriptions();
     for (const sub of subs) {
       mqttClient!.subscribe(sub, { qos: 0 });
     }
+  });
+
+  mqttClient.on('close', () => {
+    mqttConnected = false;
+  });
+
+  mqttClient.on('offline', () => {
+    mqttConnected = false;
   });
 
   mqttClient.on('message', onMessage);
@@ -334,16 +364,17 @@ async function main() {
 
   // Start flush timer
   flushTimer = setInterval(flush, FLUSH_INTERVAL_MS);
+  allIntervals.push(flushTimer);
 
   // Stats logging
-  setInterval(() => {
+  allIntervals.push(setInterval(() => {
     if (stats.discovered > 0 || stats.updates > 0) {
       logger.info({ ...stats, known: knownMachines.size, sensors: knownSensors.size }, 'KG Agent stats');
     }
-  }, 60_000);
+  }, 60_000));
 
   // Start HTTP server
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer = app.listen(PORT, '0.0.0.0', () => {
     logger.info({ port: PORT }, 'KG Agent HTTP server started');
   });
 }
@@ -353,16 +384,19 @@ main().catch((err) => {
   process.exit(1);
 });
 
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down...');
-  if (flushTimer) clearInterval(flushTimer);
+async function shutdown(signal: string): Promise<void> {
+  logger.info(`${signal} received, shutting down...`);
+  for (const interval of allIntervals) clearInterval(interval);
+  allIntervals.length = 0;
+  try {
+    await flush();
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Error during final flush');
+  }
   if (mqttClient) mqttClient.end(true);
+  if (httpServer) httpServer.close();
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down...');
-  if (flushTimer) clearInterval(flushTimer);
-  if (mqttClient) mqttClient.end(true);
-  process.exit(0);
-});
+process.on('SIGTERM', () => { shutdown('SIGTERM'); });
+process.on('SIGINT', () => { shutdown('SIGINT'); });

@@ -196,6 +196,17 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/health/ready', (_req, res) => {
+  const ready = sharedClient?.connected ?? false;
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'not_ready',
+    service: 'osf-uns-stream',
+    mqttConnected: sharedClient?.connected ?? false,
+    topicCacheSize: topicCache.size,
+    subscriberCount: subscribers.size,
+  });
+});
+
 // All other routes require auth
 app.use(requireAuth);
 
@@ -316,18 +327,16 @@ app.get('/topics', (_req: Request, res: Response) => {
 
 initCache();
 
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
   logger.info({ port: PORT }, 'UNS Stream HTTP server started');
 });
 
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down...');
+function shutdown(signal: string): void {
+  logger.info(`${signal} received, shutting down...`);
   if (sharedClient) sharedClient.end(true);
+  httpServer.close();
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down...');
-  if (sharedClient) sharedClient.end(true);
-  process.exit(0);
-});
+process.on('SIGTERM', () => { shutdown('SIGTERM'); });
+process.on('SIGINT', () => { shutdown('SIGINT'); });

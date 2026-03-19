@@ -17,7 +17,7 @@ export interface ToolDiscoveryResult {
 
 // ── URL → Tool mapping (built during discovery) ───────────────────
 
-const toolUrlMap = new Map<string, string>();
+let toolUrlMap = new Map<string, string>();
 
 /**
  * Get the MCP URL that serves a given tool.
@@ -83,11 +83,12 @@ export async function listMcpTools(authToken?: string): Promise<McpToolInfo[]> {
     logger.info({ count: historianTools.length, url: config.historian.url }, 'Historian tools discovered');
   }
 
-  // Build URL map
-  toolUrlMap.clear();
+  // Build URL map — atomic swap to avoid race conditions during reads
+  const newMap = new Map<string, string>();
   for (const tool of allTools) {
-    toolUrlMap.set(tool.name, tool.mcpUrl);
+    newMap.set(tool.name, tool.mcpUrl);
   }
+  toolUrlMap = newMap;
 
   return allTools;
 }

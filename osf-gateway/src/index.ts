@@ -278,8 +278,8 @@ async function main() {
     next();
   });
 
-  // Internal dashboard snapshot (no auth — lightweight, no sensitive data)
-  app.get('/admin/dashboard/snapshot', async (_req, res) => {
+  // Internal dashboard snapshot (auth required)
+  app.get('/admin/dashboard/snapshot', requireAuth, async (_req, res) => {
     try {
       res.json(await getSnapshot());
     } catch {

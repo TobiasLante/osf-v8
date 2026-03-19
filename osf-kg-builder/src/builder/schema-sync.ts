@@ -1,6 +1,19 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { logger } from '../shared/logger';
+
+const SAFE_PATH_RE = /^[a-zA-Z0-9._\-\/]+$/;
+const SAFE_BRANCH_RE = /^[a-zA-Z0-9._\-\/]+$/;
+
+function validateBranch(branch: string): string {
+  if (!SAFE_BRANCH_RE.test(branch)) throw new Error(`Invalid branch name: ${branch}`);
+  return branch;
+}
+
+function validatePath(p: string): string {
+  if (!SAFE_PATH_RE.test(p)) throw new Error(`Invalid path: ${p}`);
+  return p;
+}
 
 export interface SchemaSyncConfig {
   repoUrl: string;
@@ -19,6 +32,7 @@ export class SchemaSync {
   private pollTimer: NodeJS.Timeout | null = null;
   private lastCommit: string = '';
   private _onUpdate: (() => Promise<void>) | null = null;
+  private isChecking: boolean = false;
 
   constructor(config: SchemaSyncConfig) {
     this.config = config;
@@ -39,21 +53,24 @@ export class SchemaSync {
   async start(): Promise<void> {
     const { repoUrl, localPath, branch, token } = this.config;
 
+    const safeBranch = validateBranch(branch);
+    const safePath = validatePath(localPath);
+
     // Build authenticated URL if token provided
     const authUrl = token
       ? repoUrl.replace('https://', `https://${token}@`)
       : repoUrl;
 
     try {
-      if (existsSync(`${localPath}/.git`)) {
+      if (existsSync(`${safePath}/.git`)) {
         // Already cloned — pull latest
-        logger.info({ localPath }, '[SchemaSync] Repo exists, pulling latest...');
-        execSync(`git -C ${localPath} fetch origin ${branch} 2>&1`, { timeout: 30_000 });
-        execSync(`git -C ${localPath} reset --hard origin/${branch} 2>&1`, { timeout: 10_000 });
+        logger.info({ localPath: safePath }, '[SchemaSync] Repo exists, pulling latest...');
+        execFileSync('git', ['-C', safePath, 'fetch', 'origin', safeBranch], { timeout: 30_000 });
+        execFileSync('git', ['-C', safePath, 'reset', '--hard', `origin/${safeBranch}`], { timeout: 10_000 });
       } else {
         // Fresh clone
-        logger.info({ repoUrl, branch }, '[SchemaSync] Cloning schema repo...');
-        execSync(`git clone --branch ${branch} --depth 1 ${authUrl} ${localPath} 2>&1`, { timeout: 60_000 });
+        logger.info({ repoUrl, branch: safeBranch }, '[SchemaSync] Cloning schema repo...');
+        execFileSync('git', ['clone', '--branch', safeBranch, '--depth', '1', authUrl, safePath], { timeout: 60_000 });
       }
 
       this.lastCommit = this.getCurrentCommit();
@@ -79,29 +96,31 @@ export class SchemaSync {
 
   private getCurrentCommit(): string {
     try {
-      return execSync(`git -C ${this.config.localPath} rev-parse HEAD`, { encoding: 'utf-8' }).trim();
+      return execFileSync('git', ['-C', this.config.localPath, 'rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim();
     } catch {
       return '';
     }
   }
 
   private async checkForUpdates(): Promise<void> {
+    if (this.isChecking) return;
+    this.isChecking = true;
+
     const { localPath, branch } = this.config;
-    const authUrl = this.config.token
-      ? this.config.repoUrl.replace('https://', `https://${this.config.token}@`)
-      : this.config.repoUrl;
+    const safePath = validatePath(localPath);
+    const safeBranch = validateBranch(branch);
 
     try {
-      execSync(`git -C ${localPath} fetch origin ${branch} 2>&1`, { timeout: 15_000 });
-      const remoteCommit = execSync(
-        `git -C ${localPath} rev-parse origin/${branch}`, { encoding: 'utf-8' }
+      execFileSync('git', ['-C', safePath, 'fetch', 'origin', safeBranch], { timeout: 15_000 });
+      const remoteCommit = execFileSync(
+        'git', ['-C', safePath, 'rev-parse', `origin/${safeBranch}`], { encoding: 'utf-8' }
       ).trim();
 
       if (remoteCommit !== this.lastCommit) {
         logger.info({ oldCommit: this.lastCommit.substring(0, 7), newCommit: remoteCommit.substring(0, 7) },
           '[SchemaSync] New schemas detected — pulling...');
 
-        execSync(`git -C ${localPath} reset --hard origin/${branch} 2>&1`, { timeout: 10_000 });
+        execFileSync('git', ['-C', safePath, 'reset', '--hard', `origin/${safeBranch}`], { timeout: 10_000 });
         this.lastCommit = remoteCommit;
 
         if (this._onUpdate) {
@@ -110,6 +129,8 @@ export class SchemaSync {
       }
     } catch (err) {
       logger.warn({ err: (err as Error).message }, '[SchemaSync] Poll failed (will retry)');
+    } finally {
+      this.isChecking = false;
     }
   }
 }

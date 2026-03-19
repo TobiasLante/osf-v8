@@ -21,7 +21,7 @@ services:
       ERP_DB_PORT: ${ERP_DB_PORT:-30432}
       ERP_DB_NAME: ${ERP_DB_NAME:-erpdb}
       ERP_DB_USER: ${ERP_DB_USER:-admin}
-      ERP_DB_PASSWORD: ${ERP_DB_PASSWORD:-Kohlgrub.123}
+      ERP_DB_PASSWORD: ${ERP_DB_PASSWORD}
       DB_SCHEMA: ${DB_SCHEMA:-llm_test_v3}
       GRAPH_NAME: ${GRAPH_NAME:-factory_graph}
       SM_PROFILE_URL: ${SM_PROFILE_URL:-}

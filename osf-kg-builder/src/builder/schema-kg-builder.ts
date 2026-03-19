@@ -1,10 +1,27 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { Pool } from 'pg';
 import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
-import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId } from '../shared/cypher-utils';
+import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver } from '../shared/cypher-utils';
 import { logger } from '../shared/logger';
 import { config } from '../shared/config';
-import neo4j from 'neo4j-driver';
+
+// ── Validation helpers ───────────────────────────────────────────
+function isValidIdentifier(name: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
+function validateIdentifier(name: string, context: string): string {
+  if (!isValidIdentifier(name)) throw new Error(`Invalid identifier in ${context}: ${name}`);
+  return name;
+}
+
+function validateFilter(filter: string): string {
+  // Filter comes from trusted schema config, but guard against obvious injection
+  if (filter.includes(';') || filter.includes('--')) {
+    throw new Error(`Suspicious filter rejected (contains ; or --): ${filter}`);
+  }
+  return filter;
+}
 
 // Backward-compat aliases
 type OpcUaMapping = SourceSchema;
@@ -13,8 +30,7 @@ type UnsMapping = SyncSchema;
 // ── Phase 1: Type System (from SM Profiles) ─────────────────────
 
 export async function buildTypeSystem(profiles: SMProfile[]): Promise<number> {
-  const driver = neo4j.driver(config.neo4j.url, neo4j.auth.basic(config.neo4j.user, config.neo4j.password));
-  const session = driver.session({ database: config.neo4j.database });
+  const session = getDriver().session({ database: config.neo4j.database });
   let constraintsCreated = 0;
 
   try {
@@ -35,7 +51,6 @@ export async function buildTypeSystem(profiles: SMProfile[]): Promise<number> {
     }
   } finally {
     await session.close();
-    await driver.close();
   }
 
   return constraintsCreated;
@@ -232,8 +247,8 @@ export async function startLiveUpdates(
               await flushBuffer();
             }, 2000);
           }
-        } catch {
-          // Silently skip unparseable messages
+        } catch (e: any) {
+          logger.debug({ topic, err: e.message }, '[SchemaLive] Skip unparseable message');
         }
       });
 
@@ -253,7 +268,7 @@ export async function startLiveUpdates(
 
 export async function stopLiveUpdates(): Promise<void> {
   for (const client of mqttClients) {
-    try { client.end(true); } catch { /* ignore */ }
+    try { client.end(true); } catch (e: any) { logger.debug({ err: e.message }, '[SchemaLive] Client close error'); }
   }
   mqttClients = [];
   stopPolling();
@@ -288,7 +303,7 @@ export async function buildInstancesFromPostgres(
     const pool = new Pool({
       host: conn.host, port: conn.port, database: conn.database,
       user: process.env.PG_USER || 'admin',
-      password: process.env.PG_PASSWORD || process.env.ERP_DB_PASSWORD || '',
+      password: process.env.PG_PASSWORD || config.db.password,
       max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000,
     });
 
@@ -299,8 +314,11 @@ export async function buildInstancesFromPostgres(
         continue;
       }
 
+      validateIdentifier(conn.schema, 'connection.schema');
+      validateIdentifier(conn.table, 'connection.table');
       let query = `SELECT * FROM ${conn.schema}.${conn.table}`;
-      if (src.filter) query += ` WHERE ${src.filter}`;
+      // Filter is trusted from schema config, but validate against obvious injection
+      if (src.filter) query += ` WHERE ${validateFilter(src.filter)}`;
 
       const result = await pool.query(query);
       const nodeQueries: string[] = [];
@@ -361,11 +379,16 @@ export async function buildInstancesFromPostgres(
 
 let pollingTimers: NodeJS.Timeout[] = [];
 const lastPollTimestamps = new Map<string, string>();
+const pollingPools: Pool[] = [];
 
 export function stopPolling(): void {
   for (const t of pollingTimers) clearInterval(t);
   pollingTimers = [];
   lastPollTimestamps.clear();
+  for (const p of pollingPools) {
+    p.end().catch(() => {});
+  }
+  pollingPools.length = 0;
 }
 
 export async function startPollingSync(
@@ -384,6 +407,22 @@ export async function startPollingSync(
 
     const intervalMs = sync.pollIntervalMs || 30000;
 
+    // Create one pool per source at setup time and reuse across poll cycles
+    const poolForSource = new Map<string, Pool>();
+    for (const ref of sync.sources) {
+      const src = sourceMap.get(ref.sourceRef);
+      if (!src || src.sourceType !== 'postgresql' || !src.connection) continue;
+      const conn = src.connection;
+      const pool = new Pool({
+        host: conn.host, port: conn.port, database: conn.database,
+        user: process.env.PG_USER || 'admin',
+        password: process.env.PG_PASSWORD || config.db.password,
+        max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000,
+      });
+      poolForSource.set(ref.sourceRef, pool);
+      pollingPools.push(pool);
+    }
+
     const pollFn = async () => {
       for (const ref of sync.sources!) {
         const src = sourceMap.get(ref.sourceRef);
@@ -393,33 +432,41 @@ export async function startPollingSync(
         if (!profile) continue;
 
         const conn = src.connection;
-        const pool = new Pool({
-          host: conn.host, port: conn.port, database: conn.database,
-          user: process.env.PG_USER || 'admin',
-          password: process.env.PG_PASSWORD || process.env.ERP_DB_PASSWORD || '',
-          max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 5000,
-        });
+        const pool = poolForSource.get(ref.sourceRef);
+        if (!pool) continue;
 
         try {
           const idCol = src.columnMappings.find(c => c.isId);
           if (!idCol) continue;
 
+          validateIdentifier(conn.schema, 'connection.schema');
+          validateIdentifier(conn.table, 'connection.table');
           let query = `SELECT * FROM ${conn.schema}.${conn.table}`;
           const conditions: string[] = [];
-          if (src.filter) conditions.push(`(${src.filter})`);
+          const params: any[] = [];
+          // Filter is trusted from schema config, but validate against obvious injection
+          if (src.filter) conditions.push(`(${validateFilter(src.filter)})`);
 
           if (ref.changeDetection === 'timestamp' && ref.timestampColumn) {
+            validateIdentifier(ref.timestampColumn, 'timestampColumn');
             const lastTs = lastPollTimestamps.get(ref.sourceRef);
             if (lastTs) {
-              conditions.push(`${ref.timestampColumn} > '${lastTs}'`);
+              params.push(lastTs);
+              conditions.push(`${ref.timestampColumn} > $${params.length}`);
             }
           }
 
           if (conditions.length > 0) query += ` WHERE ${conditions.join(' AND ')}`;
-          if (ref.batchSize) query += ` LIMIT ${ref.batchSize}`;
 
-          const result = await pool.query(query);
-          if (result.rows.length === 0) { await pool.end(); continue; }
+          // Ensure deterministic ordering for correct timestamp tracking
+          if (ref.changeDetection === 'timestamp' && ref.timestampColumn) {
+            query += ` ORDER BY ${ref.timestampColumn} ASC`;
+          }
+
+          if (ref.batchSize) query += ` LIMIT ${Number(ref.batchSize)}`;
+
+          const result = await pool.query(query, params);
+          if (result.rows.length === 0) continue;
 
           const nodeQueries: string[] = [];
           for (const row of result.rows) {
@@ -444,8 +491,6 @@ export async function startPollingSync(
 
         } catch (err) {
           logger.debug({ sourceRef: ref.sourceRef, err: (err as Error).message }, '[SchemaPoll] Poll failed');
-        } finally {
-          await pool.end();
         }
       }
     };
@@ -472,7 +517,7 @@ let pgNotifyClients: Client[] = [];
 
 export function stopPgNotify(): void {
   for (const c of pgNotifyClients) {
-    try { c.end(); } catch { /* ignore */ }
+    try { c.end(); } catch (e: any) { logger.debug({ err: e.message }, '[SchemaPgNotify] Client close error'); }
   }
   pgNotifyClients = [];
 }
@@ -505,60 +550,95 @@ export async function startPgNotifySync(
     }
 
     for (const [connKey, group] of connGroups) {
-      const client = new Client({
-        host: group.conn.host,
-        port: group.conn.port,
-        database: group.conn.database,
-        user: process.env.PG_USER || 'admin',
-        password: process.env.PG_PASSWORD || process.env.ERP_DB_PASSWORD || '',
-        keepAlive: true,
-        keepAliveInitialDelayMillis: 30000,
-      });
+      // Build channel → source lookup (reused across reconnects)
+      const channelToSource = new Map<string, { src: SourceSchema; profile: SMProfile }>();
+      const channels: string[] = [];
+      for (const ref of group.refs) {
+        const src = sourceMap.get(ref.sourceRef)!;
+        const profile = profileMap.get(src.profileRef);
+        if (!profile) continue;
 
-      try {
+        const channel = `${src.connection!.schema}_${src.connection!.table}_notify`;
+        if (!/^[a-zA-Z0-9_]+$/.test(channel)) {
+          throw new Error(`Invalid LISTEN channel name: ${channel}`);
+        }
+        channelToSource.set(channel, { src, profile });
+        channels.push(channel);
+      }
+
+      const onNotification = async (msg: { channel: string; payload?: string }) => {
+        if (!msg.payload) return;
+        const entry = channelToSource.get(msg.channel);
+        if (!entry) return;
+
+        try {
+          const row = JSON.parse(msg.payload);
+          const idCol = entry.src.columnMappings?.find(c => c.isId);
+          if (!idCol) return;
+
+          const id = String(row[idCol.column] || '');
+          if (!id) return;
+
+          const props: Record<string, any> = {};
+          for (const cm of entry.src.columnMappings!) {
+            const val = row[cm.column];
+            if (val !== null && val !== undefined) props[cm.smAttribute] = val;
+          }
+
+          const cypher = vertexCypher(entry.profile.kgNodeLabel, id, props);
+          await batchCypher([cypher]);
+        } catch (e: any) {
+          logger.debug({ channel: msg.channel, err: e.message }, '[SchemaPgNotify] Skip unparseable notification');
+        }
+      };
+
+      let reconnectDelay = 1000;
+      const MAX_RECONNECT_DELAY = 30000;
+      let stopped = false;
+
+      const connectAndListen = async (): Promise<Client> => {
+        const client = new Client({
+          host: group.conn.host,
+          port: group.conn.port,
+          database: group.conn.database,
+          user: process.env.PG_USER || 'admin',
+          password: process.env.PG_PASSWORD || config.db.password,
+          keepAlive: true,
+          keepAliveInitialDelayMillis: 30000,
+        });
+
         await client.connect();
 
-        // Build channel → source lookup
-        const channelToSource = new Map<string, { src: SourceSchema; profile: SMProfile }>();
-        for (const ref of group.refs) {
-          const src = sourceMap.get(ref.sourceRef)!;
-          const profile = profileMap.get(src.profileRef);
-          if (!profile) continue;
-
-          // Channel name convention: schema_table_notify (e.g. llm_test_v3_machineid_nodeid_notify)
-          const channel = `${src.connection!.schema}_${src.connection!.table}_notify`;
-          channelToSource.set(channel, { src, profile });
-
+        for (const channel of channels) {
           await client.query(`LISTEN ${channel}`);
-          channelCount++;
-          logger.info({ channel, sourceRef: ref.sourceRef }, '[SchemaPgNotify] Listening');
+          logger.info({ channel }, '[SchemaPgNotify] Listening');
         }
 
-        client.on('notification', async (msg) => {
-          if (!msg.payload) return;
-          const entry = channelToSource.get(msg.channel);
-          if (!entry) return;
+        // Reset backoff on successful connect
+        reconnectDelay = 1000;
 
-          try {
-            const row = JSON.parse(msg.payload);
-            const idCol = entry.src.columnMappings?.find(c => c.isId);
-            if (!idCol) return;
+        client.on('notification', onNotification);
 
-            const id = String(row[idCol.column] || '');
-            if (!id) return;
-
-            const props: Record<string, any> = {};
-            for (const cm of entry.src.columnMappings!) {
-              const val = row[cm.column];
-              if (val !== null && val !== undefined) props[cm.smAttribute] = val;
+        const scheduleReconnect = () => {
+          if (stopped) return;
+          const delay = reconnectDelay;
+          reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+          logger.info({ connKey, delayMs: delay }, '[SchemaPgNotify] Scheduling reconnect...');
+          setTimeout(async () => {
+            if (stopped) return;
+            try {
+              const newClient = await connectAndListen();
+              // Replace in the clients array
+              const idx = pgNotifyClients.indexOf(client);
+              if (idx !== -1) pgNotifyClients[idx] = newClient;
+              else pgNotifyClients.push(newClient);
+              logger.info({ connKey }, '[SchemaPgNotify] Reconnected successfully');
+            } catch (err) {
+              logger.warn({ connKey, err: (err as Error).message, nextDelayMs: reconnectDelay }, '[SchemaPgNotify] Reconnect failed');
+              scheduleReconnect();
             }
-
-            const cypher = vertexCypher(entry.profile.kgNodeLabel, id, props);
-            await batchCypher([cypher]);
-          } catch {
-            // Skip unparseable notifications
-          }
-        });
+          }, delay);
+        };
 
         client.on('error', (err) => {
           logger.warn({ connKey, err: err.message }, '[SchemaPgNotify] Client error');
@@ -566,8 +646,15 @@ export async function startPgNotifySync(
 
         client.on('end', () => {
           logger.warn({ connKey }, '[SchemaPgNotify] Disconnected');
+          scheduleReconnect();
         });
 
+        return client;
+      };
+
+      try {
+        const client = await connectAndListen();
+        channelCount += channels.length;
         pgNotifyClients.push(client);
       } catch (err) {
         logger.error({ connKey, err: (err as Error).message }, '[SchemaPgNotify] Failed to connect');

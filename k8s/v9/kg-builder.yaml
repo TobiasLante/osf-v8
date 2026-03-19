@@ -33,19 +33,37 @@ spec:
             - name: MCP_PROXY_URL
               value: "http://osf-mcp-proxy:8034"
             - name: LLM_URL
-              value: "http://192.168.178.120:5001"
+              valueFrom:
+                configMapKeyRef:
+                  name: osf-config
+                  key: LLM_URL
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8035
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /health
               port: 8035
             initialDelaySeconds: 10
             periodSeconds: 30
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 8035
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 3
           resources:
             requests:
               cpu: 100m

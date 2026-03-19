@@ -98,8 +98,15 @@ function Arrow() {
   );
 }
 
+const statColorMap: Record<string, string> = {
+  emerald: 'text-emerald-400',
+  blue:    'text-blue-400',
+  amber:   'text-amber-400',
+  red:     'text-red-400',
+};
+
 function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
-  const textColor = color ? `text-${color}-400` : 'text-[var(--text)]';
+  const textColor = color ? (statColorMap[color] ?? 'text-[var(--text)]') : 'text-[var(--text)]';
   return (
     <div>
       <div className="text-xs text-[var(--text-dim)]">{label}</div>

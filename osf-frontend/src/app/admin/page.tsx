@@ -2055,7 +2055,7 @@ function RolesTab() {
         setRoles(r.roles);
         setAllCategories(c.categories);
       })
-      .catch(() => {})
+      .catch((err: any) => console.error(err.message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -2187,7 +2187,7 @@ function CategoriesTab() {
   useEffect(() => {
     Promise.all([
       apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
-      apiFetch<{ classifications: any[] }>("/admin/tool-classifications").catch(() => ({ classifications: [] })),
+      apiFetch<{ classifications: any[] }>("/admin/tool-classifications").catch((err: any) => { console.error(err.message); return { classifications: [] }; }),
     ])
       .then(([c, cl]) => {
         setCategories(c.categories);
@@ -2263,7 +2263,7 @@ function McpServersTab() {
   const loadServers = useCallback(() => {
     apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers")
       .then((d) => setServers(d.servers))
-      .catch(() => {})
+      .catch((err: any) => console.error(err.message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -2516,7 +2516,6 @@ function AgentsTab() {
 
   useEffect(() => {
     apiFetch("/admin/agents/status")
-      .then((r) => r.json())
       .then((d) => { setAgents(d.agents || []); setCheckedAt(d.checkedAt || ""); })
       .catch((e) => setError(e.message));
   }, []);
@@ -2602,7 +2601,6 @@ function ClassificationsTab() {
 
   useEffect(() => {
     apiFetch("/admin/tool-classifications")
-      .then((r) => r.json())
       .then((d) => setClassifications(d.classifications || d || []))
       .catch((e) => setError(e.message));
   }, []);
@@ -2656,7 +2654,6 @@ function DashboardTab() {
   useEffect(() => {
     const load = () =>
       apiFetch("/admin/dashboard/snapshot")
-        .then((r) => r.json())
         .then(setSnapshot)
         .catch((e) => setError(e.message));
     load();

@@ -67,6 +67,7 @@ class CircuitBreaker {
   private failures = 0;
   private lastFailure = 0;
   private state: 'closed' | 'open' | 'half-open' = 'closed';
+  private halfOpenProbeInFlight = false;
   constructor(
     private threshold: number = appConfig.llm.circuitBreakerThreshold,
     private resetTimeMs: number = appConfig.llm.circuitBreakerResetMs,
@@ -75,11 +76,13 @@ class CircuitBreaker {
   recordSuccess(): void {
     this.failures = 0;
     this.state = 'closed';
+    this.halfOpenProbeInFlight = false;
   }
 
   recordFailure(): void {
     this.failures++;
     this.lastFailure = Date.now();
+    this.halfOpenProbeInFlight = false;
     if (this.failures >= this.threshold) {
       this.state = 'open';
       logger.warn({ failures: this.failures }, 'LLM circuit breaker OPEN');
@@ -90,9 +93,16 @@ class CircuitBreaker {
     if (this.state === 'closed') return true;
     if (this.state === 'open' && Date.now() - this.lastFailure > this.resetTimeMs) {
       this.state = 'half-open';
+      this.halfOpenProbeInFlight = true;
       return true; // Allow one probe request
     }
-    return this.state === 'half-open';
+    if (this.state === 'half-open') {
+      // Only allow one probe at a time in half-open state
+      if (this.halfOpenProbeInFlight) return false;
+      this.halfOpenProbeInFlight = true;
+      return true;
+    }
+    return false;
   }
 }
 

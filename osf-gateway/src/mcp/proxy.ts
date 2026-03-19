@@ -87,6 +87,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc, id, method, params }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     const data: any = await resp.json();

@@ -10,24 +10,34 @@ export default function ExplorePage() {
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<EmbeddingStats | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/api/kg/embeddings/stats`).then(r => r.json()).then(setStats).catch(() => {});
+    fetch(`${API_URL}/api/kg/embeddings/stats`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(setStats)
+      .catch(e => setError(e.message));
   }, []);
 
   const search = async (q: string) => {
     if (!q.trim()) return;
     setLoading(true);
+    setError('');
     try {
       const res = await fetch(`${API_URL}/api/kg/semantic-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, limit: 20 }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setResults(data.results || []);
-    } catch { setResults([]); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      setError(e.message);
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const labels = stats ? Object.entries(stats.byLabel).sort((a, b) => b[1] - a[1]) : [];
@@ -40,6 +50,8 @@ export default function ExplorePage() {
           Browse and search the Knowledge Graph. Click a node type to filter, or use semantic search.
         </p>
       </div>
+
+      {error && <div className="card !border-red-500/30 text-red-400 text-sm">{error}</div>}
 
       {/* Node Type Overview */}
       {labels.length > 0 && (

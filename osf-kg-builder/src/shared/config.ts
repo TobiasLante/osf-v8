@@ -1,5 +1,13 @@
 const str = (key: string, fallback: string): string => process.env[key] || fallback;
-const int = (key: string, fallback: number): number => parseInt(process.env[key] || '', 10) || fallback;
+const int = (key: string, fallback: number): number => {
+  const v = parseInt(process.env[key] || '', 10);
+  return isNaN(v) ? fallback : v;
+};
+const required = (key: string): string => {
+  const val = process.env[key];
+  if (!val) throw new Error(`Required env var ${key} is not set`);
+  return val;
+};
 
 export const config = {
   port: int('PORT', 8035),
@@ -18,7 +26,7 @@ export const config = {
     port: int('ERP_DB_PORT', 5432),
     name: str('ERP_DB_NAME', 'erpdb'),
     user: str('ERP_DB_USER', 'admin'),
-    password: str('ERP_DB_PASSWORD', ''),
+    password: required('ERP_DB_PASSWORD'),
     schema: str('DB_SCHEMA', 'llm_test_v3'),
   },
   graph: {
@@ -27,7 +35,7 @@ export const config = {
   neo4j: {
     url: str('NEO4J_URL', 'bolt://neo4j:7687'),
     user: str('NEO4J_USER', 'neo4j'),
-    password: str('NEO4J_PASSWORD', ''),
+    password: required('NEO4J_PASSWORD'),
     database: str('NEO4J_DATABASE', 'neo4j'),
   },
   batchSize: int('BATCH_SIZE', 200),

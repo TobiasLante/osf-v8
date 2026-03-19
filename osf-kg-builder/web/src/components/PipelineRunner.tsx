@@ -37,7 +37,7 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
       const res = await fetch(`${API_URL}/api/kg/runs`);
       const data = await res.json();
       setRuns(Array.isArray(data) ? data : []);
-    } catch { setRuns([]); }
+    } catch (e: any) { setError(`Failed to load runs: ${e.message}`); setRuns([]); }
   }, []);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);

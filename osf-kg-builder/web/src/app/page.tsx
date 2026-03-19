@@ -19,30 +19,42 @@ export default function OverviewPage() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [embeddings, setEmbeddings] = useState<EmbeddingStats | null>(null);
   const [runs, setRuns] = useState<any[]>([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/health`).then(r => r.json()).then(setHealth).catch(() => {});
-    fetch(`${API_URL}/api/kg-builder/embeddings/stats`).then(r => r.json()).then(setEmbeddings).catch(() => {});
-    fetch(`${API_URL}/api/kg-builder/runs`).then(r => r.json()).then(d => setRuns(Array.isArray(d) ? d.slice(0, 5) : [])).catch(() => {});
+    const load = async () => {
+      try {
+        const [healthRes, embRes, runsRes] = await Promise.allSettled([
+          fetch(`${API_URL}/health`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+          fetch(`${API_URL}/api/kg/embeddings/stats`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+          fetch(`${API_URL}/api/kg/runs`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+        ]);
+
+        if (healthRes.status === 'fulfilled') setHealth(healthRes.value);
+        if (embRes.status === 'fulfilled') setEmbeddings(embRes.value);
+        if (runsRes.status === 'fulfilled') setRuns(Array.isArray(runsRes.value) ? runsRes.value.slice(0, 5) : []);
+
+        if (healthRes.status === 'rejected') setError('Backend not reachable');
+      } catch (e: any) {
+        setError(e.message);
+      }
+    };
+    load();
   }, []);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Platform Overview</h1>
-          <p className="text-[var(--text-muted)] text-sm mt-1">
-            AI-powered Knowledge Graph Platform for industry.
-          </p>
-        </div>
-        <Link href="/chat" className="btn-primary flex items-center gap-2 py-3 px-6 text-base">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-          Open Chat
-        </Link>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Platform Overview</h1>
+        <p className="text-[var(--text-muted)] text-sm mt-1">
+          AI-powered Knowledge Graph Platform for industry.
+        </p>
       </div>
+
+      {error && (
+        <div className="card !border-red-500/30 text-red-400 text-sm">{error}</div>
+      )}
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -62,13 +74,13 @@ export default function OverviewPage() {
           title="MQTT Transform"
           value={health?.mqtt?.transform ? 'Running' : 'Stopped'}
           status={health?.mqtt?.transform ? 'ok' : 'off'}
-          detail="Raw \u2192 Curated"
+          detail="Raw → Curated"
         />
         <StatusCard
           title="KG Bridge"
           value={health?.mqtt?.bridge ? 'Running' : 'Stopped'}
           status={health?.mqtt?.bridge ? 'ok' : 'off'}
-          detail="MQTT \u2192 Graph"
+          detail="MQTT → Graph"
         />
       </div>
 
@@ -137,11 +149,18 @@ function StatusCard({ title, value, status, detail }: { title: string; value: st
   );
 }
 
+const colorMap: Record<string, { text: string; hover: string }> = {
+  emerald: { text: 'text-emerald-400', hover: 'group-hover:text-emerald-300' },
+  blue:    { text: 'text-blue-400',    hover: 'group-hover:text-blue-300' },
+  purple:  { text: 'text-purple-400',  hover: 'group-hover:text-purple-300' },
+  amber:   { text: 'text-amber-400',   hover: 'group-hover:text-amber-300' },
+};
+
 function QuickAction({ href, title, desc, color }: { href: string; title: string; desc: string; color: string }) {
-  const borderHover = `hover:border-${color}-500/30`;
+  const c = colorMap[color] ?? colorMap.emerald;
   return (
     <Link href={href} className={`card-interactive group`}>
-      <div className={`text-sm font-semibold text-${color}-400 group-hover:text-${color}-300 transition-colors`}>{title}</div>
+      <div className={`text-sm font-semibold ${c.text} ${c.hover} transition-colors`}>{title}</div>
       <div className="text-xs text-[var(--text-muted)] mt-1">{desc}</div>
     </Link>
   );

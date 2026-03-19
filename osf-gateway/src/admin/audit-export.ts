@@ -65,7 +65,7 @@ router.get('/export', async (req: Request, res: Response) => {
   const tool = req.query.tool as string | undefined;
 
   // Build query with optional filters
-  const conditions: string[] = ['created_at >= $1', 'created_at <= $2'];
+  const conditions: string[] = ['ts >= $1', 'ts <= $2'];
   const params: any[] = [fromDate.toISOString(), toDate.toISOString()];
   let idx = 3;
 
@@ -97,16 +97,16 @@ router.get('/export', async (req: Request, res: Response) => {
 
       // UTF-8 BOM for Excel compatibility
       res.write('\uFEFF');
-      res.write('id,created_at,user_id,user_email,action,tool_name,tool_category,source,ip_address,detail\n');
+      res.write('id,ts,user_id,user_email,action,tool_name,tool_category,source,ip_address,detail\n');
 
       let offset = 0;
       let hasMore = true;
 
       while (hasMore) {
         const result = await pool.query(
-          `SELECT id, created_at, user_id, user_email, action, tool_name, tool_category, source, ip_address, detail
+          `SELECT id, ts, user_id, user_email, action, tool_name, tool_category, source, ip_address, detail
            FROM audit_log WHERE ${whereClause}
-           ORDER BY created_at ASC
+           ORDER BY ts ASC
            LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
           params,
         );
@@ -114,7 +114,7 @@ router.get('/export', async (req: Request, res: Response) => {
         for (const row of result.rows) {
           const line = [
             row.id,
-            row.created_at?.toISOString?.() || row.created_at || '',
+            row.ts?.toISOString?.() || row.ts || '',
             escapeCSV(row.user_id || ''),
             escapeCSV(row.user_email || ''),
             escapeCSV(row.action || ''),
@@ -144,9 +144,9 @@ router.get('/export', async (req: Request, res: Response) => {
 
       while (hasMore) {
         const result = await pool.query(
-          `SELECT id, created_at, user_id, user_email, action, tool_name, tool_category, source, ip_address, detail
+          `SELECT id, ts, user_id, user_email, action, tool_name, tool_category, source, ip_address, detail
            FROM audit_log WHERE ${whereClause}
-           ORDER BY created_at ASC
+           ORDER BY ts ASC
            LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
           params,
         );

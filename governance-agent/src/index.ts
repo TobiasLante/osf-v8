@@ -27,8 +27,17 @@ function sendJson(res: http.ServerResponse, status: number, data: unknown): void
   res.end(JSON.stringify(data));
 }
 
+const GOVERNANCE_API_KEY = process.env.GOVERNANCE_API_KEY || '';
+
 let classifiedCount = 0;
 const startTime = Date.now();
+
+function checkApiKey(req: http.IncomingMessage): boolean {
+  if (!GOVERNANCE_API_KEY) return true; // No key configured — skip auth (backwards compatible)
+  const header = req.headers.authorization || '';
+  if (header.startsWith('Bearer ') && header.slice(7) === GOVERNANCE_API_KEY) return true;
+  return false;
+}
 
 const server = http.createServer(async (req, res) => {
   const url = req.url || '/';
@@ -37,7 +46,7 @@ const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (method === 'OPTIONS') {
     res.writeHead(204);
@@ -46,7 +55,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    // GET /health
+    // GET /health — no auth required
     if (url === '/health' && method === 'GET') {
       sendJson(res, 200, {
         status: 'ok',
@@ -55,6 +64,12 @@ const server = http.createServer(async (req, res) => {
         uptime_s: Math.floor((Date.now() - startTime) / 1000),
         classified_total: classifiedCount,
       });
+      return;
+    }
+
+    // API key auth for POST endpoints
+    if (method === 'POST' && !checkApiKey(req)) {
+      sendJson(res, 401, { error: 'Unauthorized: invalid or missing API key' });
       return;
     }
 

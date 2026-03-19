@@ -1,4 +1,4 @@
-import { cypherQuery, batchCypher } from './cypher-utils';
+import { cypherQuery, batchCypher, validateLabel } from './cypher-utils';
 import { config } from './config';
 import { logger } from './logger';
 
@@ -43,6 +43,7 @@ export async function upsertEmbedding(
   embedding: number[],
 ): Promise<void> {
   // MERGE a :Node with the specific label, store embedding + text
+  validateLabel(nodeLabel);
   const cypher = `
     MERGE (n:Node:${nodeLabel} {id: '${nodeId.replace(/'/g, "\\'")}'})
     SET n.text_content = '${textContent.replace(/'/g, "\\'").substring(0, 500)}',
@@ -60,14 +61,17 @@ export async function upsertEmbedding(
 export async function batchUpsertEmbeddings(
   items: Array<{ nodeId: string; nodeLabel: string; textContent: string; embedding: number[] }>,
 ): Promise<{ success: number; failed: number }> {
-  const queries = items.map(item => `
+  const queries = items.map(item => {
+    validateLabel(item.nodeLabel);
+    return `
     MERGE (n:Node:${item.nodeLabel} {id: '${item.nodeId.replace(/'/g, "\\'")}'})
     SET n.text_content = '${item.textContent.replace(/'/g, "\\'").substring(0, 500)}',
         n.embedding = ${JSON.stringify(item.embedding)},
         n.embedding_model = '${config.embedding.model}',
         n.embedded_at = datetime()
     RETURN n.id
-  `);
+  `;
+  });
 
   return batchCypher(queries);
 }
@@ -82,6 +86,7 @@ export async function semanticSearch(
   labelFilter?: string,
 ): Promise<NodeEmbeddingRow[]> {
   // Use Neo4j's native vector search
+  if (labelFilter) validateLabel(labelFilter);
   const cypher = `
     CALL db.index.vector.queryNodes('node_embedding', ${limit}, ${JSON.stringify(queryEmbedding)})
     YIELD node, score

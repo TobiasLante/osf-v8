@@ -1,21 +1,22 @@
 // KG Sensor Tools — query auto-discovered machines/sensors from Apache AGE
 // These tools are registered as local gateway tools (no MCP round-trip needed)
 
-import pg from 'pg';
+import { kgPool } from './index';
 import { logger } from '../logger';
-
-const kgPool = new pg.Pool({
-  host: process.env.ERP_DB_HOST || '192.168.178.150',
-  port: parseInt(process.env.ERP_DB_PORT || '30431'),
-  database: process.env.ERP_DB_NAME || 'erpdb',
-  user: process.env.ERP_DB_USER || 'admin',
-  password: process.env.ERP_DB_PASSWORD || '',
-  max: 2,
-  idleTimeoutMillis: 30_000,
-});
 
 const DB_SCHEMA = process.env.DB_SCHEMA || 'llm_test_v3';
 const GRAPH_NAME = 'factory_graph';
+
+/** Validate identifiers before interpolating into Cypher queries. */
+function validateIdentifier(s: string): string {
+  if (!/^[a-zA-Z0-9_.\-:\/]+$/.test(s)) {
+    throw new Error(`Invalid identifier: ${s}`);
+  }
+  if (s.length > 200) {
+    throw new Error('Identifier too long');
+  }
+  return s;
+}
 
 async function cypherQuery(cypher: string): Promise<any[]> {
   const client = await kgPool.connect();
@@ -96,9 +97,9 @@ export async function handleKgSensorTool(
         const machine = String(args.machine || '');
         if (!machine) return JSON.stringify({ error: 'machine parameter required' });
 
-        const escapedMachine = machine.replace(/'/g, "\\'");
+        const safeMachine = validateIdentifier(machine);
         const rows = await cypherQuery(`
-          MATCH (m:Machine {id: '${escapedMachine}'})-[:HAS_SENSOR]->(s:Sensor)
+          MATCH (m:Machine {id: '${safeMachine}'})-[:HAS_SENSOR]->(s:Sensor)
           RETURN s.id, s.name, s.category, s.unit, s.last_value, s.last_seen
           ORDER BY s.category, s.name
         `);

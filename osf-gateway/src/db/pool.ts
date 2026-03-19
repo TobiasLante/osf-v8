@@ -470,11 +470,16 @@ export async function initSchema(): Promise<void> {
 
     // Seed historian MCP server (v9: auto-register on startup)
     const historianUrl = process.env.HISTORIAN_URL || 'http://localhost:8030';
-    await migrate('mcp_servers: seed historian', `
-      INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
-      VALUES ('history', '${historianUrl}', 'none', 'pending', 6, ARRAY['history'])
-      ON CONFLICT DO NOTHING;
-    `);
+    try {
+      await client.query(
+        `INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
+         VALUES ('history', $1, 'none', 'pending', 6, ARRAY['history'])
+         ON CONFLICT DO NOTHING`,
+        [historianUrl]
+      );
+    } catch (err) {
+      logger.warn({ migration: 'mcp_servers: seed historian', err: (err as Error).message }, 'Migration step failed (may be expected on fresh DB)');
+    }
 
     // Version columns on agent tables (marketplace)
     await migrate('agents/chains/code_agents: version columns', `

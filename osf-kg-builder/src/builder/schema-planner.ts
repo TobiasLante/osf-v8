@@ -228,8 +228,12 @@ export async function applyUserCorrections(
 // ── DB Persistence ─────────────────────────────────────────────────
 
 export async function saveSchemaRun(run: SchemaRun): Promise<void> {
+  const dbSchema = config.db.schema;
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dbSchema)) {
+    throw new Error(`Invalid db schema name: ${dbSchema}`);
+  }
   await kgPool.query(`
-    CREATE TABLE IF NOT EXISTS ${config.db.schema}.kg_builder_runs (
+    CREATE TABLE IF NOT EXISTS ${dbSchema}.kg_builder_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       status TEXT NOT NULL DEFAULT 'planning',
       proposal JSONB,
@@ -242,7 +246,7 @@ export async function saveSchemaRun(run: SchemaRun): Promise<void> {
   `);
 
   await kgPool.query(`
-    INSERT INTO ${config.db.schema}.kg_builder_runs (id, status, proposal, confirmed_schema, extraction_report, validation_report, created_at, updated_at)
+    INSERT INTO ${dbSchema}.kg_builder_runs (id, status, proposal, confirmed_schema, extraction_report, validation_report, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
     ON CONFLICT (id) DO UPDATE SET
       status = $2, proposal = $3, confirmed_schema = $4,

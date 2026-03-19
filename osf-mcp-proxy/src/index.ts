@@ -59,11 +59,15 @@ async function isToolAllowed(userId: string, toolName: string): Promise<boolean>
       body: JSON.stringify({ userId, toolName }),
       signal: AbortSignal.timeout(3_000),
     });
-    if (!resp.ok) return true; // Fallback: allow if gateway unreachable
+    if (!resp.ok) {
+      console.warn('[governance] Check failed, allowing by default:', `HTTP ${resp.status}`);
+      return true;
+    }
     const data = await resp.json() as { allowed: boolean };
     return data.allowed;
-  } catch {
-    return true; // Fallback: allow if governance check fails
+  } catch (err: any) {
+    console.warn('[governance] Check failed, allowing by default:', err.message);
+    return true;
   }
 }
 
@@ -75,11 +79,15 @@ async function filterToolsForUser(userId: string, tools: any[]): Promise<string[
       body: JSON.stringify({ userId, toolNames: tools.map((t: any) => t.name) }),
       signal: AbortSignal.timeout(3_000),
     });
-    if (!resp.ok) return tools.map((t: any) => t.name); // Fallback: allow all
+    if (!resp.ok) {
+      console.warn('[governance] Check failed, allowing by default:', `HTTP ${resp.status}`);
+      return tools.map((t: any) => t.name);
+    }
     const data = await resp.json() as { allowed: string[] };
     return data.allowed;
-  } catch {
-    return tools.map((t: any) => t.name); // Fallback: allow all
+  } catch (err: any) {
+    console.warn('[governance] Check failed, allowing by default:', err.message);
+    return tools.map((t: any) => t.name);
   }
 }
 
@@ -124,12 +132,38 @@ const ALLOWED_METHODS = new Set([
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+let mcpUpstreamReachable = false;
+let mcpUpstreamLastCheck = 0;
+const MCP_HEALTH_CACHE_MS = 30_000;
+
+async function checkMcpUpstream(): Promise<boolean> {
+  const now = Date.now();
+  if (now - mcpUpstreamLastCheck < MCP_HEALTH_CACHE_MS) return mcpUpstreamReachable;
+  mcpUpstreamLastCheck = now;
+  try {
+    const resp = await fetch(`${MCP_FACTORY_URL}/health`, { signal: AbortSignal.timeout(5_000) });
+    mcpUpstreamReachable = resp.ok;
+  } catch {
+    mcpUpstreamReachable = false;
+  }
+  return mcpUpstreamReachable;
+}
+
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'osf-mcp-proxy',
     mcpFactoryUrl: MCP_FACTORY_URL,
     mcpHistorianUrl: MCP_HISTORIAN_URL,
+  });
+});
+
+app.get('/health/ready', async (_req, res) => {
+  const upstream = await checkMcpUpstream();
+  res.status(upstream ? 200 : 503).json({
+    status: upstream ? 'ready' : 'not_ready',
+    service: 'osf-mcp-proxy',
+    mcpUpstreamReachable: upstream,
   });
 });
 
@@ -185,6 +219,7 @@ app.post('/mcp', requireAuth, async (req: Request, res: Response) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc, id, method, params }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     const data: any = await resp.json();
@@ -209,16 +244,15 @@ app.post('/mcp', requireAuth, async (req: Request, res: Response) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────
 
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
   logger.info({ port: PORT }, 'MCP Proxy HTTP server started');
 });
 
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down...');
+function shutdown(signal: string): void {
+  logger.info(`${signal} received, shutting down...`);
+  httpServer.close();
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down...');
-  process.exit(0);
-});
+process.on('SIGTERM', () => { shutdown('SIGTERM'); });
+process.on('SIGINT', () => { shutdown('SIGINT'); });

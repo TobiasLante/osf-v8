@@ -7,7 +7,7 @@ import { logger } from './logger';
 
 let driver: Driver;
 
-function getDriver(): Driver {
+export function getDriver(): Driver {
   if (!driver) {
     driver = neo4j.driver(
       config.neo4j.url,
@@ -30,10 +30,19 @@ export const kgPool = new Pool({
   idleTimeoutMillis: 30_000,
 });
 
+// ── Label Validation ───────────────────────────────────────────────
+
+export function validateLabel(label: string): string {
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(label)) {
+    throw new Error(`Invalid Cypher label: ${label}`);
+  }
+  return label;
+}
+
 // ── Escaping ───────────────────────────────────────────────────────
 
 export function escapeValue(v: any): string {
-  if (v === null || v === undefined) return "''";
+  if (v === null || v === undefined) return 'null';
   if (typeof v === 'number') return isFinite(v) ? String(v) : '0';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   const s = String(v)
@@ -55,6 +64,7 @@ export function escapeId(id: string): string {
 // ── Cypher Generators (standard Cypher — works with Neo4j) ────────
 
 export function vertexCypher(label: string, id: string, properties: Record<string, any>): string {
+  validateLabel(label);
   const safeId = escapeId(id);
   const propsStr = Object.entries({ id, ...properties })
     .filter(([_, v]) => v !== undefined)
@@ -69,6 +79,9 @@ export function edgeCypher(
   toLabel: string, toId: string,
   properties?: Record<string, any>,
 ): string {
+  validateLabel(fromLabel);
+  validateLabel(edgeLabel);
+  validateLabel(toLabel);
   const safeFromId = escapeId(fromId);
   const safeToId = escapeId(toId);
   const propsStr = properties

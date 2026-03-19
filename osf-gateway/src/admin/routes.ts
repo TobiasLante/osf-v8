@@ -63,10 +63,21 @@ router.put('/users/:id', async (req: Request, res: Response) => {
       values.push(role);
     }
     if (tier !== undefined) {
+      if (!['free', 'pro', 'team', 'premium', 'own-key'].includes(tier)) {
+        res.status(400).json({ error: 'Invalid tier. Must be one of: free, pro, team, premium, own-key' });
+        return;
+      }
       updates.push(`tier = $${idx++}`);
       values.push(tier);
     }
     if (locked_until !== undefined) {
+      if (locked_until !== null) {
+        const d = new Date(locked_until);
+        if (isNaN(d.getTime())) {
+          res.status(400).json({ error: 'Invalid locked_until. Must be null or a valid ISO date string' });
+          return;
+        }
+      }
       updates.push(`locked_until = $${idx++}`);
       values.push(locked_until);
     }
@@ -696,10 +707,11 @@ router.get('/health', async (req: Request, res: Response) => {
     DB_CHECKS.map(async (db) => {
       const start = Date.now();
       try {
-        const { Pool: PgPool } = await import('pg');
-        const p = new PgPool({ host: db.host, port: db.port, database: db.database, user: 'admin', password: process.env.FACTORY_DB_PASSWORD || '', max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 1000 });
-        await p.query('SELECT 1');
-        await p.end();
+        const { Client: PgClient } = await import('pg');
+        const c = new PgClient({ host: db.host, port: db.port, database: db.database, user: 'admin', password: process.env.FACTORY_DB_PASSWORD || '', connectionTimeoutMillis: 5000 });
+        await c.connect();
+        await c.query('SELECT 1');
+        await c.end();
         return { name: db.name, ok: true, latencyMs: Date.now() - start };
       } catch (err: any) {
         return { name: db.name, ok: false, latencyMs: Date.now() - start, error: err.message };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { API_URL } from '@/lib/api';
 import ChartRenderer, { type ChartConfig } from '@/components/ChartRenderer';
 
@@ -12,9 +12,21 @@ export default function ChartsPage() {
   const [context, setContext] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Abort in-flight request on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const generate = async () => {
     if (!question.trim()) return;
+
+    // Abort any previous in-flight request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError('');
     setChart(null);
@@ -27,6 +39,7 @@ export default function ChartsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -66,6 +79,7 @@ export default function ChartsPage() {
         }
       }
     } catch (e: any) {
+      if (e.name === 'AbortError') return;
       setError(e.message);
     } finally {
       setLoading(false);

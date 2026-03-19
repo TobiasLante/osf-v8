@@ -4,7 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY src/ src/
 COPY templates/ templates/
-RUN npx swc src -d dist --source-maps --copy-files --strip-leading-paths
+RUN npx swc src -d dist --copy-files --strip-leading-paths
 
 FROM node:20-alpine
 WORKDIR /app
@@ -12,6 +12,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY templates/ templates/
+RUN apk add --no-cache wget
 USER node
 EXPOSE 8035
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:8035/health || exit 1
 CMD ["node", "dist/server/index.js"]

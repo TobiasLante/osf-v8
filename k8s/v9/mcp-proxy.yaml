@@ -32,18 +32,33 @@ spec:
               value: "8034"
             - name: GATEWAY_URL
               value: "http://osf-gateway:8012"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8034
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /health
               port: 8034
             initialDelaySeconds: 5
             periodSeconds: 30
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 8034
             initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 3
           resources:
             requests:
               cpu: 25m

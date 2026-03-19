@@ -8,7 +8,7 @@ import { SchemaProposal, SchemaRun } from '../shared/types';
 import { generateChart } from './chart-engine';
 import { getBridgeStats } from './mqtt-bridge';
 import { handleMcpRequest } from './mcp-handler';
-import { cypherQuery } from '../shared/cypher-utils';
+import { cypherQuery, getDriver } from '../shared/cypher-utils';
 import { callLlm, ChatMessage } from '../shared/llm-client';
 import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
@@ -80,7 +80,7 @@ export function createRouter(graphAvailable: boolean, vectorAvailable: boolean):
         if (result.rows[0]?.confirmed_schema) {
           schema = result.rows[0].confirmed_schema;
         }
-      } catch { /* no saved runs */ }
+      } catch (e: any) { logger.debug({ err: e.message }, 'Schema lookup from saved runs failed'); }
     }
 
     if (!schema) {
@@ -138,6 +138,7 @@ export function createRouter(graphAvailable: boolean, vectorAvailable: boolean):
       );
       res.json(result.rows);
     } catch (e: any) {
+      logger.debug({ err: e.message }, 'Failed to load runs');
       res.json([]);
     }
   });
@@ -158,7 +159,7 @@ export function createRouter(graphAvailable: boolean, vectorAvailable: boolean):
           `SELECT confirmed_schema FROM ${config.db.schema}.kg_builder_runs WHERE status = 'complete' AND confirmed_schema IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
         );
         if (result.rows[0]?.confirmed_schema) schema = result.rows[0].confirmed_schema;
-      } catch {}
+      } catch (e: any) { logger.debug({ err: e.message }, 'Schema lookup failed'); }
 
       if (!schema) {
         res.status(400).json({ error: 'No schema available' });
@@ -176,7 +177,7 @@ export function createRouter(graphAvailable: boolean, vectorAvailable: boolean):
         if (similar.length > 0) {
           semanticHint = `\nSemantisch relevante Nodes: ${similar.map(s => `${s.node_label}:${s.node_id} (similarity: ${s.similarity?.toFixed(2)})`).join(', ')}`;
         }
-      } catch {}
+      } catch (e: any) { logger.debug({ err: e.message }, 'Semantic boost failed'); }
 
       const messages: ChatMessage[] = [
         {
@@ -190,8 +191,27 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
 
       const cypher = (await callLlm(messages, { maxTokens: 500 })).trim().replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
 
-      const rows = await cypherQuery(cypher);
-      const formatted = rows.slice(0, 10).map(r => typeof r === 'object' ? JSON.stringify(r) : String(r)).join('\n');
+      // Guard: only allow read-only Cypher from LLM
+      if (/\b(DELETE|REMOVE|CREATE|DROP|SET|MERGE|DETACH|FOREACH|CALL)\b/i.test(cypher)) {
+        res.status(400).json({ error: 'LLM generated a write query — blocked for safety', cypher });
+        return;
+      }
+
+      // Execute as read-only transaction for safety
+      const neo4jDriver = getDriver();
+      const session = neo4jDriver.session({ database: config.neo4j.database });
+      let rows: any[];
+      try {
+        const result = await session.executeRead(tx => tx.run(cypher));
+        rows = result.records.map(record => {
+          if (record.keys.length === 1) return record.get(0);
+          const obj: Record<string, any> = {};
+          for (const key of record.keys) obj[key as string] = record.get(key);
+          return obj;
+        });
+      } finally {
+        await session.close();
+      }
 
       res.json({
         question,

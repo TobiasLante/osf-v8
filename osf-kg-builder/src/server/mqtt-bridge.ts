@@ -201,7 +201,7 @@ async function handleMessage(topic: string, payload: Buffer, rules: TransformRul
   batchBuffer.push(cypher);
 
   if (batchBuffer.length >= BATCH_MAX_SIZE) {
-    flushBatch();
+    flushBatch().catch(err => logger.error({ err: (err as Error).message }, 'Flush failed'));
   }
 }
 

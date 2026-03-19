@@ -31,19 +31,34 @@ spec:
             - name: PORT
               value: "8033"
             - name: HISTORIAN_URL
-              value: "http://osf-historian:8030"
+              value: "http://historian:8030"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8033
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /health
               port: 8033
             initialDelaySeconds: 10
             periodSeconds: 30
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 8033
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 3
           resources:
             requests:
               cpu: 50m

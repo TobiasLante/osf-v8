@@ -4,7 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY src/ src/
 COPY templates/ templates/
-RUN npx swc src -d dist --source-maps --copy-files --strip-leading-paths
+RUN npx swc src -d dist --copy-files --strip-leading-paths
 
 FROM node:20-alpine
 WORKDIR /app

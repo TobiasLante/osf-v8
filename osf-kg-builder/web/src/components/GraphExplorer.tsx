@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { API_URL } from '@/lib/api';
 
 const SUGGESTIONS = ['Show all node types', 'Show all relationships', 'What equipment exists?', 'Show machines with OEE > 90%'];
+const MAX_ANSWERS = 50;
 
 interface Props {
   runId?: string;
@@ -22,24 +23,33 @@ export default function GraphExplorer({ runId, className }: Props) {
     setLoading(true);
     setQuery('');
     try {
-      const res = await fetch(`${API_URL}/api/kg-builder/message/${runId}`, {
+      const res = await fetch(`${API_URL}/api/kg/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: q }),
+        body: JSON.stringify({ question: q }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setAnswers(p => [...p, { question: q, answer: data.answer || data.message || JSON.stringify(data) }]);
+      setAnswers(p => [...p.slice(-MAX_ANSWERS + 1), { question: q, answer: data.summary || JSON.stringify(data.results) }]);
     } catch (e: any) {
-      setAnswers(p => [...p, { question: q, answer: `Error: ${e.message}` }]);
+      setAnswers(p => [...p.slice(-MAX_ANSWERS + 1), { question: q, answer: `Error: ${e.message}` }]);
     } finally {
       setLoading(false);
     }
-  }, [runId]);
+  }, []);
+
+  const clearHistory = () => setAnswers([]);
 
   return (
     <div className={className}>
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)] mb-3">Graph Explorer</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)]">Graph Explorer</h2>
+        {answers.length > 0 && (
+          <button onClick={clearHistory} className="text-xs text-[var(--text-dim)] hover:text-red-400 transition-colors">
+            Clear
+          </button>
+        )}
+      </div>
       <div className="card space-y-4">
         <div className="flex gap-2">
           <input type="text" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask(query)} placeholder="Ask about the graph..." disabled={loading} className="input flex-1" />

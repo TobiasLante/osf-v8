@@ -8,8 +8,8 @@ import { logger } from '../logger';
 const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const FLUSH_INTERVAL_MS = 15_000;
 
-// KG database (erpdb with Apache AGE)
-const kgPool = new pg.Pool({
+// KG database (erpdb with Apache AGE) — shared with tools.ts
+export const kgPool = new pg.Pool({
   host: process.env.ERP_DB_HOST || 'localhost',
   port: parseInt(process.env.ERP_DB_PORT || '5432'),
   database: process.env.ERP_DB_NAME || 'erpdb',
@@ -331,12 +331,13 @@ export function getKgAgentStats(): { discovered: number; updates: number; errors
   };
 }
 
-export function stopKgAgent(): void {
+export async function stopKgAgent(): Promise<void> {
   if (flushTimer) clearInterval(flushTimer);
   if (profileReloadTimer) clearInterval(profileReloadTimer);
   if (mqttClient) {
     mqttClient.end(true);
     mqttClient = null;
   }
+  await kgPool.end();
   logger.info('KG Agent: stopped');
 }

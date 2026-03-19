@@ -397,7 +397,6 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
         }
         clearTimeout(pipelineTimer);
         clearInterval(cfHeartbeat);
-        if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
         if (!res.writableEnded) res.end();
       } catch (err: any) {
         logger.error({ err: err.message }, 'Dynamic discussion error');
@@ -409,7 +408,6 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
         }
         clearTimeout(pipelineTimer);
         clearInterval(cfHeartbeat);
-        if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
         if (!res.writableEnded) res.end();
       }
       return;
@@ -523,7 +521,6 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     clearTimeout(pipelineTimer);
     clearInterval(cfHeartbeat);
-    if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
     if (!res.writableEnded) res.end();
   } catch (err: any) {
     logger.error({ err: err.message }, 'Chat completion error');
@@ -532,8 +529,9 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     }
     clearTimeout(pipelineTimer);
     clearInterval(cfHeartbeat);
-    if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
     if (!res.writableEnded) res.end();
+  } finally {
+    if (pipelineSessionId) activePipelines.delete(pipelineSessionId);
   }
 });
 

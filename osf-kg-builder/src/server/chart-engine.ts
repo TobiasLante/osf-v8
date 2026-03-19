@@ -109,8 +109,7 @@ Rules:
   const cypher = raw.trim().replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
 
   // Guard: only allow read-only Cypher
-  const upper = cypher.toUpperCase();
-  if (['DELETE', 'REMOVE', 'CREATE', 'DROP', 'SET '].some(kw => upper.includes(kw) && !upper.includes('OFFSET'))) {
+  if (/\b(DELETE|REMOVE|CREATE|DROP|SET|MERGE|DETACH|FOREACH|CALL)\b/i.test(cypher)) {
     throw new Error(`Chart Cypher query contains write operation — blocked: ${cypher.substring(0, 100)}`);
   }
 
