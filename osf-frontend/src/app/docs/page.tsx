@@ -70,7 +70,7 @@ export default function DocsPage() {
               <div className="space-y-4 text-sm text-text-muted">
                 <p>
                   OpenShopFloor exposes a full manufacturing simulation through
-                  111 MCP (Model Context Protocol) tools. Your AI agent connects
+                  135+ MCP (Model Context Protocol) tools. Your AI agent connects
                   to our MCP server and gets access to real-time factory data.
                 </p>
                 <div className="p-4 rounded-sm bg-bg-surface-2 border border-border font-mono text-xs">
@@ -94,7 +94,15 @@ export default function DocsPage() {
                   The factory simulates a complete manufacturing environment:
                   CNC machines, injection molding (SGM), assembly lines,
                   pre-assembly, and a test field. All connected to ERP, OEE,
-                  QMS, and tool management databases.
+                  QMS, tool management databases, Historian (time-series
+                  analytics), and Knowledge Graph (graph queries &amp; semantic
+                  search).
+                </p>
+                <p>
+                  v9 adds schema-driven Knowledge Graph building, vector
+                  embeddings for semantic search, natural language chart
+                  generation, and industrial time-series analytics via the
+                  Historian service.
                 </p>
               </div>
             </div>

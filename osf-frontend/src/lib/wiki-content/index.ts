@@ -8,6 +8,9 @@ import { McpToolsContent } from "./mcp-tools";
 import { FactorySimulationContent } from "./factory-simulation";
 import { TroubleshootingContent } from "./troubleshooting";
 import { SelfHostingContent } from "./self-hosting";
+import { KnowledgeGraphContent } from "./knowledge-graph";
+import { HistorianContent } from "./historian";
+import { GovernanceContent } from "./governance";
 
 export const wikiContent: Record<string, React.ComponentType> = {
   "getting-started": GettingStartedContent,
@@ -20,4 +23,7 @@ export const wikiContent: Record<string, React.ComponentType> = {
   "factory-simulation": FactorySimulationContent,
   troubleshooting: TroubleshootingContent,
   "self-hosting": SelfHostingContent,
+  "knowledge-graph": KnowledgeGraphContent,
+  historian: HistorianContent,
+  governance: GovernanceContent,
 };

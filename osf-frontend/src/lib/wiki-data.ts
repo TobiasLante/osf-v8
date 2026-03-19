@@ -70,6 +70,27 @@ export const wikiArticles: WikiArticle[] = [
     category: "Referenz",
   },
   {
+    slug: "knowledge-graph",
+    title: "Knowledge Graph",
+    description:
+      "Schema-driven KG building, vector embeddings, semantic search, impact analysis",
+    category: "Architektur",
+  },
+  {
+    slug: "historian",
+    title: "Historian & Time-Series",
+    description:
+      "Industrial MQTT → TimescaleDB pipeline, anomaly detection, downsampling",
+    category: "Architektur",
+  },
+  {
+    slug: "governance",
+    title: "Governance & RBAC",
+    description:
+      "Role-based tool access, audit logging, tool classification, factory roles",
+    category: "Betrieb",
+  },
+  {
     slug: "troubleshooting",
     title: "Troubleshooting & FAQ",
     description: "Common errors, debugging tips, FAQ",

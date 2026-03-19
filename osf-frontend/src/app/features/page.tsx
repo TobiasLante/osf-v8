@@ -19,7 +19,7 @@ export default function FeaturesPage() {
         <div className="mx-auto max-w-7xl">
           <div className="text-center mb-12">
             <h1 className="text-3xl sm:text-4xl font-bold mb-4">
-              111 MCP Tools — Full Factory Access
+              135+ MCP Tools — Full Factory Access
             </h1>
             <p className="text-text-muted max-w-2xl mx-auto">
               Every domain of a real manufacturing operation, accessible via the

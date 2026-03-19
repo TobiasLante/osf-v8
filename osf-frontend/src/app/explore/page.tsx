@@ -56,6 +56,20 @@ const mcpServers = [
     port: "AGE",
     desc: "Knowledge Graph via Apache AGE: impact analysis, dependency tracing, bottleneck detection, and shortest-path queries.",
   },
+  {
+    name: "Historian",
+    icon: "M3 3v18h18M9 17V9m4 8V5m4 12v-4",
+    tools: 6,
+    port: 8030,
+    desc: "Time-series analytics \u2014 trends, anomalies, aggregations. Industrial MQTT data stored in TimescaleDB with automatic downsampling and retention policies.",
+  },
+  {
+    name: "KG Builder",
+    icon: "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z",
+    tools: 8,
+    port: 8035,
+    desc: "Knowledge Graph queries \u2014 impact analysis, semantic search, shortest path, subgraph extraction. Schema-driven graph built from PostgreSQL sources.",
+  },
 ];
 
 /* ── KG Data ── */
@@ -173,14 +187,14 @@ function MCPTab() {
           an open standard for connecting AI models to external data sources and
           tools. Instead of hardcoding API calls, MCP provides a unified
           JSON-RPC interface that any AI agent can discover and invoke
-          dynamically. OpenShopFloor exposes 6 MCP servers with 100+ tools
+          dynamically. OpenShopFloor exposes 8 MCP servers with 135+ tools
           covering every domain of a manufacturing operation.
         </p>
       </div>
 
       {/* Server cards */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">6 Logical Servers</h2>
+        <h2 className="text-lg font-semibold mb-4">8 Logical Servers</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {mcpServers.map((s) => (
             <div
@@ -233,7 +247,7 @@ function MCPTab() {
             </svg>
             <div className="rounded border border-accent/40 px-3 py-2 text-center bg-accent/5 shrink-0">
               <div className="text-accent font-semibold">MCP Servers</div>
-              <div className="text-[10px]">6 servers &middot; JSON-RPC</div>
+              <div className="text-[10px]">8 servers &middot; JSON-RPC</div>
             </div>
             <svg className="w-8 h-4 text-text-dim shrink-0" viewBox="0 0 32 16">
               <path d="M0 8h28M24 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -306,6 +320,54 @@ function KGTab() {
           <strong className="text-text">Apache AGE</strong> (a PostgreSQL
           extension) to store the full manufacturing topology.
         </p>
+      </div>
+
+      {/* Schema-Driven v9.3 + Vector Embeddings + Chart Engine + Domain Templates */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-md border border-accent/30 bg-accent/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-sm bg-accent/10 flex items-center justify-center text-accent text-xs font-bold">S</div>
+            <h3 className="font-semibold text-sm">Schema-Driven Builder (v9.3)</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            The Knowledge Graph is automatically built from PostgreSQL data sources
+            using a 3-schema system &mdash; define your schemas in JSON, and the
+            builder creates nodes, edges, and relationships automatically.
+          </p>
+        </div>
+        <div className="rounded-md border border-purple-500/30 bg-purple-500/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-sm bg-purple-500/10 flex items-center justify-center text-purple-400 text-xs font-bold">V</div>
+            <h3 className="font-semibold text-sm">Vector Embeddings</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            All KG nodes have vector embeddings for semantic search. Ask questions
+            in natural language and find related entities by meaning, not just exact
+            matching.
+          </p>
+        </div>
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-sm bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-xs font-bold">C</div>
+            <h3 className="font-semibold text-sm">Chart Engine</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            Generate charts from natural language &mdash; ask &ldquo;Show OEE by
+            machine&rdquo; and get interactive visualizations powered by
+            LLM-to-Cypher translation.
+          </p>
+        </div>
+        <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-sm bg-blue-500/10 flex items-center justify-center text-blue-400 text-xs font-bold">D</div>
+            <h3 className="font-semibold text-sm">Domain Templates</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            Pre-built templates for Discrete Manufacturing (ISA-95), Pharma (GMP),
+            Chemical (ISA-88), and Medical Devices (MDR) &mdash; each with
+            industry-specific node types, relationships, and compliance requirements.
+          </p>
+        </div>
       </div>
 
       {/* Entity types as colored nodes */}
@@ -685,6 +747,33 @@ function UNSTab() {
               <div className="text-[10px]">Live Dashboard</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* OPC-UA / MTP Integration + Historian */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-md border border-purple-500/30 bg-purple-500/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-sm bg-purple-500/10 flex items-center justify-center text-purple-400 text-xs font-bold">M</div>
+            <h3 className="font-semibold text-sm">OPC-UA &amp; MTP Ready</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            The platform includes an MTP parser (VDI 2658) that extracts equipment
+            models from AutomationML files, mapping services, variables, and
+            procedures into the Knowledge Graph. OPC-UA discovery is on the roadmap
+            for automatic machine registration.
+          </p>
+        </div>
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-sm bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-xs font-bold">H</div>
+            <h3 className="font-semibold text-sm">Historian Integration</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            Real-time MQTT data flows through the Historian service into TimescaleDB
+            with automatic table creation, retention policies, and downsampling
+            &mdash; queryable via 6 dedicated MCP tools.
+          </p>
         </div>
       </div>
 
