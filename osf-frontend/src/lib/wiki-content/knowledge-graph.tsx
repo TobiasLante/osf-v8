@@ -227,25 +227,18 @@ export function KnowledgeGraphContent() {
 
       <WikiSection title="OPC-UA & MTP Integration">
         <p>
-          The KG supports integration with industrial automation protocols:
+          The KG integrates with OPC-UA and MTP (VDI 2658) to automatically
+          extract equipment models from AutomationML files and CESMII Smart
+          Manufacturing Profiles. Parsed modules, services, and variables are
+          merged into the graph schema with full ISA-95 hierarchy.
         </p>
-        <ul className="list-disc list-inside space-y-2 mt-2">
-          <li>
-            <strong>MTP Parser</strong> &mdash; Parses AutomationML (VDI 2658) module type
-            packages to extract equipment, services, and variables into the graph
-          </li>
-          <li>
-            <strong>OPC-UA Discovery</strong> &mdash; Roadmap feature for auto-discovering
-            machines via OPC-UA browse, mapping tags to MQTT UNS topics, and
-            registering in the KG with CESMII SM Profiles
-          </li>
-        </ul>
         <WikiCallout type="tip">
-          See the{" "}
-          <Link href="/docs/wiki/historian" className="text-accent hover:underline">
-            Historian &amp; Time-Series
+          See the dedicated{" "}
+          <Link href="/docs/wiki/opcua-mtp" className="text-accent hover:underline">
+            OPC-UA &amp; MTP Integration
           </Link>{" "}
-          article for how discovered sensor data flows into TimescaleDB.
+          article for the full architecture, parser details, domain templates,
+          and MQTT UNS bridge.
         </WikiCallout>
       </WikiSection>
     </>

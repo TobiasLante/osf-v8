@@ -84,6 +84,13 @@ export const wikiArticles: WikiArticle[] = [
     category: "Architektur",
   },
   {
+    slug: "opcua-mtp",
+    title: "OPC-UA & MTP Integration",
+    description:
+      "AutomationML parser (VDI 2658), CESMII SM Profiles, OPC-UA mappings, ISA-95 hierarchy",
+    category: "Architektur",
+  },
+  {
     slug: "governance",
     title: "Governance & RBAC",
     description:

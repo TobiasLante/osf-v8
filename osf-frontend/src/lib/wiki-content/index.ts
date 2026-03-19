@@ -11,6 +11,7 @@ import { SelfHostingContent } from "./self-hosting";
 import { KnowledgeGraphContent } from "./knowledge-graph";
 import { HistorianContent } from "./historian";
 import { GovernanceContent } from "./governance";
+import { OpcUaMtpContent } from "./opcua-mtp";
 
 export const wikiContent: Record<string, React.ComponentType> = {
   "getting-started": GettingStartedContent,
@@ -26,4 +27,5 @@ export const wikiContent: Record<string, React.ComponentType> = {
   "knowledge-graph": KnowledgeGraphContent,
   historian: HistorianContent,
   governance: GovernanceContent,
+  "opcua-mtp": OpcUaMtpContent,
 };
