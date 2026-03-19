@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 import type { TableRow } from './db.js';
+import { logger } from './logger.js';
 
 const BUFFER_DIR = process.env.HISTORIAN_BUFFER_DIR || '/tmp/historian-buffer';
 const BUFFER_FILE = path.join(BUFFER_DIR, 'pending.jsonl');
@@ -22,7 +23,7 @@ export function initDiskBuffer(): void {
   if (!fs.existsSync(BUFFER_DIR)) {
     fs.mkdirSync(BUFFER_DIR, { recursive: true });
   }
-  console.log(`[disk-buffer] Initialized at ${BUFFER_DIR}`);
+  logger.info(`[disk-buffer] Initialized at ${BUFFER_DIR}`);
 }
 
 // ─── Write ────────────────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ export function appendBatch(table: string, rows: TableRow[]): void {
   try {
     const stat = fs.statSync(BUFFER_FILE);
     if (stat.size > MAX_FILE_SIZE) {
-      console.error(`[disk-buffer] File exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB, skipping write`);
+      logger.error(`[disk-buffer] File exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB, skipping write`);
       return;
     }
   } catch {
@@ -50,7 +51,7 @@ export function appendBatch(table: string, rows: TableRow[]): void {
   try {
     fs.appendFileSync(BUFFER_FILE, JSON.stringify(batch) + '\n');
   } catch (err: any) {
-    console.error(`[disk-buffer] Write failed: ${err.message}`);
+    logger.error(`[disk-buffer] Write failed: ${err.message}`);
   }
 }
 
@@ -72,12 +73,12 @@ export async function replayPendingBatches(): Promise<BufferedBatch[]> {
       const batch = JSON.parse(line) as BufferedBatch;
       batches.push(batch);
     } catch {
-      console.warn(`[disk-buffer] Skipping corrupt line`);
+      logger.warn(`[disk-buffer] Skipping corrupt line`);
     }
   }
 
   if (batches.length > 0) {
-    console.log(`[disk-buffer] Found ${batches.length} pending batches for replay`);
+    logger.info(`[disk-buffer] Found ${batches.length} pending batches for replay`);
   }
 
   return batches;
@@ -91,7 +92,7 @@ export function clearBuffer(): void {
       fs.unlinkSync(BUFFER_FILE);
     }
   } catch (err: any) {
-    console.error(`[disk-buffer] Clear failed: ${err.message}`);
+    logger.error(`[disk-buffer] Clear failed: ${err.message}`);
   }
 }
 
@@ -117,6 +118,6 @@ export function removeFlushedBatches(flushedCount: number): void {
       fs.writeFileSync(BUFFER_FILE, remaining.join('\n') + '\n');
     }
   } catch (err: any) {
-    console.error(`[disk-buffer] Remove flushed failed: ${err.message}`);
+    logger.error(`[disk-buffer] Remove flushed failed: ${err.message}`);
   }
 }

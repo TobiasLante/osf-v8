@@ -2,6 +2,7 @@
 // Loads category routes from DB, hot-reloads every 30s
 
 import { getRoutes, type CategoryRoute } from './db.js';
+import { logger } from './logger.js';
 
 const RELOAD_INTERVAL_MS = 30_000;
 
@@ -48,9 +49,9 @@ export async function loadRoutes(): Promise<void> {
 
     routeMap = newMap;
     fallbackRoute = newFallback;
-    console.log(`[config] Loaded ${routes.length} routes (${newMap.size} specific + ${newFallback ? '1 fallback' : 'no fallback'})`);
+    logger.info(`[config] Loaded ${routes.length} routes (${newMap.size} specific + ${newFallback ? '1 fallback' : 'no fallback'})`);
   } catch (err: any) {
-    console.error(`[config] Failed to load routes: ${err.message}`);
+    logger.error(`[config] Failed to load routes: ${err.message}`);
   }
 }
 
@@ -58,7 +59,7 @@ export async function loadRoutes(): Promise<void> {
 
 export function startHotReload(): void {
   reloadTimer = setInterval(loadRoutes, RELOAD_INTERVAL_MS);
-  console.log(`[config] Hot-reload every ${RELOAD_INTERVAL_MS / 1000}s`);
+  logger.info(`[config] Hot-reload every ${RELOAD_INTERVAL_MS / 1000}s`);
 }
 
 export function stopHotReload(): void {

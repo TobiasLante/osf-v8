@@ -3,6 +3,7 @@
 // Follows config-manager.ts pattern: load from DB, hot-reload, in-memory lookup
 
 import { getTopicProfiles, type TopicProfile } from './db.js';
+import { logger } from './logger.js';
 
 const RELOAD_INTERVAL_MS = 30_000;
 
@@ -76,16 +77,16 @@ export async function loadProfiles(): Promise<void> {
       // DB empty → use builtins
       activeProfiles = [...BUILTIN_PROFILES];
     }
-    console.log(`[topic-profiles] Loaded ${activeProfiles.length} profiles`);
+    logger.info(`[topic-profiles] Loaded ${activeProfiles.length} profiles`);
   } catch (err: any) {
-    console.error(`[topic-profiles] Failed to load profiles, using builtins: ${err.message}`);
+    logger.error(`[topic-profiles] Failed to load profiles, using builtins: ${err.message}`);
     activeProfiles = [...BUILTIN_PROFILES];
   }
 }
 
 export function startProfileReload(): void {
   reloadTimer = setInterval(loadProfiles, RELOAD_INTERVAL_MS);
-  console.log(`[topic-profiles] Hot-reload every ${RELOAD_INTERVAL_MS / 1000}s`);
+  logger.info(`[topic-profiles] Hot-reload every ${RELOAD_INTERVAL_MS / 1000}s`);
 }
 
 export function stopProfileReload(): void {

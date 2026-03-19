@@ -16,7 +16,6 @@ describe('feature-flags', () => {
     delete process.env.FF_FORCE_SIMPLE;
     delete process.env.FF_DISABLE_KG_PHASE;
     delete process.env.FF_DISABLE_DEBATE;
-    delete process.env.FF_ENABLE_METRICS;
     delete process.env.FF_CATEGORY_TOOL_SELECTION;
     delete process.env.FF_ENABLE_MCP_CB;
 
@@ -26,19 +25,16 @@ describe('feature-flags', () => {
     expect(ff.forceSimple).toBe(false);
     expect(ff.disableKgPhase).toBe(false);
     expect(ff.disableDebate).toBe(false);
-    expect(ff.enableMetrics).toBe(false);
     expect(ff.useCategoryToolSelection).toBe(true);
     expect(ff.enableMcpCircuitBreaker).toBe(true);
   });
 
   it('overrides flags via ENV "true"', async () => {
     process.env.FF_FORCE_DISCUSSION = 'true';
-    process.env.FF_ENABLE_METRICS = '1';
 
     const { ff } = await import('../feature-flags');
 
     expect(ff.forceDiscussion).toBe(true);
-    expect(ff.enableMetrics).toBe(true);
   });
 
   it('returns default fallback message', async () => {

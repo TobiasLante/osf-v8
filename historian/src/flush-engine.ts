@@ -4,6 +4,7 @@
 
 import { copyInsert, batchInsert, recordDeadLetter, type TableRow, type HistoryRow } from './db.js';
 import { appendBatch } from './disk-buffer.js';
+import { logger } from './logger.js';
 
 const MAX_CHUNK = 5000;
 const MAX_RETRIES = 3;
@@ -105,13 +106,13 @@ async function flushTable(table: string): Promise<void> {
 
     if (buf.retryCount >= MAX_RETRIES) {
       // Dead letter: log, drop, continue
-      console.error(`[flush] Dead letter: ${table} (${batch.length} rows, ${buf.retryCount} retries): ${err.message}`);
+      logger.error(`[flush] Dead letter: ${table} (${batch.length} rows, ${buf.retryCount} retries): ${err.message}`);
       await recordDeadLetter(table, batch.length, err.message, batch.slice(0, 3));
       buf.stats.deadLettered += batch.length;
       buf.retryCount = 0;
     } else {
       // Put back for retry
-      console.warn(`[flush] Retry ${buf.retryCount}/${MAX_RETRIES} for ${table} (${batch.length} rows): ${err.message}`);
+      logger.warn(`[flush] Retry ${buf.retryCount}/${MAX_RETRIES} for ${table} (${batch.length} rows): ${err.message}`);
       buf.rows.unshift(...batch);
     }
   }
@@ -129,7 +130,7 @@ async function flushLegacy(): Promise<void> {
     legacyStats.flushes++;
   } catch (err: any) {
     legacyStats.errors++;
-    console.error(`[flush] Legacy insert failed (${batch.length} rows): ${err.message}`);
+    logger.error(`[flush] Legacy insert failed (${batch.length} rows): ${err.message}`);
     if (legacyBuffer.length < 10_000) {
       legacyBuffer.unshift(...batch.slice(0, 10_000 - legacyBuffer.length));
     }
@@ -146,7 +147,7 @@ export async function replayBatch(table: string, rows: TableRow[]): Promise<bool
     }
     return true;
   } catch (err: any) {
-    console.error(`[flush] Replay failed for ${table} (${rows.length} rows): ${err.message}`);
+    logger.error(`[flush] Replay failed for ${table} (${rows.length} rows): ${err.message}`);
     return false;
   }
 }

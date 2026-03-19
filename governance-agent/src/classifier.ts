@@ -3,6 +3,12 @@
  * Sends tool name + description to LLM, gets back category + sensitivity.
  */
 
+const logger = {
+  info: (...args: any[]) => console.log(new Date().toISOString(), 'INFO', ...args),
+  warn: (...args: any[]) => console.warn(new Date().toISOString(), 'WARN', ...args),
+  error: (...args: any[]) => console.error(new Date().toISOString(), 'ERROR', ...args),
+};
+
 const LLM_URL = process.env.LLM_URL || process.env.LLM_URL_FREE || 'http://localhost:5002';
 const LLM_MODEL = process.env.LLM_MODEL || process.env.LLM_MODEL_FREE || 'qwen2.5-14b-instruct';
 
@@ -119,7 +125,7 @@ export async function classifyBatch(tools: ToolInput[]): Promise<ClassificationR
         results.push(r.value);
       } else {
         // Fallback: unknown tool gets production/low
-        console.error(`Classification failed: ${r.reason}`);
+        logger.error(`Classification failed: ${r.reason}`);
         results.push({ category: 'production', sensitivity: 'low' });
       }
     }

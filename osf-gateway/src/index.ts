@@ -194,7 +194,9 @@ async function main() {
       recordRequest(res.statusCode);
 
       // Prometheus: normalize path to avoid cardinality explosion
-      const metricPath = req.route?.path || req.path.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id');
+      const metricPath = req.route?.path || req.path
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id')
+        .replace(/\/\d+/g, '/:id');
       httpRequestsTotal.inc({
         method: req.method,
         path: metricPath.slice(0, 50),
@@ -379,7 +381,7 @@ async function main() {
   // All agents now run through V8 /agents/run/:id SSE endpoint.
   // To re-enable: remove the `if (false)` wrapper below.
   if (false) { // V7-DISABLED
-  const V7_BASE = 'http://192.168.178.150:30813';
+  const V7_BASE = process.env.V7_BASE_URL || 'http://192.168.178.150:30813';
   const V7_MAX_ENTRIES = 500;
   const v7Results = new Map<string, { result: any; timestamp: number }>();
   setInterval(() => {

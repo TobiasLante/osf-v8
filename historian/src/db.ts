@@ -4,6 +4,7 @@
 import pg from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { Readable } from 'stream';
+import { logger } from './logger.js';
 
 const pool = new pg.Pool({
   host: process.env.HISTORIAN_DB_HOST || process.env.FACTORY_DB_HOST || 'localhost',
@@ -29,9 +30,9 @@ export async function initSchema(): Promise<void> {
     // TimescaleDB extension (graceful fallback)
     try {
       await client.query('CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE');
-      console.log('[db] TimescaleDB extension ready');
+      logger.info('[db] TimescaleDB extension ready');
     } catch (err: any) {
-      console.log(`[db] TimescaleDB not available: ${err.message}`);
+      logger.info(`[db] TimescaleDB not available: ${err.message}`);
     }
 
     // Legacy table (keep for existing MCP tools)
@@ -123,7 +124,7 @@ export async function initSchema(): Promise<void> {
     await seedDefaultRoutes(client);
     await seedDefaultProfiles(client);
 
-    console.log('[db] Schema initialized (v2)');
+    logger.info('[db] Schema initialized (v2)');
   } finally {
     client.release();
   }
@@ -425,7 +426,7 @@ async function applyTimescaleDbPolicies(
 
   // Validate retentionDays is a positive integer
   if (!Number.isInteger(retentionDays) || retentionDays <= 0) {
-    console.warn(`[db] Invalid retention days: ${retentionDays}, skipping`);
+    logger.warn(`[db] Invalid retention days: ${retentionDays}, skipping`);
     return;
   }
 
@@ -433,13 +434,13 @@ async function applyTimescaleDbPolicies(
   if (downsamplingInterval !== null) {
     const VALID_INTERVALS = ['1 minute', '5 minutes', '15 minutes', '30 minutes', '1 hour', '6 hours', '1 day', '1 week'];
     if (!VALID_INTERVALS.includes(downsamplingInterval)) {
-      console.warn(`[db] Invalid downsampling interval: ${downsamplingInterval}, skipping`);
+      logger.warn(`[db] Invalid downsampling interval: ${downsamplingInterval}, skipping`);
       return;
     }
   }
   if (downsamplingRetentionDays !== null) {
     if (!Number.isInteger(downsamplingRetentionDays) || downsamplingRetentionDays <= 0) {
-      console.warn(`[db] Invalid downsampling retention days: ${downsamplingRetentionDays}, skipping`);
+      logger.warn(`[db] Invalid downsampling retention days: ${downsamplingRetentionDays}, skipping`);
       return;
     }
   }
@@ -450,9 +451,9 @@ async function applyTimescaleDbPolicies(
       await pool.query(`SELECT remove_retention_policy('${fullName}', if_exists => true)`);
     } catch {}
     await pool.query(`SELECT add_retention_policy('${fullName}', INTERVAL '${retentionDays} days', if_not_exists => true)`);
-    console.log(`[db] Retention policy: ${fullName} → ${retentionDays} days`);
+    logger.info(`[db] Retention policy: ${fullName} → ${retentionDays} days`);
   } catch (err: any) {
-    console.log(`[db] Could not set retention policy for ${fullName}: ${err.message}`);
+    logger.info(`[db] Could not set retention policy for ${fullName}: ${err.message}`);
   }
 
   // Continuous aggregate for downsampling
@@ -495,9 +496,9 @@ async function applyTimescaleDbPolicies(
         SELECT add_retention_policy('${viewName}', INTERVAL '${downsamplingRetentionDays} days', if_not_exists => true)
       `);
 
-      console.log(`[db] Continuous aggregate: ${viewName} (${downsamplingInterval}, ${downsamplingRetentionDays}d retention)`);
+      logger.info(`[db] Continuous aggregate: ${viewName} (${downsamplingInterval}, ${downsamplingRetentionDays}d retention)`);
     } catch (err: any) {
-      console.log(`[db] Could not create continuous aggregate for ${fullName}: ${err.message}`);
+      logger.info(`[db] Could not create continuous aggregate for ${fullName}: ${err.message}`);
     }
   }
 }
@@ -549,7 +550,7 @@ export async function recordDeadLetter(targetTable: string, rowCount: number, er
       [targetTable, rowCount, error, JSON.stringify(sampleData)]
     );
   } catch (err: any) {
-    console.error(`[db] Failed to record dead letter: ${err.message}`);
+    logger.error(`[db] Failed to record dead letter: ${err.message}`);
   }
 }
 

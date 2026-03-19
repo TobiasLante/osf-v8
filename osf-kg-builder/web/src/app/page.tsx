@@ -62,7 +62,7 @@ export default function OverviewPage() {
           title="Graph Engine"
           value={health?.graphAvailable ? 'Online' : 'Offline'}
           status={health?.graphAvailable ? 'ok' : 'error'}
-          detail="Apache AGE"
+          detail="Neo4j"
         />
         <StatusCard
           title="Vector Store"

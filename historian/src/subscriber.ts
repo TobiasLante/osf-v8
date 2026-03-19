@@ -2,6 +2,7 @@
 // QoS 1 + persistent session, route engine, backpressure, explorer ring-buffer
 
 import mqtt from 'mqtt';
+import { logger } from './logger.js';
 import type { HistoryRow, TableRow } from './db.js';
 import { resolveRoute } from './config-manager.js';
 import { pushRow, pushLegacyRow, getBufferFillPercent } from './flush-engine.js';
@@ -139,13 +140,13 @@ function checkBackpressure(): void {
     for (const sub of getActiveSubscriptions()) {
       client.unsubscribe(sub);
     }
-    console.warn(`[subscriber] BACKPRESSURE: paused at ${fill.toFixed(0)}% buffer fill`);
+    logger.warn(`[subscriber] BACKPRESSURE: paused at ${fill.toFixed(0)}% buffer fill`);
   } else if (paused && fill <= BACKPRESSURE_LOW) {
     paused = false;
     for (const sub of getActiveSubscriptions()) {
       client.subscribe(sub, { qos: 1 });
     }
-    console.log(`[subscriber] BACKPRESSURE: resumed at ${fill.toFixed(0)}% buffer fill`);
+    logger.info(`[subscriber] BACKPRESSURE: resumed at ${fill.toFixed(0)}% buffer fill`);
   }
 }
 
@@ -201,7 +202,7 @@ export function getSubscriberStats() {
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 export async function start(): Promise<void> {
-  console.log(`[subscriber] Connecting to ${MQTT_BROKER} (QoS 1, persistent session)...`);
+  logger.info(`[subscriber] Connecting to ${MQTT_BROKER} (QoS 1, persistent session)...`);
 
   client = mqtt.connect(MQTT_BROKER, {
     clientId: 'osf-historian-v2',
@@ -211,12 +212,12 @@ export async function start(): Promise<void> {
   });
 
   client.on('connect', () => {
-    console.log('[subscriber] MQTT connected');
+    logger.info('[subscriber] MQTT connected');
     const subs = getActiveSubscriptions();
     for (const sub of subs) {
       client!.subscribe(sub, { qos: 1 }, (err) => {
-        if (err) console.error(`[subscriber] Subscribe error for ${sub}: ${err.message}`);
-        else console.log(`[subscriber] Subscribed to ${sub} (QoS 1)`);
+        if (err) logger.error(`[subscriber] Subscribe error for ${sub}: ${err.message}`);
+        else logger.info(`[subscriber] Subscribed to ${sub} (QoS 1)`);
       });
     }
   });
@@ -224,11 +225,11 @@ export async function start(): Promise<void> {
   client.on('message', onMessage);
 
   client.on('error', (err) => {
-    console.error(`[subscriber] MQTT error: ${err.message}`);
+    logger.error(`[subscriber] MQTT error: ${err.message}`);
   });
 
   client.on('close', () => {
-    console.log('[subscriber] MQTT disconnected, reconnecting...');
+    logger.info('[subscriber] MQTT disconnected, reconnecting...');
   });
 }
 
@@ -237,5 +238,5 @@ export async function stop(): Promise<void> {
     client.end(true);
     client = null;
   }
-  console.log('[subscriber] Stopped');
+  logger.info('[subscriber] Stopped');
 }

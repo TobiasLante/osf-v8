@@ -1,6 +1,7 @@
 // Historian v2 — Main entry point
 // MQTT → routed TimescaleDB tables with COPY protocol + MCP server + REST API
 
+import { logger } from './logger.js';
 import { initSchema, cleanupWithDropChunks } from './db.js';
 import { initDiskBuffer, replayPendingBatches, removeFlushedBatches } from './disk-buffer.js';
 import { loadRoutes, startHotReload, stopHotReload } from './config-manager.js';
@@ -13,7 +14,7 @@ const LEGACY_FLUSH_MS = parseInt(process.env.HISTORIAN_FLUSH_MS || '5000');
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1_000; // Every 6 hours
 
 async function main(): Promise<void> {
-  console.log('[historian] Starting v2...');
+  logger.info('[historian] Starting v2...');
 
   // 1. Init disk buffer
   initDiskBuffer();
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
       if (ok) flushed++;
     }
     removeFlushedBatches(flushed);
-    console.log(`[historian] Replayed ${flushed}/${pendingBatches.length} pending batches`);
+    logger.info(`[historian] Replayed ${flushed}/${pendingBatches.length} pending batches`);
   }
 
   // 5. Start legacy flush (for uns_history compatibility)
@@ -46,24 +47,24 @@ async function main(): Promise<void> {
   await startSubscriber();
 
   // 7. Start MCP + REST API server
-  startMcpServer();
+  const mcpServer = startMcpServer();
 
   // 8. Periodic cleanup with drop_chunks
-  setInterval(async () => {
+  const cleanupTimer = setInterval(async () => {
     try {
       await cleanupWithDropChunks();
-      console.log('[historian] Cleanup completed (drop_chunks)');
+      logger.info('[historian] Cleanup completed (drop_chunks)');
     } catch (err: any) {
-      console.error(`[historian] Cleanup error: ${err.message}`);
+      logger.error(`[historian] Cleanup error: ${err.message}`);
     }
   }, CLEANUP_INTERVAL_MS);
 
   // 9. Stats logging
-  setInterval(() => {
+  const statsTimer = setInterval(() => {
     const sub = getSubscriberStats();
     const flush = getFlushStats();
     const tables = flush.perTable.map(t => `${t.table}:${t.bufferSize}`).join(' ');
-    console.log(
+    logger.info(
       `[historian] rx=${sub.received} routed=${sub.routed} inserted=${flush.totals.inserted} ` +
       `buf=${flush.totals.bufferSize} err=${flush.totals.errors} msg/s=${flush.totals.msgPerSec} ` +
       `mqtt=${sub.mqttConnected ? 'up' : 'DOWN'}${sub.paused ? ' PAUSED' : ''} [${tables}]`
@@ -72,21 +73,24 @@ async function main(): Promise<void> {
 
   // Graceful shutdown
   const shutdown = async () => {
-    console.log('[historian] Shutting down...');
+    logger.info('[historian] Shutting down...');
+    clearInterval(cleanupTimer);
+    clearInterval(statsTimer);
     stopHotReload();
     stopProfileReload();
     await stopSubscriber();
     await flushAll();
     stopAll();
+    mcpServer.close();
     process.exit(0);
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  console.log('[historian] v2 Ready');
+  logger.info('[historian] v2 Ready');
 }
 
 main().catch((err) => {
-  console.error(`[historian] Fatal: ${err.message}`);
+  logger.error(`[historian] Fatal: ${err.message}`);
   process.exit(1);
 });

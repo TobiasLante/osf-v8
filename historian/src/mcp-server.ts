@@ -2,6 +2,7 @@
 // Existing MCP tools unchanged + new REST endpoints for dashboard
 
 import http from 'http';
+import { logger } from './logger.js';
 import {
   query, getRoutes, createRoute, updateRoute, deleteRoute,
   getRetentionPolicies, setRetentionPolicy,
@@ -559,7 +560,7 @@ export function startMcpServer(): http.Server {
   });
 
   server.listen(MCP_PORT, () => {
-    console.log(`[mcp] Historian v2 server listening on :${MCP_PORT}`);
+    logger.info(`[mcp] Historian v2 server listening on :${MCP_PORT}`);
   });
 
   return server;

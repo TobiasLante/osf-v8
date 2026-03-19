@@ -60,13 +60,13 @@ async function isToolAllowed(userId: string, toolName: string): Promise<boolean>
       signal: AbortSignal.timeout(3_000),
     });
     if (!resp.ok) {
-      console.warn('[governance] Check failed, allowing by default:', `HTTP ${resp.status}`);
+      logger.warn('[governance] Check failed, allowing by default:', `HTTP ${resp.status}`);
       return true;
     }
     const data = await resp.json() as { allowed: boolean };
     return data.allowed;
   } catch (err: any) {
-    console.warn('[governance] Check failed, allowing by default:', err.message);
+    logger.warn('[governance] Check failed, allowing by default:', err.message);
     return true;
   }
 }
@@ -80,13 +80,13 @@ async function filterToolsForUser(userId: string, tools: any[]): Promise<string[
       signal: AbortSignal.timeout(3_000),
     });
     if (!resp.ok) {
-      console.warn('[governance] Check failed, allowing by default:', `HTTP ${resp.status}`);
+      logger.warn('[governance] Check failed, allowing by default:', `HTTP ${resp.status}`);
       return tools.map((t: any) => t.name);
     }
     const data = await resp.json() as { allowed: string[] };
     return data.allowed;
   } catch (err: any) {
-    console.warn('[governance] Check failed, allowing by default:', err.message);
+    logger.warn('[governance] Check failed, allowing by default:', err.message);
     return tools.map((t: any) => t.name);
   }
 }

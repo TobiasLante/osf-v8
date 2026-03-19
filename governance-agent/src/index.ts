@@ -11,6 +11,12 @@
 import http from 'node:http';
 import { classifyTool, classifyBatch, ToolInput } from './classifier';
 
+const logger = {
+  info: (...args: any[]) => console.log(new Date().toISOString(), 'INFO', ...args),
+  warn: (...args: any[]) => console.warn(new Date().toISOString(), 'WARN', ...args),
+  error: (...args: any[]) => console.error(new Date().toISOString(), 'ERROR', ...args),
+};
+
 const PORT = parseInt(process.env.GOVERNANCE_PORT || '8031', 10);
 
 const MAX_BODY = 1_048_576; // 1 MB
@@ -111,7 +117,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      console.log(`Classifying batch of ${tools.length} tools...`);
+      logger.info(`Classifying batch of ${tools.length} tools...`);
       const results = await classifyBatch(tools);
       classifiedCount += tools.length;
 
@@ -130,18 +136,18 @@ const server = http.createServer(async (req, res) => {
     // 404
     sendJson(res, 404, { error: 'Not found' });
   } catch (err: any) {
-    console.error(`Error handling ${method} ${url}:`, err.message);
+    logger.error(`Error handling ${method} ${url}:`, err.message);
     sendJson(res, 500, { error: err.message });
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`Governance Agent listening on :${PORT}`);
-  console.log(`  POST /classify       — classify single tool`);
-  console.log(`  POST /classify-batch — classify tool batch`);
-  console.log(`  GET  /health         — health check`);
+  logger.info(`Governance Agent listening on :${PORT}`);
+  logger.info(`  POST /classify       — classify single tool`);
+  logger.info(`  POST /classify-batch — classify tool batch`);
+  logger.info(`  GET  /health         — health check`);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => { console.log('SIGTERM received, shutting down'); server.close(); });
-process.on('SIGINT', () => { console.log('SIGINT received, shutting down'); server.close(); });
+process.on('SIGTERM', () => { logger.info('SIGTERM received, shutting down'); server.close(); });
+process.on('SIGINT', () => { logger.info('SIGINT received, shutting down'); server.close(); });

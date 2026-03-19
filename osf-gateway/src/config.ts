@@ -11,7 +11,8 @@ function int(envKey: string, fallback: number): number {
   const v = process.env[envKey];
   if (!v) return fallback;
   const n = parseInt(v, 10);
-  return isNaN(n) ? fallback : n;
+  if (isNaN(n) || n < 0) return fallback;
+  return n;
 }
 
 function bool(envKey: string, fallback: boolean): boolean {

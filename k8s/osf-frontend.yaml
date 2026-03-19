@@ -48,7 +48,12 @@ spec:
           failureThreshold: 3
           timeoutSeconds: 5
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 101
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
 
 ---
 apiVersion: v1
