@@ -33,6 +33,7 @@ interface PendingUpdate {
   category: string;
   lastSeen: string;
 }
+const MAX_PENDING = 10_000;
 const pendingUpdates = new Map<string, PendingUpdate>();
 
 let mqttClient: mqtt.MqttClient | null = null;
@@ -209,7 +210,8 @@ function onMessage(topic: string, payload: Buffer): void {
     stats.discovered++;
   }
 
-  // Buffer value update
+  // Buffer value update (cap size to avoid unbounded growth)
+  if (pendingUpdates.size >= MAX_PENDING && !pendingUpdates.has(sensorId)) return;
   pendingUpdates.set(sensorId, {
     lastValue: value,
     unit,
@@ -338,6 +340,8 @@ export async function stopKgAgent(): Promise<void> {
     mqttClient.end(true);
     mqttClient = null;
   }
+  // Flush remaining pending updates before closing pool
+  await flush().catch(err => logger.warn({ err: (err as Error).message }, 'KG Agent: flush on shutdown failed'));
   await kgPool.end();
   logger.info('KG Agent: stopped');
 }

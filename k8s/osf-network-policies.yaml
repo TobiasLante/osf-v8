@@ -143,3 +143,84 @@ spec:
     ports:
     - port: 1880
       protocol: TCP
+
+---
+# Historian: allow ingress from gateway, kg-agent, uns-stream, kg-builder, mcp-proxy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-historian-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: historian
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    - podSelector:
+        matchLabels:
+          app: osf-kg-agent
+    - podSelector:
+        matchLabels:
+          app: osf-uns-stream
+    - podSelector:
+        matchLabels:
+          app: osf-kg-builder
+    - podSelector:
+        matchLabels:
+          app: osf-mcp-proxy
+    ports:
+    - port: 8030
+      protocol: TCP
+
+---
+# Governance Agent: allow ingress from gateway, mcp-proxy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-governance-agent-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: governance-agent
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    - podSelector:
+        matchLabels:
+          app: osf-mcp-proxy
+    ports:
+    - port: 8031
+      protocol: TCP
+
+---
+# KG Builder: allow ingress from gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kg-builder-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-kg-builder
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: osf-gateway
+    ports:
+    - port: 8032
+      protocol: TCP

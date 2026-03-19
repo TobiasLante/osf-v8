@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { API_URL } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 
 interface BridgeStats {
   received: number;
@@ -18,8 +18,7 @@ export default function MqttPage() {
   const [error, setError] = useState('');
 
   const refresh = () => {
-    fetch(`${API_URL}/api/kg/mqtt/status`)
-      .then(r => r.json())
+    apiFetch<BridgeStats>('/api/kg/mqtt/status')
       .then(d => { setStats(d); setError(''); })
       .catch(e => setError(e.message));
   };

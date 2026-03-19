@@ -1,7 +1,7 @@
 import { config } from '../shared/config';
 import { logger } from '../shared/logger';
 import { NodeTypeSpec, EdgeTypeSpec, SchemaProposal } from '../shared/types';
-import { vertexCypher, edgeCypher, executeBatched } from '../shared/cypher-utils';
+import { vertexCypher, edgeCypher, executeBatched, escapeId, validateLabel } from '../shared/cypher-utils';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -220,6 +220,7 @@ export async function importI3xToGraph(
   if (allElementIds.length > 0) {
     for (const rt of relationshipTypes) {
       const edgeLabel = sanitizeLabel(rt.displayName).toUpperCase().replace(/\s+/g, '_');
+      try { validateLabel(edgeLabel); } catch { logger.warn({ edgeLabel }, 'Invalid edge label, skipping'); continue; }
       onProgress(`Fetching ${edgeLabel} relationships...`);
 
       const edgeQueries: string[] = [];
@@ -232,8 +233,8 @@ export async function importI3xToGraph(
             const fromId = item.sourceElementId || item.fromElementId || item.elementId;
             const toId = item.targetElementId || item.toElementId || item.relatedElementId;
             if (fromId && toId) {
-              const safeFrom = fromId.replace(/'/g, "\\'");
-              const safeTo = toId.replace(/'/g, "\\'");
+              const safeFrom = escapeId(fromId);
+              const safeTo = escapeId(toId);
               edgeQueries.push(`MATCH (a {id: '${safeFrom}'}) MATCH (b {id: '${safeTo}'}) MERGE (a)-[r:${edgeLabel}]->(b) RETURN r`);
             }
           }

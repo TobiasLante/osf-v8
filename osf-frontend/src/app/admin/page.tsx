@@ -1719,7 +1719,7 @@ function NrPodsTab() {
     if (!confirm("This will release ALL active pods and kill all warm pods. New warm pods will be created. Continue?")) return;
     setDraining(true);
     try {
-      const result = await apiFetch<{ released: number; deleted: number }>("/admin/nr-pods/drain-all", { method: "POST" });
+      await apiFetch<{ released: number; deleted: number }>("/admin/nr-pods/drain-all", { method: "POST" });
       await fetchData();
     } catch (err: any) {
       setError(err.message);
@@ -2409,7 +2409,7 @@ function AuditTab() {
         setEntries(d.entries || []);
         setTotal(d.total || 0);
       })
-      .catch(() => {})
+      .catch((err: any) => console.error('Audit load failed:', err.message))
       .finally(() => setLoading(false));
   }, [fromDate, toDate]);
 
@@ -2417,9 +2417,12 @@ function AuditTab() {
 
   const downloadExport = (format: "csv" | "json") => {
     const url = `${process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai"}/admin/audit/export?from=${fromDate}&to=${toDate}&format=${format}`;
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("osf_token");
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.blob())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Export failed: HTTP ${r.status}`);
+        return r.blob();
+      })
       .then((blob) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);

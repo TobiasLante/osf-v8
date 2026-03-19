@@ -288,7 +288,16 @@ export function mtpToSchemaHint(schema: MTPSchema): string {
 // ── Fetch MTP from URL ─────────────────────────────────────────────
 
 export async function fetchMTPFromUrl(url: string): Promise<string> {
-  const res = await fetch(url);
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Unsupported protocol: ${parsed.protocol}`);
+  }
+  // Block private/metadata IPs
+  const host = parsed.hostname;
+  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.254\.|0\.|localhost$)/i.test(host)) {
+    throw new Error(`Blocked internal URL: ${host}`);
+  }
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Failed to fetch MTP file: HTTP ${res.status}`);
   return res.text();
 }

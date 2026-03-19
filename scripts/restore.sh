@@ -28,6 +28,12 @@ DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-osf_admin}"
 DB_NAME="${DB_NAME:-osf}"
 
+# Validate DB_NAME to prevent SQL injection
+if ! [[ "$DB_NAME" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+  echo "ERROR: Invalid database name: $DB_NAME"
+  exit 1
+fi
+
 export PGPASSWORD="${DB_PASSWORD:?DB_PASSWORD must be set}"
 
 echo "╔══════════════════════════════════════════════════════════╗"

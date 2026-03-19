@@ -104,6 +104,13 @@ class CircuitBreaker {
     }
     return false;
   }
+
+  /** Read-only check: is the circuit breaker in open state? Does NOT transition state. */
+  isOpen(): boolean {
+    if (this.state === 'closed') return false;
+    if (this.state === 'open' && Date.now() - this.lastFailure > this.resetTimeMs) return false; // would transition to half-open
+    return this.state === 'open';
+  }
 }
 
 const circuitBreakers = new Map<string, CircuitBreaker>();
@@ -151,7 +158,7 @@ export function isLlmOverloaded(): { overloaded: boolean; totalQueued: number; t
  */
 export function isLlmCircuitOpen(): string | null {
   for (const [url, cb] of circuitBreakers) {
-    if (!cb.canAttempt()) {
+    if (cb.isOpen()) {
       return ff.llmFallbackMessage;
     }
   }

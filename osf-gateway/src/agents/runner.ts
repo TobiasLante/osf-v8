@@ -154,6 +154,7 @@ export async function runAgent(
     }
 
     safeWrite(res, `data: ${JSON.stringify({ type: 'done', runId })}\n\n`);
+    if (!res.writableEnded) res.end();
   } catch (err: any) {
     logger.error({ err: err.message, agentId: agent.id, userId }, 'Agent run error');
 

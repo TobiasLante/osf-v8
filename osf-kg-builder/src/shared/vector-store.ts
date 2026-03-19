@@ -1,4 +1,4 @@
-import { cypherQuery, batchCypher, validateLabel } from './cypher-utils';
+import { cypherQuery, batchCypher, validateLabel, escapeId, escapeValue } from './cypher-utils';
 import { config } from './config';
 import { logger } from './logger';
 
@@ -45,8 +45,8 @@ export async function upsertEmbedding(
   // MERGE a :Node with the specific label, store embedding + text
   validateLabel(nodeLabel);
   const cypher = `
-    MERGE (n:Node:${nodeLabel} {id: '${nodeId.replace(/'/g, "\\'")}'})
-    SET n.text_content = '${textContent.replace(/'/g, "\\'").substring(0, 500)}',
+    MERGE (n:Node:${nodeLabel} {id: '${escapeId(nodeId)}'})
+    SET n.text_content = ${escapeValue(textContent.substring(0, 500))},
         n.embedding = ${JSON.stringify(embedding)},
         n.embedding_model = '${config.embedding.model}',
         n.embedded_at = datetime()
@@ -64,8 +64,8 @@ export async function batchUpsertEmbeddings(
   const queries = items.map(item => {
     validateLabel(item.nodeLabel);
     return `
-    MERGE (n:Node:${item.nodeLabel} {id: '${item.nodeId.replace(/'/g, "\\'")}'})
-    SET n.text_content = '${item.textContent.replace(/'/g, "\\'").substring(0, 500)}',
+    MERGE (n:Node:${item.nodeLabel} {id: '${escapeId(item.nodeId)}'})
+    SET n.text_content = ${escapeValue(item.textContent.substring(0, 500))},
         n.embedding = ${JSON.stringify(item.embedding)},
         n.embedding_model = '${config.embedding.model}',
         n.embedded_at = datetime()

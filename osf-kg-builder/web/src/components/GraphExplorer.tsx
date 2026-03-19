@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { API_URL } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 
 const SUGGESTIONS = ['Show all node types', 'Show all relationships', 'What equipment exists?', 'Show machines with OEE > 90%'];
 const MAX_ANSWERS = 50;
@@ -23,13 +23,11 @@ export default function GraphExplorer({ runId, className }: Props) {
     setLoading(true);
     setQuery('');
     try {
-      const res = await fetch(`${API_URL}/api/kg/ask`, {
+      const data = await apiFetch<any>('/api/kg/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       setAnswers(p => [...p.slice(-MAX_ANSWERS + 1), { question: q, answer: data.summary || JSON.stringify(data.results) }]);
     } catch (e: any) {
       setAnswers(p => [...p.slice(-MAX_ANSWERS + 1), { question: q, answer: `Error: ${e.message}` }]);

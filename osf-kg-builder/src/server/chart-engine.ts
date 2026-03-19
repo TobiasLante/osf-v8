@@ -1,5 +1,5 @@
 import { callLlm, callLlmJson, ChatMessage } from '../shared/llm-client';
-import { cypherQuery } from '../shared/cypher-utils';
+import { cypherQuery, getDriver } from '../shared/cypher-utils';
 import { semanticSearch } from '../shared/vector-store';
 import { generateEmbedding } from '../shared/embedding-service';
 import { SchemaProposal } from '../shared/types';
@@ -49,13 +49,22 @@ export async function generateChart(
   // Step 1: LLM generates Cypher query
   const cypher = await generateCypherForChart(question, schema, semanticContext);
 
-  // Step 2: Execute Cypher
+  // Step 2: Execute Cypher (read-only transaction for defense-in-depth)
   let rawData: any[];
+  const session = getDriver().session({ database: config.neo4j.database });
   try {
-    rawData = await cypherQuery(cypher);
+    const result = await session.executeRead(tx => tx.run(cypher));
+    rawData = result.records.map(record => {
+      if (record.keys.length === 1) return record.get(0);
+      const obj: Record<string, any> = {};
+      for (const key of record.keys) obj[key as string] = record.get(key);
+      return obj;
+    });
   } catch (e: any) {
     logger.warn({ cypher, err: e.message }, 'Chart Cypher query failed');
     throw new Error(`Cypher query failed: ${e.message}\nQuery: ${cypher}`);
+  } finally {
+    await session.close();
   }
 
   if (rawData.length === 0) {

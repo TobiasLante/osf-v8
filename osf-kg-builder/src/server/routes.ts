@@ -8,7 +8,7 @@ import { SchemaProposal, SchemaRun } from '../shared/types';
 import { generateChart } from './chart-engine';
 import { getBridgeStats } from './mqtt-bridge';
 import { handleMcpRequest } from './mcp-handler';
-import { cypherQuery, getDriver } from '../shared/cypher-utils';
+import { cypherQuery, getDriver, validateLabel } from '../shared/cypher-utils';
 import { callLlm, ChatMessage } from '../shared/llm-client';
 import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
@@ -16,7 +16,6 @@ import { runValidation, formatValidationReport } from '../builder/validator';
 import { saveSchemaRun } from '../builder/schema-planner';
 import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas } from '../builder/schema-kg-builder';
-import { config as appConfig } from '../shared/config';
 
 // ── SSE helpers ────────────────────────────────────────────────────
 
@@ -308,11 +307,8 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
       const results: Array<{ correction: any; result: string }> = [];
 
       for (const corr of corrections) {
-        const safeLabel = String(corr.label || '').replace(/[^a-zA-Z0-9_]/g, '');
-        if (!safeLabel) {
-          results.push({ correction: corr, result: 'Invalid label' });
-          continue;
-        }
+        try { validateLabel(corr.label); } catch { results.push({ correction: corr, result: 'Invalid label' }); continue; }
+        const safeLabel = corr.label;
 
         if (corr.type === 'reextract_node') {
           const nodeType = schema.nodeTypes.find((n: any) => n.label === safeLabel);
@@ -350,7 +346,7 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
   // ── Schema-Driven KG Build ─────────────────────────────────────
   router.post('/api/kg/build-from-schemas', async (req: Request, res: Response) => {
     try {
-      const basePath = appConfig.schemaRepo.localPath;
+      const basePath = config.schemaRepo.localPath;
       const profiles = loadAllProfiles(basePath);
       const sources = loadAllSources(basePath);
       const syncs = loadAllSyncs(basePath);

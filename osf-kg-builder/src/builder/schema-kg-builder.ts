@@ -1,7 +1,7 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { Pool } from 'pg';
 import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
-import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver } from '../shared/cypher-utils';
+import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel } from '../shared/cypher-utils';
 import { logger } from '../shared/logger';
 import { config } from '../shared/config';
 
@@ -37,6 +37,11 @@ export async function buildTypeSystem(profiles: SMProfile[]): Promise<number> {
     for (const profile of profiles) {
       const label = profile.kgNodeLabel;
       const idProp = profile.kgIdProperty;
+
+      validateLabel(label);
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(idProp)) {
+        throw new Error(`Invalid identifier for idProp: ${idProp}`);
+      }
 
       try {
         await session.run(
@@ -229,15 +234,16 @@ export async function startLiveUpdates(
 
           const timestamp = extractJsonPath(data, uns.payloadSchema!.timestampPath);
 
-          // Build SET query
+          // Build SET query with proper escaping
           const safeAttr = smAttribute.replace(/[^a-zA-Z0-9_]/g, '_');
-          const valStr = typeof value === 'string' ? `'${value.replace(/'/g, "\\'")}'` : value;
+          if (!isValidIdentifier(safeAttr)) return;
+          const valStr = typeof value === 'string' ? escapeValue(value) : value;
           let setClause = `n.${safeAttr} = ${valStr}`;
           if (timestamp) {
-            setClause += `, n.${safeAttr}_ts = '${timestamp}'`;
+            setClause += `, n.${safeAttr}_ts = ${escapeValue(String(timestamp))}`;
           }
 
-          const cypher = `MATCH (n:${machineInfo.label} {${machineInfo.idProp}: '${machineId}'}) SET ${setClause}`;
+          const cypher = `MATCH (n:${escapeId(machineInfo.label)} {${escapeId(machineInfo.idProp)}: ${escapeValue(machineId)}}) SET ${setClause}`;
           updateBuffer.push(cypher);
 
           // Flush every 2 seconds
@@ -514,8 +520,10 @@ export async function startPollingSync(
 import { Client } from 'pg';
 
 let pgNotifyClients: Client[] = [];
+let pgNotifyStopped = false;
 
 export function stopPgNotify(): void {
+  pgNotifyStopped = true;
   for (const c of pgNotifyClients) {
     try { c.end(); } catch (e: any) { logger.debug({ err: e.message }, '[SchemaPgNotify] Client close error'); }
   }
@@ -528,6 +536,7 @@ export async function startPgNotifySync(
   profiles: SMProfile[],
 ): Promise<number> {
   stopPgNotify();
+  pgNotifyStopped = false;
 
   const sourceMap = new Map(allSources.map(s => [s.sourceId, s]));
   const profileMap = new Map(profiles.map(p => [p.profileId, p]));
@@ -594,7 +603,6 @@ export async function startPgNotifySync(
 
       let reconnectDelay = 1000;
       const MAX_RECONNECT_DELAY = 30000;
-      let stopped = false;
 
       const connectAndListen = async (): Promise<Client> => {
         const client = new Client({
@@ -620,12 +628,12 @@ export async function startPgNotifySync(
         client.on('notification', onNotification);
 
         const scheduleReconnect = () => {
-          if (stopped) return;
+          if (pgNotifyStopped) return;
           const delay = reconnectDelay;
           reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
           logger.info({ connKey, delayMs: delay }, '[SchemaPgNotify] Scheduling reconnect...');
           setTimeout(async () => {
-            if (stopped) return;
+            if (pgNotifyStopped) return;
             try {
               const newClient = await connectAndListen();
               // Replace in the clients array

@@ -1,6 +1,6 @@
 import { callLlmJson, ChatMessage } from '../shared/llm-client';
 import { EdgeTypeSpec } from '../shared/types';
-import { edgeCypher, executeBatched, cypherQuery } from '../shared/cypher-utils';
+import { edgeCypher, executeBatched, cypherQuery, validateLabel } from '../shared/cypher-utils';
 import { sampleMcpTool } from './tool-discovery';
 import { loadDomainConfig } from '../shared/domain-config';
 import { logger } from '../shared/logger';
@@ -20,6 +20,7 @@ export interface BuildReport {
 
 async function getNodeIds(label: string): Promise<string[]> {
   try {
+    validateLabel(label);
     const rows = await cypherQuery(`MATCH (n:${label}) RETURN n.id`);
     return rows.map(r => typeof r === 'string' ? r : r?.id || String(r)).filter(Boolean);
   } catch (e: any) {

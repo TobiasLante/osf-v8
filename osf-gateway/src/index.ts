@@ -409,7 +409,7 @@ async function main() {
 
   app.get('/v7/agents', requireAuth, async (_req, res) => {
     try {
-      const upstream = await fetch(`${V7_BASE}/api/agents`);
+      const upstream = await fetch(`${V7_BASE}/api/agents`, { signal: AbortSignal.timeout(15_000) });
       const data = await upstream.json();
       res.json(data);
     } catch (err: any) {
@@ -426,6 +426,7 @@ async function main() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(15_000),
       });
       const quickCheck = Promise.race([
         upstream.then(async (r) => {
@@ -494,7 +495,7 @@ async function main() {
     req.on('close', () => { aborted = true; });
 
     try {
-      const upstream = await fetch(`${V7_BASE}/api/progress/${sessionId}`);
+      const upstream = await fetch(`${V7_BASE}/api/progress/${sessionId}`, { signal: AbortSignal.timeout(15_000) });
       if (!upstream.ok || !upstream.body) {
         res.write(`event: error\ndata: ${JSON.stringify({ error: 'V7 upstream error' })}\n\n`);
         res.end();
@@ -523,6 +524,7 @@ async function main() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(15_000),
       });
       const data = await upstream.json();
       res.json(data);
@@ -551,7 +553,7 @@ async function main() {
       if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
       if (req.headers['accept']) headers['Accept'] = req.headers['accept'] as string;
 
-      const fetchOpts: any = { method: req.method, headers };
+      const fetchOpts: any = { method: req.method, headers, signal: AbortSignal.timeout(15_000) };
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         fetchOpts.body = JSON.stringify(req.body);
       }
@@ -660,8 +662,10 @@ async function main() {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no');
-        const origin = req.headers.origin;
-        if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+        const origin = req.headers.origin || '';
+        if (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes('*')) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+        }
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.flushHeaders();
         let aborted = false;

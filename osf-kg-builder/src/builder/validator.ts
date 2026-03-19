@@ -1,4 +1,4 @@
-import { cypherQuery } from '../shared/cypher-utils';
+import { cypherQuery, validateLabel } from '../shared/cypher-utils';
 import { loadDomainConfig } from '../shared/domain-config';
 import { logger } from '../shared/logger';
 import { SchemaProposal } from '../shared/types';
@@ -40,6 +40,7 @@ export async function countNodesByType(confirmedSchema?: SchemaProposal): Promis
   try {
     for (const label of labelSet) {
       try {
+        validateLabel(label);
         const rows = await cypherQuery(`MATCH (n:${label}) RETURN count(n)`);
         const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
         if (count > 0) counts[label] = count;
@@ -64,6 +65,7 @@ export async function countEdgesByType(confirmedSchema?: SchemaProposal): Promis
 
   for (const label of edgeLabelSet) {
     try {
+      validateLabel(label);
       const rows = await cypherQuery(`MATCH ()-[r:${label}]->() RETURN count(r)`);
       const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
       if (count > 0) counts[label] = count;
@@ -85,6 +87,7 @@ export async function runSampleChecks(): Promise<SampleCheck[]> {
   for (const check of domain.sampleChecks) {
     try {
       if (check.type === 'node_min_count') {
+        validateLabel(check.label);
         const rows = await cypherQuery(`MATCH (n:${check.label}) RETURN count(n)`);
         const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
         checks.push({
@@ -93,6 +96,7 @@ export async function runSampleChecks(): Promise<SampleCheck[]> {
           detail: `${count} found`,
         });
       } else if (check.type === 'edge_exists') {
+        validateLabel(check.label);
         const rows = await cypherQuery(`MATCH ()-[r:${check.label}]->() RETURN count(r)`);
         const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
         checks.push({
@@ -101,6 +105,9 @@ export async function runSampleChecks(): Promise<SampleCheck[]> {
           detail: `${count} edges found`,
         });
       } else if (check.type === 'hierarchy') {
+        validateLabel(check.child!);
+        validateLabel(check.edge!);
+        validateLabel(check.parent!);
         const rows = await cypherQuery(`MATCH (c:${check.child})-[:${check.edge}]->(p:${check.parent}) RETURN count(c)`);
         const count = typeof rows[0] === 'number' ? rows[0] : parseInt(String(rows[0]), 10) || 0;
         checks.push({
@@ -138,6 +145,9 @@ export async function runComplianceChecks(): Promise<ComplianceCheck[]> {
 
     if (hierarchyCheck) {
       try {
+        validateLabel(hierarchyCheck.child!);
+        validateLabel(hierarchyCheck.edge!);
+        validateLabel(hierarchyCheck.parent!);
         const total = await cypherQuery(`MATCH (c:${hierarchyCheck.child}) RETURN count(c)`);
         const linked = await cypherQuery(`MATCH (c:${hierarchyCheck.child})-[:${hierarchyCheck.edge}]->(p:${hierarchyCheck.parent}) RETURN count(c)`);
         const totalN = typeof total[0] === 'number' ? total[0] : parseInt(String(total[0]), 10) || 0;

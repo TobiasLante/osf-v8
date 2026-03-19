@@ -1,4 +1,4 @@
-import { cypherQuery } from '../shared/cypher-utils';
+import { cypherQuery, validateLabel } from '../shared/cypher-utils';
 import { generateEmbedding } from '../shared/embedding-service';
 import { semanticSearch } from '../shared/vector-store';
 import { loadDomainConfig, loadSchemaTemplate } from '../shared/domain-config';
@@ -227,8 +227,8 @@ async function executeNeighbors(nodeId: string, depth?: number): Promise<any> {
 }
 
 async function executeAggregate(label: string, property: string): Promise<any> {
-  // Sanitize label (only alphanumeric + underscore)
-  const safeLabel = label.replace(/[^a-zA-Z0-9_]/g, '');
+  try { validateLabel(label); } catch { return { error: `Invalid label: ${label}` }; }
+  const safeLabel = label;
   const safeProp = property.replace(/[^a-zA-Z0-9_]/g, '');
 
   const rows = await cypherQuery(`
@@ -260,6 +260,7 @@ async function executeSchema(): Promise<any> {
   const labelDetails: Record<string, any> = {};
   for (const label of (Array.isArray(labels) ? labels : [labels])) {
     try {
+      validateLabel(label);
       const propsResult = await cypherQuery(`MATCH (n:${label}) WITH n LIMIT 1 RETURN keys(n) AS keys`);
       const countResult = await cypherQuery(`MATCH (n:${label}) RETURN count(n) AS cnt`);
       labelDetails[label] = {
@@ -288,7 +289,8 @@ async function executeSubgraph(nodeId: string, radius?: number): Promise<any> {
 }
 
 async function executeFilter(label: string, conditions?: Record<string, any>, limit?: number): Promise<any> {
-  const safeLabel = label.replace(/[^a-zA-Z0-9_]/g, '');
+  try { validateLabel(label); } catch { return { error: `Invalid label: ${label}` }; }
+  const safeLabel = label;
   const maxResults = Math.min(limit || 50, 200);
 
   // Build WHERE clauses from conditions

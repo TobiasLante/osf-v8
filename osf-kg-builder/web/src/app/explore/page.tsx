@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { API_URL } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 
 interface EmbeddingStats { total: number; byLabel: Record<string, number>; }
 
@@ -13,8 +13,7 @@ export default function ExplorePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/api/kg/embeddings/stats`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    apiFetch<EmbeddingStats>('/api/kg/embeddings/stats')
       .then(setStats)
       .catch(e => setError(e.message));
   }, []);
@@ -24,13 +23,11 @@ export default function ExplorePage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/api/kg/semantic-search`, {
+      const data = await apiFetch<{ results: any[] }>('/api/kg/semantic-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, limit: 20 }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       setResults(data.results || []);
     } catch (e: any) {
       setError(e.message);

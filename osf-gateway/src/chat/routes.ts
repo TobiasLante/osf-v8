@@ -420,7 +420,8 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     const allToolCalls: any[] = [];
 
     for (let i = 0; i < 5; i++) {
-      const response = await callLlm(messages, tools, llmConfig, req.user!.userId);
+      if (pipelineAbort.signal.aborted) break;
+      const response = await callLlm(messages, tools, llmConfig, req.user!.userId, pipelineAbort.signal);
 
       // If LLM returns tool calls
       if (response.tool_calls && response.tool_calls.length > 0) {
@@ -433,6 +434,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
 
         // Execute each tool call
         for (const tc of response.tool_calls) {
+          if (pipelineAbort.signal.aborted) break;
           const toolName = tc.function.name;
           let toolArgs: Record<string, unknown> = {};
           try {

@@ -76,18 +76,27 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "1000m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8030
+          failureThreshold: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
         livenessProbe:
           httpGet:
             path: /health
             port: 8030
           periodSeconds: 30
           failureThreshold: 5
+          timeoutSeconds: 3
         readinessProbe:
           httpGet:
             path: /health
             port: 8030
           periodSeconds: 10
           failureThreshold: 3
+          timeoutSeconds: 3
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000

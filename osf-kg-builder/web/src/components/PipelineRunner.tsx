@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Domain } from './DomainSelector';
-import { API_URL } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 
 interface Run {
   id: string;
@@ -34,8 +34,7 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
 
   const loadRuns = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/kg/runs`);
-      const data = await res.json();
+      const data = await apiFetch<Run[]>('/api/kg/runs');
       setRuns(Array.isArray(data) ? data : []);
     } catch (e: any) { setError(`Failed to load runs: ${e.message}`); setRuns([]); }
   }, []);
@@ -47,9 +46,7 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
     setError('');
     setReviewResults(null);
     try {
-      const res = await fetch(`${API_URL}/api/kg/runs/${id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await apiFetch<any>(`/api/kg/runs/${id}`);
       setSelectedRun(data);
       onRunComplete?.(id);
     } catch (e: any) {
@@ -64,13 +61,11 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
     setReviewing(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/api/kg/review`, {
+      const data = await apiFetch<any>('/api/kg/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId: selectedRun.id, corrections: [{ type, label }] }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       setReviewResults(data);
       // Reload run with updated validation
       await loadRun(selectedRun.id);

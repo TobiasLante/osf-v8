@@ -1,4 +1,4 @@
-import { cypherQuery, initializeGraph, closeGraph } from '../shared/cypher-utils';
+import { cypherQuery, initializeGraph, closeGraph, validateLabel } from '../shared/cypher-utils';
 import { initVectorStore, getEmbeddingStats, semanticSearch } from '../shared/vector-store';
 import { generateEmbedding } from '../shared/embedding-service';
 import { loadDomainConfig, loadSchemaTemplate } from '../shared/domain-config';
@@ -88,6 +88,7 @@ async function checkGraphStructure(): Promise<CheckResult[]> {
   // Check each node label exists with count > 0
   for (const nt of template.nodeTypes) {
     try {
+      validateLabel(nt.label);
       const rows = await cypherQuery(`MATCH (n:${nt.label}) RETURN count(n) AS cnt`);
       const count = rows[0]?.cnt ?? rows[0] ?? 0;
       const n = typeof count === 'number' ? count : parseInt(String(count), 10) || 0;
@@ -100,6 +101,7 @@ async function checkGraphStructure(): Promise<CheckResult[]> {
   // Check each edge type exists
   for (const et of template.edgeTypes) {
     try {
+      validateLabel(et.label);
       const rows = await cypherQuery(`MATCH ()-[r:${et.label}]->() RETURN count(r) AS cnt`);
       const count = rows[0]?.cnt ?? rows[0] ?? 0;
       const n = typeof count === 'number' ? count : parseInt(String(count), 10) || 0;
@@ -135,6 +137,7 @@ async function checkDataIntegrity(): Promise<CheckResult[]> {
   // ID uniqueness per label
   for (const nt of template.nodeTypes) {
     try {
+      validateLabel(nt.label);
       const rows = await cypherQuery(`MATCH (n:${nt.label}) WITH n.${nt.idProperty} AS id, count(*) AS c WHERE c > 1 RETURN count(id) AS duplicates`);
       const dups = rows[0]?.duplicates ?? rows[0] ?? 0;
       const n = typeof dups === 'number' ? dups : parseInt(String(dups), 10) || 0;
@@ -149,6 +152,7 @@ async function checkDataIntegrity(): Promise<CheckResult[]> {
     const requiredProps = nt.properties.filter(p => p.required);
     for (const prop of requiredProps) {
       try {
+        validateLabel(nt.label);
         const rows = await cypherQuery(`MATCH (n:${nt.label}) WHERE n.${prop.name} IS NULL RETURN count(n) AS cnt`);
         const nullCount = rows[0]?.cnt ?? rows[0] ?? 0;
         const n = typeof nullCount === 'number' ? nullCount : parseInt(String(nullCount), 10) || 0;
@@ -219,16 +223,21 @@ async function checkDomainCompliance(): Promise<CheckResult[]> {
   for (const sc of template.sampleChecks) {
     try {
       if (sc.type === 'node_min_count') {
+        validateLabel(sc.label);
         const rows = await cypherQuery(`MATCH (n:${sc.label}) RETURN count(n) AS cnt`);
         const count = rows[0]?.cnt ?? rows[0] ?? 0;
         const n = typeof count === 'number' ? count : parseInt(String(count), 10) || 0;
         checks.push({ phase, name: `sample_${sc.label}_min_${sc.min}`, passed: n >= (sc.min || 0), detail: `${n} found` });
       } else if (sc.type === 'edge_exists') {
+        validateLabel(sc.label);
         const rows = await cypherQuery(`MATCH ()-[r:${sc.label}]->() RETURN count(r) AS cnt`);
         const count = rows[0]?.cnt ?? rows[0] ?? 0;
         const n = typeof count === 'number' ? count : parseInt(String(count), 10) || 0;
         checks.push({ phase, name: `sample_edge_${sc.label}`, passed: n > 0, detail: `${n} edges` });
       } else if (sc.type === 'hierarchy') {
+        validateLabel(sc.child!);
+        validateLabel(sc.edge!);
+        validateLabel(sc.parent!);
         const rows = await cypherQuery(`MATCH (c:${sc.child})-[:${sc.edge}]->(p:${sc.parent}) RETURN count(c) AS cnt`);
         const count = rows[0]?.cnt ?? rows[0] ?? 0;
         const n = typeof count === 'number' ? count : parseInt(String(count), 10) || 0;

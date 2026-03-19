@@ -423,6 +423,27 @@ async function applyTimescaleDbPolicies(
 ): Promise<void> {
   const fullName = `${HISTORIAN_SCHEMA}.${tableName}`;
 
+  // Validate retentionDays is a positive integer
+  if (!Number.isInteger(retentionDays) || retentionDays <= 0) {
+    console.warn(`[db] Invalid retention days: ${retentionDays}, skipping`);
+    return;
+  }
+
+  // Validate downsampling parameters if provided
+  if (downsamplingInterval !== null) {
+    const VALID_INTERVALS = ['1 minute', '5 minutes', '15 minutes', '30 minutes', '1 hour', '6 hours', '1 day', '1 week'];
+    if (!VALID_INTERVALS.includes(downsamplingInterval)) {
+      console.warn(`[db] Invalid downsampling interval: ${downsamplingInterval}, skipping`);
+      return;
+    }
+  }
+  if (downsamplingRetentionDays !== null) {
+    if (!Number.isInteger(downsamplingRetentionDays) || downsamplingRetentionDays <= 0) {
+      console.warn(`[db] Invalid downsampling retention days: ${downsamplingRetentionDays}, skipping`);
+      return;
+    }
+  }
+
   try {
     // Remove existing retention policy, then add new one
     try {

@@ -499,14 +499,22 @@ function json(res: http.ServerResponse, status: number, data: any): void {
   res.end(JSON.stringify(data));
 }
 
+const MAX_BODY = 1_048_576; // 1 MB
+
 function readBody(req: http.IncomingMessage): Promise<any> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
+    let total = 0;
+    req.on('data', (chunk: string | Buffer) => {
+      total += typeof chunk === 'string' ? chunk.length : chunk.length;
+      if (total > MAX_BODY) { req.destroy(); reject(new Error('Body too large')); return; }
+      body += chunk;
+    });
     req.on('end', () => {
       try { resolve(JSON.parse(body)); }
       catch { resolve({}); }
     });
+    req.on('error', reject);
   });
 }
 
@@ -521,7 +529,12 @@ export function startMcpServer(): http.Server {
     // MCP endpoint (POST /mcp or POST /)
     if (req.method === 'POST' && (req.url === '/mcp' || req.url === '/')) {
       let body = '';
-      req.on('data', (chunk) => { body += chunk; });
+      let total = 0;
+      req.on('data', (chunk: string | Buffer) => {
+        total += typeof chunk === 'string' ? chunk.length : chunk.length;
+        if (total > MAX_BODY) { req.destroy(); return; }
+        body += chunk;
+      });
       req.on('end', async () => {
         try {
           const parsed = JSON.parse(body);

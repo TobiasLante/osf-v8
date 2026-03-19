@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API_URL } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
 
 interface HealthData {
@@ -25,9 +25,9 @@ export default function OverviewPage() {
     const load = async () => {
       try {
         const [healthRes, embRes, runsRes] = await Promise.allSettled([
-          fetch(`${API_URL}/health`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-          fetch(`${API_URL}/api/kg/embeddings/stats`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-          fetch(`${API_URL}/api/kg/runs`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+          apiFetch('/health'),
+          apiFetch('/api/kg/embeddings/stats'),
+          apiFetch('/api/kg/runs'),
         ]);
 
         if (healthRes.status === 'fulfilled') setHealth(healthRes.value);
