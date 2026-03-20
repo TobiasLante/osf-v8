@@ -24,7 +24,7 @@ interface Props {
   onRunComplete?: (runId: string) => void;
 }
 
-export default function PipelineRunner({ domain = 'manufacturing', className, onRunComplete }: Props) {
+export default function PipelineRunner({ domain = 'discrete', className, onRunComplete }: Props) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [selectedRun, setSelectedRun] = useState<any>(null);
   const [loading, setLoading] = useState(false);
