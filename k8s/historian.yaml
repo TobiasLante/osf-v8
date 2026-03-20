@@ -8,7 +8,7 @@ metadata:
   namespace: osf
   labels:
     app: historian
-    version: v9
+    version: "8.7"
 spec:
   replicas: 1
   selector:
@@ -18,14 +18,14 @@ spec:
     metadata:
       labels:
         app: historian
-        version: v9
+        version: "8.7"
     spec:
       # Pin to k8sserv4 — the TimescaleDB node
       nodeSelector:
         kubernetes.io/hostname: k8sserv4
       containers:
       - name: historian
-        image: 192.168.178.150:32000/osf-historian:2.0.0
+        image: 192.168.178.150:32000/osf-historian:8.7.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8030

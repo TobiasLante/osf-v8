@@ -109,9 +109,9 @@ kubectl scale deploy osf-kg-agent --replicas=1 -n osf
 | Service | Image | Port | Typ |
 |---------|-------|------|-----|
 | Neo4j | `neo4j:5.26-community` | 7687, 7474 | StatefulSet + PVC |
-| KG Server | `192.168.178.150:32000/osf-kg-server:v9` | 8035 | Deployment |
-| KG Builder | `192.168.178.150:32000/osf-kg-builder:v9` | — | Job (one-shot) |
-| Historian | `192.168.178.150:32000/osf-historian:2.0.0` | 8030 | Deployment |
+| KG Server | `192.168.178.150:32000/osf-kg-server:8.7.0` | 8035 | Deployment |
+| KG Builder | `192.168.178.150:32000/osf-kg-builder:8.7.0` | — | Job (one-shot) |
+| Historian | `192.168.178.150:32000/osf-historian:8.7.0` | 8030 | Deployment |
 
 ---
 
@@ -270,16 +270,16 @@ kubectl exec deploy/osf-kg-server -n osf -- node dist/builder/verify.js --domain
 
 ```bash
 cd osf-kg-builder/
-docker build -f Dockerfile.server -t 192.168.178.150:32000/osf-kg-server:v9 .
-docker push 192.168.178.150:32000/osf-kg-server:v9
+docker build -f Dockerfile.server -t 192.168.178.150:32000/osf-kg-server:8.7.0 .
+docker push 192.168.178.150:32000/osf-kg-server:8.7.0
 
-docker build -f Dockerfile.builder -t 192.168.178.150:32000/osf-kg-builder:v9 .
-docker push 192.168.178.150:32000/osf-kg-builder:v9
+docker build -f Dockerfile.builder -t 192.168.178.150:32000/osf-kg-builder:8.7.0 .
+docker push 192.168.178.150:32000/osf-kg-builder:8.7.0
 
 # Historian (falls Image noch nicht im Registry)
 cd historian/
-docker build -t 192.168.178.150:32000/osf-historian:2.0.0 .
-docker push 192.168.178.150:32000/osf-historian:2.0.0
+docker build -t 192.168.178.150:32000/osf-historian:8.7.0 .
+docker push 192.168.178.150:32000/osf-historian:8.7.0
 ```
 
 ## Verifikation
