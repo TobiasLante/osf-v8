@@ -1,6 +1,6 @@
 {
-  "name": "osf-v9-platform",
-  "version": "9.0.0",
+  "name": "osf-kg-platform",
+  "version": "8.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3009",
