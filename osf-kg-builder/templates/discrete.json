@@ -1,0 +1,155 @@
+{
+  "domain": "discrete",
+  "displayName": "Discrete Manufacturing",
+  "standard": "ISA-95 / CESMII",
+  "nodeTypes": [
+    {
+      "label": "Machine",
+      "idProperty": "maschine_id",
+      "sourceTool": "get_machines",
+      "properties": [
+        { "name": "maschine_id", "type": "string", "required": true, "description": "Unique machine identifier" },
+        { "name": "name", "type": "string", "required": true, "description": "Machine display name" },
+        { "name": "type", "type": "string", "description": "Machine type (CNC, Assembly, etc.)" },
+        { "name": "oee", "type": "float", "description": "Overall Equipment Effectiveness (0-100%)" },
+        { "name": "status", "type": "string", "description": "Current status (active, idle, maintenance)" }
+      ]
+    },
+    {
+      "label": "Article",
+      "idProperty": "artikel_id",
+      "sourceTool": "get_articles",
+      "properties": [
+        { "name": "artikel_id", "type": "string", "required": true, "description": "Article/part number" },
+        { "name": "name", "type": "string", "required": true, "description": "Article name" },
+        { "name": "category", "type": "string", "description": "Product category" },
+        { "name": "unit", "type": "string", "description": "Unit of measure" },
+        { "name": "price", "type": "float", "description": "Unit price" }
+      ]
+    },
+    {
+      "label": "Order",
+      "idProperty": "auftrag_id",
+      "sourceTool": "get_orders",
+      "properties": [
+        { "name": "auftrag_id", "type": "string", "required": true, "description": "Production order ID" },
+        { "name": "artikel_id", "type": "string", "required": true, "description": "Article being produced" },
+        { "name": "maschine_id", "type": "string", "description": "Assigned machine" },
+        { "name": "quantity", "type": "integer", "description": "Order quantity" },
+        { "name": "status", "type": "string", "description": "Order status" },
+        { "name": "start_date", "type": "string", "description": "Planned start date" },
+        { "name": "end_date", "type": "string", "description": "Planned end date" }
+      ]
+    },
+    {
+      "label": "Material",
+      "idProperty": "material_id",
+      "sourceTool": "get_materials",
+      "properties": [
+        { "name": "material_id", "type": "string", "required": true, "description": "Material ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Material name" },
+        { "name": "type", "type": "string", "description": "Material type (raw, semi-finished, etc.)" },
+        { "name": "unit", "type": "string", "description": "Unit of measure" },
+        { "name": "stock_qty", "type": "float", "description": "Current stock quantity" }
+      ]
+    },
+    {
+      "label": "Customer",
+      "idProperty": "kunde_id",
+      "sourceTool": "get_customers",
+      "properties": [
+        { "name": "kunde_id", "type": "string", "required": true, "description": "Customer ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Customer name" },
+        { "name": "city", "type": "string", "description": "City" },
+        { "name": "country", "type": "string", "description": "Country" }
+      ]
+    },
+    {
+      "label": "Supplier",
+      "idProperty": "lieferant_id",
+      "sourceTool": "get_suppliers",
+      "properties": [
+        { "name": "lieferant_id", "type": "string", "required": true, "description": "Supplier ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Supplier name" },
+        { "name": "city", "type": "string", "description": "City" },
+        { "name": "country", "type": "string", "description": "Country" },
+        { "name": "rating", "type": "float", "description": "Supplier rating (1-5)" }
+      ]
+    },
+    {
+      "label": "BOM",
+      "idProperty": "bom_id",
+      "sourceTool": "get_bom",
+      "properties": [
+        { "name": "bom_id", "type": "string", "required": true, "description": "BOM entry ID" },
+        { "name": "artikel_id", "type": "string", "required": true, "description": "Parent article" },
+        { "name": "material_id", "type": "string", "required": true, "description": "Component material" },
+        { "name": "quantity", "type": "float", "description": "Required quantity per unit" }
+      ]
+    }
+  ],
+  "edgeTypes": [
+    {
+      "label": "RUNS_ON",
+      "fromType": "Order",
+      "toType": "Machine",
+      "fkProperty": "maschine_id",
+      "sourceTool": "get_orders"
+    },
+    {
+      "label": "PRODUCES",
+      "fromType": "Order",
+      "toType": "Article",
+      "fkProperty": "artikel_id",
+      "sourceTool": "get_orders"
+    },
+    {
+      "label": "HAS_BOM",
+      "fromType": "Article",
+      "toType": "Material",
+      "fkProperty": "material_id",
+      "sourceTool": "get_bom"
+    },
+    {
+      "label": "FOR_CUSTOMER",
+      "fromType": "Order",
+      "toType": "Customer",
+      "fkProperty": "kunde_id",
+      "sourceTool": "get_orders"
+    },
+    {
+      "label": "SUPPLIED_BY",
+      "fromType": "Material",
+      "toType": "Supplier",
+      "fkProperty": "lieferant_id",
+      "sourceTool": "get_materials"
+    }
+  ],
+  "complianceChecks": [],
+  "sampleChecks": [
+    { "type": "node_min_count", "label": "Machine", "min": 1 },
+    { "type": "node_min_count", "label": "Order", "min": 1 },
+    { "type": "edge_exists", "label": "RUNS_ON" },
+    { "type": "edge_exists", "label": "PRODUCES" }
+  ],
+  "tools": [
+    {
+      "name": "discrete_machines_by_status",
+      "description": "List all machines grouped by their current status",
+      "cypher": "MATCH (m:Machine) RETURN m.status AS status, collect(m.name) AS machines, count(m) AS count ORDER BY count DESC",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "discrete_order_load",
+      "description": "Show order count and total quantity per machine",
+      "cypher": "MATCH (o:Order)-[:RUNS_ON]->(m:Machine) RETURN m.name AS machine, count(o) AS orders, sum(toInteger(o.quantity)) AS total_qty ORDER BY orders DESC",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "discrete_bom_tree",
+      "description": "Get the full BOM tree for a given article — all materials and their stock levels",
+      "cypher": "MATCH (a:Article {artikel_id: $id})-[:HAS_BOM]->(m:Material) RETURN a.name AS article, m.name AS material, m.stock_qty AS stock",
+      "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "description": "Article ID (artikel_id)" } }, "required": ["id"] }
+    }
+  ]
+}

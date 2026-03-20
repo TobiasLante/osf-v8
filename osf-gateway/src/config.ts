@@ -11,7 +11,8 @@ function int(envKey: string, fallback: number): number {
   const v = process.env[envKey];
   if (!v) return fallback;
   const n = parseInt(v, 10);
-  return isNaN(n) ? fallback : n;
+  if (isNaN(n) || n < 0) return fallback;
+  return n;
 }
 
 function bool(envKey: string, fallback: boolean): boolean {
@@ -22,8 +23,8 @@ function bool(envKey: string, fallback: boolean): boolean {
 
 export const config = {
   llm: {
-    urlFree: str('LLM_URL_FREE', 'http://192.168.178.120:5002'),
-    urlPremium: str('LLM_URL_PREMIUM', 'http://192.168.178.120:5001'),
+    urlFree: str('LLM_URL_FREE', 'http://localhost:5002'),
+    urlPremium: str('LLM_URL_PREMIUM', 'http://localhost:5001'),
     modelFree: str('LLM_MODEL_FREE', 'qwen2.5-14b-instruct'),
     modelPremium: str('LLM_MODEL_PREMIUM', 'qwen2.5-32b-instruct'),
     // Anthropic API (Haiku) — used when llmProvider=haiku is passed

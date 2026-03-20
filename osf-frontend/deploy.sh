@@ -40,7 +40,11 @@ if [ "$DO_PULL" = true ]; then
     echo "  Stashing local changes..."
     git stash
   fi
+<<<<<<< HEAD
   git pull origin main 2>&1 | tail -3
+=======
+  git pull origin master 2>&1 | tail -3
+>>>>>>> feat/v9-embeddings-charts-mqtt
   green "Git up to date"
 fi
 

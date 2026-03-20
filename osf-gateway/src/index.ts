@@ -12,7 +12,6 @@ import { logger, logSecurity } from './logger';
 import { runRegistry } from './flows/run-registry';
 import authRoutes from './auth/routes';
 import chatRoutes from './chat/routes';
-import mcpProxy from './mcp/proxy';
 import agentRoutes from './agents/routes';
 import challengeRoutes from './challenges/routes';
 import chainRoutes from './chains/routes';
@@ -26,13 +25,53 @@ import { initNodeRedProxy } from './nodered/proxy';
 import { NrPodManager } from './nodered/pod-manager';
 import internalApiRoutes from './nodered/internal-api';
 import { getLlmStatus } from './chat/llm-client';
-import unsRoutes from './uns/stream';
 import { requireAuth } from './auth/middleware';
 import { validateEncryptionKey } from './auth/crypto';
+import { registry, httpRequestsTotal } from './metrics';
+import { recordRequest, getSnapshot } from './internal-metrics';
+import { createVersionedRouter } from './api-version';
+
+// ─── Service Registry (v9 microservices) ────────────────────────────────
+const KG_AGENT_URL = process.env.KG_AGENT_URL || 'http://osf-kg-agent:8032';
+const UNS_STREAM_URL = process.env.UNS_STREAM_URL || 'http://osf-uns-stream:8033';
+const MCP_PROXY_URL = process.env.MCP_PROXY_URL || 'http://osf-mcp-proxy:8034';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
 let nrPodManager: NrPodManager;
+
+// ─── MCP Proxy → osf-mcp-proxy service (v9) ─────────────────────────────
+function createMcpProxy(): express.Router {
+  const mcpRouter = express.Router();
+  mcpRouter.all('*', async (req, res) => {
+    try {
+      const target = `${MCP_PROXY_URL}/mcp${req.url === '/' ? '' : req.url}`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
+
+      const resp = await fetch(target, {
+        method: req.method,
+        headers,
+        ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body: JSON.stringify(req.body) } : {}),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      res.status(resp.status);
+      const data = await resp.text();
+      const ct = resp.headers.get('content-type');
+      if (ct) res.setHeader('Content-Type', ct);
+      res.send(data);
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'MCP proxy error');
+      res.status(502).json({
+        jsonrpc: '2.0',
+        id: req.body?.id || null,
+        error: { code: -32000, message: 'MCP proxy service unavailable' },
+      });
+    }
+  });
+  return mcpRouter;
+}
 
 // Track active SSE responses for graceful shutdown
 const activeSseResponses = new Set<express.Response>();
@@ -100,13 +139,39 @@ async function main() {
   // Trust proxy (behind cloudflared)
   app.set('trust proxy', 1);
 
+  // ─── Load Shedding ────────────────────────────────────────────────────────
+  // Reject new requests when server is overloaded (protects DB pool + LLM queue)
+  const MAX_CONCURRENT_REQUESTS = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '200');
+  let activeRequests = 0;
+
+  app.use((req, res, next) => {
+    activeRequests++;
+    let counted = true;
+    const decrement = () => { if (counted) { activeRequests--; counted = false; } };
+    res.on('finish', decrement);
+    res.on('close', decrement);
+
+    // Allow health/metrics even under load
+    if (req.path === '/health' || req.path === '/health/ready' || req.path === '/metrics') {
+      return next();
+    }
+
+    if (activeRequests > MAX_CONCURRENT_REQUESTS) {
+      decrement();
+      logger.warn({ activeRequests, max: MAX_CONCURRENT_REQUESTS }, 'Load shedding: rejecting request');
+      res.status(503).json({ error: 'Server ueberlastet. Bitte in einigen Sekunden erneut versuchen.' });
+      return;
+    }
+    next();
+  });
+
   // Request ID middleware
   app.use((req, _res, next) => {
     req.requestId = req.headers['x-request-id'] as string || crypto.randomUUID();
     next();
   });
 
-  // Request logging
+  // Request logging + Prometheus metrics
   app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
@@ -125,6 +190,19 @@ async function main() {
       } else {
         logger.info(logData, 'request');
       }
+
+      // Internal dashboard metrics
+      recordRequest(res.statusCode);
+
+      // Prometheus: normalize path to avoid cardinality explosion
+      const metricPath = req.route?.path || req.path
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id')
+        .replace(/\/\d+/g, '/:id');
+      httpRequestsTotal.inc({
+        method: req.method,
+        path: metricPath.slice(0, 50),
+        status: String(res.statusCode),
+      });
     });
     next();
   });
@@ -203,9 +281,28 @@ async function main() {
     next();
   });
 
+  // Internal dashboard snapshot (auth required)
+  app.get('/admin/dashboard/snapshot', requireAuth, async (_req, res) => {
+    try {
+      res.json(await getSnapshot());
+    } catch {
+      res.status(500).json({ error: 'Failed to collect metrics' });
+    }
+  });
+
+  // Prometheus metrics (no auth — scraped by Prometheus)
+  app.get('/metrics', async (_req, res) => {
+    try {
+      res.setHeader('Content-Type', registry.contentType);
+      res.end(await registry.metrics());
+    } catch {
+      res.status(500).end();
+    }
+  });
+
   // Health check (no auth)
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown' });
+    res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown', activeRequests, activeSse: activeSseResponses.size });
   });
 
   // Readiness probe — checks DB connectivity + LLM circuit breaker
@@ -222,8 +319,8 @@ async function main() {
   });
 
   // LLM status check (no auth, lightweight)
-  const LLM_URL_FREE = process.env.LLM_URL_FREE || 'http://192.168.178.120:5002';
-  const LLM_URL_PREMIUM = process.env.LLM_URL_PREMIUM || 'http://192.168.178.120:5001';
+  const LLM_URL_FREE = process.env.LLM_URL_FREE || 'http://localhost:5002';
+  const LLM_URL_PREMIUM = process.env.LLM_URL_PREMIUM || 'http://localhost:5001';
 
   app.get('/llm/status', async (_req, res) => {
     res.setHeader('Cache-Control', 'max-age=5');
@@ -263,7 +360,7 @@ async function main() {
   });
 
   // LLM status check — public endpoint for landing page "Open Analysis Console"
-  const FACTORY_SIM_URL = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+  const FACTORY_SIM_URL = process.env.FACTORY_SIM_URL || 'http://localhost:8888';
   app.get('/v7/llm-status', async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_URL}/api/infrastructure/metrics?minutes=1`, {
@@ -285,7 +382,7 @@ async function main() {
   // All agents now run through V8 /agents/run/:id SSE endpoint.
   // To re-enable: remove the `if (false)` wrapper below.
   if (false) { // V7-DISABLED
-  const V7_BASE = 'http://192.168.178.150:30813';
+  const V7_BASE = process.env.V7_BASE_URL || 'http://192.168.178.150:30813';
   const V7_MAX_ENTRIES = 500;
   const v7Results = new Map<string, { result: any; timestamp: number }>();
   setInterval(() => {
@@ -295,7 +392,7 @@ async function main() {
     }
   }, 5 * 60 * 1000);
 
-  const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://factory-v3-fertigung.factory.svc.cluster.local:8888';
+  const FACTORY_SIM_BASE = process.env.FACTORY_SIM_URL || 'http://localhost:8888';
   app.get('/v7/llm-status', async (_req, res) => {
     try {
       const upstream = await fetch(`${FACTORY_SIM_BASE}/api/infrastructure/metrics?minutes=1`, {
@@ -315,7 +412,7 @@ async function main() {
 
   app.get('/v7/agents', requireAuth, async (_req, res) => {
     try {
-      const upstream = await fetch(`${V7_BASE}/api/agents`);
+      const upstream = await fetch(`${V7_BASE}/api/agents`, { signal: AbortSignal.timeout(15_000) });
       const data = await upstream.json();
       res.json(data);
     } catch (err: any) {
@@ -332,6 +429,7 @@ async function main() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(15_000),
       });
       const quickCheck = Promise.race([
         upstream.then(async (r) => {
@@ -400,7 +498,7 @@ async function main() {
     req.on('close', () => { aborted = true; });
 
     try {
-      const upstream = await fetch(`${V7_BASE}/api/progress/${sessionId}`);
+      const upstream = await fetch(`${V7_BASE}/api/progress/${sessionId}`, { signal: AbortSignal.timeout(15_000) });
       if (!upstream.ok || !upstream.body) {
         res.write(`event: error\ndata: ${JSON.stringify({ error: 'V7 upstream error' })}\n\n`);
         res.end();
@@ -429,6 +527,7 @@ async function main() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(15_000),
       });
       const data = await upstream.json();
       res.json(data);
@@ -457,7 +556,7 @@ async function main() {
       if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
       if (req.headers['accept']) headers['Accept'] = req.headers['accept'] as string;
 
-      const fetchOpts: any = { method: req.method, headers };
+      const fetchOpts: any = { method: req.method, headers, signal: AbortSignal.timeout(15_000) };
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         fetchOpts.body = JSON.stringify(req.body);
       }
@@ -545,15 +644,69 @@ async function main() {
     }
   });
 
-  // UNS live stream (MQTT → SSE)
-  app.use('/uns', unsRoutes);
+  // UNS live stream → proxy to osf-uns-stream service (v9)
+  app.use('/uns', async (req, res) => {
+    try {
+      const target = `${UNS_STREAM_URL}${req.url}`;
+      const headers: Record<string, string> = {};
+      if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
+      if (req.headers.accept) headers['Accept'] = req.headers.accept as string;
+
+      const upstream = await fetch(target, {
+        method: req.method,
+        headers,
+        signal: AbortSignal.timeout(300_000), // 5min for SSE
+      });
+
+      // SSE pass-through
+      const ct = upstream.headers.get('content-type') || '';
+      if (ct.includes('text/event-stream')) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        const origin = req.headers.origin || '';
+        if (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes('*')) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+        }
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.flushHeaders();
+        let aborted = false;
+        req.on('close', () => { aborted = true; });
+        const reader = (upstream.body as any).getReader();
+        const decoder = new TextDecoder();
+        try {
+          while (!aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(decoder.decode(value, { stream: true }));
+          }
+        } catch { /* connection closed */ }
+        reader.cancel().catch(() => {});
+        if (!aborted) res.end();
+        return;
+      }
+
+      res.status(upstream.status);
+      for (const [key, value] of upstream.headers) {
+        if (!['transfer-encoding', 'content-encoding', 'connection'].includes(key.toLowerCase())) {
+          res.setHeader(key, value);
+        }
+      }
+      const body = await upstream.text();
+      res.send(body);
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'UNS proxy error');
+      res.status(502).json({ error: 'UNS stream service unavailable' });
+    }
+  });
 
   // Internal API for NR pods (authenticated via pod secret, no user auth)
   app.use('/internal', internalApiRoutes);
 
   // Routes
   // /api/* aliases (chat-ui JS calls /api/mcp, /api/chat/*, /api/agents/*, etc.)
-  app.use('/api/mcp', mcpProxy);
+  app.use('/api/mcp', createMcpProxy());
   app.use('/api/chat', chatRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/agents', agentRoutes);
@@ -564,7 +717,7 @@ async function main() {
   });
   app.use('/auth', authRoutes);
   app.use('/chat', chatRoutes);
-  app.use('/mcp', mcpProxy);
+  app.use('/mcp', createMcpProxy());
   app.use('/agents', agentRoutes);
   app.use('/challenges', challengeRoutes);
   app.use('/chains', chainRoutes);
@@ -574,6 +727,21 @@ async function main() {
   app.use('/news', newsRoutes);
   app.use('/marketplace', marketplaceRoutes);
   app.use('/health-agent', healthAgentRoutes);
+
+  // API Versioning — same routes under /v1/ prefix (backward compat preserved above)
+  app.use('/v1', createVersionedRouter([
+    { path: '/auth',        handler: authRoutes },
+    { path: '/chat',        handler: chatRoutes },
+    { path: '/mcp',         handler: createMcpProxy() },
+    { path: '/agents',      handler: agentRoutes },
+    { path: '/challenges',  handler: challengeRoutes },
+    { path: '/chains',      handler: chainRoutes },
+    { path: '/flows',       handler: flowRoutes },
+    { path: '/code-agents', handler: codeAgentRoutes },
+    { path: '/admin',       handler: adminRoutes },
+    { path: '/news',        handler: newsRoutes },
+    { path: '/marketplace', handler: marketplaceRoutes },
+  ]));
 
   // Create HTTP server (before NR proxy which needs it for WebSocket upgrades)
   httpServer = http.createServer(app);
@@ -687,6 +855,15 @@ async function gracefulShutdown(signal: string) {
   logger.info('Graceful shutdown complete');
   process.exit(0);
 }
+
+process.on('unhandledRejection', (reason: any) => {
+  logger.error({ err: reason?.message || reason }, 'Unhandled promise rejection');
+});
+
+process.on('uncaughtException', (err: Error) => {
+  logger.fatal({ err: err.message, stack: err.stack }, 'Uncaught exception — shutting down');
+  process.exit(1);
+});
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

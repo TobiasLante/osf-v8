@@ -48,6 +48,12 @@ spec:
           periodSeconds: 5
           failureThreshold: 3
           timeoutSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
         volumeMounts:
         - name: redis-data
           mountPath: /data

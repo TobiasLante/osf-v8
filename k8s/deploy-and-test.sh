@@ -970,7 +970,13 @@ test_feature_inventory() {
 
   # Get admin JWT for /admin/health
   local TOKEN
-  TOKEN=$(node -e "const jwt=require('/opt/osf-v8/osf-gateway/node_modules/jsonwebtoken');console.log(jwt.sign({userId:'186da896-707e-4de4-a617-e6b3c6b90d34',email:'tobias.lante74@gmail.com',role:'admin'},'v7-production-jwt-secret-change-this',{expiresIn:'1h'}))" 2>/dev/null || echo "")
+  local JWT_KEY="${JWT_SECRET:-$(kubectl get secret osf-secrets -n osf -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | base64 -d)}"
+  if [[ -z "$JWT_KEY" ]]; then
+    fail "Could not resolve JWT secret from env or K8s secret"
+    echo $((++FAIL))
+    return
+  fi
+  TOKEN=$(node -e "const jwt=require('/opt/osf-v8/osf-gateway/node_modules/jsonwebtoken');console.log(jwt.sign({userId:'186da896-707e-4de4-a617-e6b3c6b90d34',email:'tobias.lante74@gmail.com',role:'admin'},'${JWT_KEY}',{expiresIn:'1h'}))" 2>/dev/null || echo "")
   if [[ -z "$TOKEN" ]]; then
     fail "Could not generate admin JWT for inventory check"
     echo $((++FAIL))
@@ -1125,7 +1131,12 @@ smoke_test_chat() {
 
   # Generate JWT token
   local TOKEN
-  TOKEN=$(node -e "const jwt=require('/opt/osf-v8/osf-gateway/node_modules/jsonwebtoken');console.log(jwt.sign({userId:'186da896-707e-4de4-a617-e6b3c6b90d34',email:'tobias.lante74@gmail.com'},'v7-production-jwt-secret-change-this',{expiresIn:'1h'}))")
+  local JWT_KEY="${JWT_SECRET:-$(kubectl get secret osf-secrets -n osf -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | base64 -d)}"
+  if [[ -z "$JWT_KEY" ]]; then
+    fail "Could not resolve JWT secret from env or K8s secret"
+    return 1
+  fi
+  TOKEN=$(node -e "const jwt=require('/opt/osf-v8/osf-gateway/node_modules/jsonwebtoken');console.log(jwt.sign({userId:'186da896-707e-4de4-a617-e6b3c6b90d34',email:'tobias.lante74@gmail.com'},'${JWT_KEY}',{expiresIn:'1h'}))")
   if [[ -z "$TOKEN" ]]; then
     fail "Could not generate JWT token for smoke test"
     return 1

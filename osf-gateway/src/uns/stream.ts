@@ -17,45 +17,51 @@ const router = Router();
 // All UNS routes require authentication
 router.use(requireAuth);
 
-const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://192.168.178.150:31883';
+const MQTT_BROKER = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 
-// Shared MQTT connection (lazy init)
+// Shared MQTT connection (lazy init with race-condition protection)
 let sharedClient: mqtt.MqttClient | null = null;
+let connectPromise: Promise<mqtt.MqttClient> | null = null;
 let subscribers = new Map<string, Set<(topic: string, payload: string) => void>>();
 
-function getClient(): mqtt.MqttClient {
-  if (sharedClient && sharedClient.connected) return sharedClient;
+function getClient(): Promise<mqtt.MqttClient> {
+  if (sharedClient?.connected) return Promise.resolve(sharedClient);
+  if (connectPromise) return connectPromise;
 
-  sharedClient = mqtt.connect(MQTT_BROKER, {
-    clientId: `osf-gateway-uns-${Date.now()}`,
-    reconnectPeriod: 5000,
-    connectTimeout: 10000,
-  });
+  connectPromise = new Promise<mqtt.MqttClient>((resolve) => {
+    sharedClient = mqtt.connect(MQTT_BROKER, {
+      clientId: `osf-gateway-uns-${Date.now()}`,
+      reconnectPeriod: 5000,
+      connectTimeout: 10000,
+    });
 
-  sharedClient.on('connect', () => {
-    logger.info({ broker: MQTT_BROKER }, 'UNS MQTT connected');
-    // Re-subscribe all active filters
-    for (const filter of subscribers.keys()) {
-      sharedClient!.subscribe(filter, { qos: 0 });
-    }
-  });
+    sharedClient.on('connect', () => {
+      logger.info({ broker: MQTT_BROKER }, 'UNS MQTT connected');
+      connectPromise = null;
+      // Re-subscribe all active filters
+      for (const filter of subscribers.keys()) {
+        sharedClient!.subscribe(filter, { qos: 0 });
+      }
+      resolve(sharedClient!);
+    });
 
-  sharedClient.on('message', (topic, payload) => {
-    const msg = payload.toString();
-    for (const [filter, listeners] of subscribers) {
-      if (topicMatchesFilter(topic, filter)) {
-        for (const cb of listeners) {
-          cb(topic, msg);
+    sharedClient.on('message', (topic, payload) => {
+      const msg = payload.toString();
+      for (const [filter, listeners] of subscribers) {
+        if (topicMatchesFilter(topic, filter)) {
+          for (const cb of listeners) {
+            cb(topic, msg);
+          }
         }
       }
-    }
+    });
+
+    sharedClient.on('error', (err) => {
+      logger.warn({ err: err.message }, 'UNS MQTT error');
+    });
   });
 
-  sharedClient.on('error', (err) => {
-    logger.warn({ err: err.message }, 'UNS MQTT error');
-  });
-
-  return sharedClient;
+  return connectPromise;
 }
 
 function topicMatchesFilter(topic: string, filter: string): boolean {
@@ -71,7 +77,7 @@ function topicMatchesFilter(topic: string, filter: string): boolean {
 }
 
 // GET /uns/stream?filter=factory/#
-router.get('/stream', (req: Request, res: Response) => {
+router.get('/stream', async (req: Request, res: Response) => {
   const filter = (req.query.filter as string) || 'factory/#';
 
   // Validate filter (basic sanitization)
@@ -93,7 +99,7 @@ router.get('/stream', (req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.flushHeaders();
 
-  const client = getClient();
+  const client = await getClient();
 
   const cb = (topic: string, payload: string) => {
     if (res.writableEnded) return;
@@ -127,10 +133,47 @@ router.get('/stream', (req: Request, res: Response) => {
 // GET /uns/snapshot — returns last known values for all topics (quick overview)
 const topicCache = new Map<string, { payload: string; ts: number }>();
 
+// Load active subscriptions from Historian API
+const HISTORIAN_URL = process.env.HISTORIAN_URL || 'http://localhost:8030';
+let cachedSubscriptions: string[] = ['Factory/#']; // fallback
+
+async function loadSubscriptionsFromHistorian(): Promise<void> {
+  try {
+    const resp = await fetch(`${HISTORIAN_URL}/profiles`, { signal: AbortSignal.timeout(5_000) });
+    if (!resp.ok) return;
+    const data = await resp.json() as { profiles?: Array<{ enabled: boolean; subscription: string }> };
+    if (data.profiles && data.profiles.length > 0) {
+      const subs = [...new Set(data.profiles.filter((p: any) => p.enabled).map((p: any) => p.subscription))];
+      if (subs.length > 0) cachedSubscriptions = subs as string[];
+    }
+  } catch {
+    // Keep fallback
+  }
+}
+
 // Keep a cache of recent messages
-function initCache() {
-  const client = getClient();
-  client.subscribe('Factory/#', { qos: 0 });
+async function initCache() {
+  const client = await getClient();
+
+  // Subscribe to all active profile subscriptions
+  await loadSubscriptionsFromHistorian();
+  for (const sub of cachedSubscriptions) {
+    client.subscribe(sub, { qos: 0 });
+  }
+
+  // Reload subscriptions periodically
+  setInterval(async () => {
+    const c = await getClient();
+    const oldSubs = [...cachedSubscriptions];
+    await loadSubscriptionsFromHistorian();
+    // Subscribe to new, unsubscribe from removed
+    for (const sub of cachedSubscriptions) {
+      if (!oldSubs.includes(sub)) c.subscribe(sub, { qos: 0 });
+    }
+    for (const sub of oldSubs) {
+      if (!cachedSubscriptions.includes(sub)) c.unsubscribe(sub);
+    }
+  }, 30_000);
 
   client.on('message', (topic, payload) => {
     topicCache.set(topic, { payload: payload.toString(), ts: Date.now() });
@@ -209,7 +252,9 @@ router.get('/topics', (_req: Request, res: Response) => {
 });
 
 // Initialize cache on first import
-initCache();
+initCache().catch(err => {
+  logger.warn({ err: err.message }, 'UNS cache init failed (will retry on first request)');
+});
 
 // Periodic cleanup: evict topic cache entries older than 5 minutes
 setInterval(() => {

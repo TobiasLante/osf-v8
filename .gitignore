@@ -13,6 +13,12 @@ osf-gateway/.env.gateway
 k8s/*-secret*.yaml
 k8s/*-secrets*.yaml
 
+# Test env secrets
+k8s/test-env/.env
+
+# Local env overrides
+*.env.local
+
 # OS
 .DS_Store
 Thumbs.db

@@ -7,7 +7,7 @@ function getDatabaseUrl(): string {
   const pw = process.env.DB_PASSWORD;
   if (!pw) throw new Error('DB_PASSWORD environment variable is required');
   const host = process.env.DB_HOST || 'localhost';
-  const port = process.env.DB_PORT || '30436';
+  const port = process.env.DB_PORT || '5432';
   return `postgresql://osf_admin:${pw}@${host}:${port}/osf`;
 }
 
@@ -448,6 +448,39 @@ export async function initSchema(): Promise<void> {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS marketing_consent_at TIMESTAMPTZ;
     `);
 
+    // MCP Server registry (v9: dynamic instead of hardcoded)
+    await migrate('mcp_servers: create table', `
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        auth_type TEXT DEFAULT 'none',
+        credentials_encrypted TEXT,
+        status TEXT DEFAULT 'pending',
+        tools JSONB DEFAULT '[]',
+        tool_count INT DEFAULT 0,
+        categories TEXT[] DEFAULT '{}',
+        health_check_at TIMESTAMPTZ,
+        error_message TEXT,
+        added_by UUID REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON mcp_servers(status);
+    `);
+
+    // Seed historian MCP server (v9: auto-register on startup)
+    const historianUrl = process.env.HISTORIAN_URL || 'http://localhost:8030';
+    try {
+      await client.query(
+        `INSERT INTO mcp_servers (name, url, auth_type, status, tool_count, categories)
+         VALUES ('history', $1, 'none', 'pending', 6, ARRAY['history'])
+         ON CONFLICT DO NOTHING`,
+        [historianUrl]
+      );
+    } catch (err) {
+      logger.warn({ migration: 'mcp_servers: seed historian', err: (err as Error).message }, 'Migration step failed (may be expected on fresh DB)');
+    }
+
     // Version columns on agent tables (marketplace)
     await migrate('agents/chains/code_agents: version columns', `
       ALTER TABLE agents ADD COLUMN IF NOT EXISTS version INT DEFAULT 1;
@@ -508,6 +541,259 @@ export async function initSchema(): Promise<void> {
     await migrate('admin: set admin role', `
       UPDATE users SET role = 'admin' WHERE email = 'tobias.lante@ttpsc.com' AND (role IS NULL OR role = 'user');
     `);
+
+    // ─── Governance: Role-Based Access Control (v9) ─────────────────────────
+
+    // Factory roles (not IT roles — these map to Fabrik-Positionen)
+    await migrate('governance: factory_roles table', `
+      CREATE TABLE IF NOT EXISTS factory_roles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        is_system BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Tool categories (seeded by system, agent assigns tools to categories)
+    await migrate('governance: tool_categories table', `
+      CREATE TABLE IF NOT EXISTS tool_categories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        sensitivity TEXT DEFAULT 'low',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Tool classifications (1 entry per tool, created by governance agent)
+    await migrate('governance: tool_classifications table', `
+      CREATE TABLE IF NOT EXISTS tool_classifications (
+        tool_name TEXT PRIMARY KEY,
+        tool_description TEXT,
+        category_id TEXT REFERENCES tool_categories(id),
+        sensitivity TEXT DEFAULT 'low',
+        status TEXT DEFAULT 'pending',
+        classified_by TEXT,
+        reviewed_by UUID,
+        reviewed_at TIMESTAMPTZ,
+        mcp_server_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_tool_class_status ON tool_classifications(status);
+      CREATE INDEX IF NOT EXISTS idx_tool_class_category ON tool_classifications(category_id);
+    `);
+
+    // Role → Category permissions (which role may access which category)
+    await migrate('governance: role_permissions table', `
+      CREATE TABLE IF NOT EXISTS role_permissions (
+        role_id TEXT REFERENCES factory_roles(id) ON DELETE CASCADE,
+        category_id TEXT REFERENCES tool_categories(id) ON DELETE CASCADE,
+        PRIMARY KEY (role_id, category_id)
+      );
+    `);
+
+    // User → Role assignments (additive, user can have multiple roles)
+    await migrate('governance: user_roles table', `
+      CREATE TABLE IF NOT EXISTS user_roles (
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        role_id TEXT REFERENCES factory_roles(id) ON DELETE CASCADE,
+        assigned_by UUID,
+        assigned_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (user_id, role_id)
+      );
+    `);
+
+    // Audit log (every tool call, denial, role change)
+    await migrate('governance: audit_log table', `
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id BIGSERIAL PRIMARY KEY,
+        ts TIMESTAMPTZ DEFAULT NOW(),
+        user_id UUID NOT NULL,
+        user_email TEXT,
+        action TEXT NOT NULL,
+        tool_name TEXT,
+        tool_category TEXT,
+        source TEXT,
+        ip_address TEXT,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, ts DESC);
+    `);
+
+    // Seed default tool categories
+    await migrate('governance: seed tool_categories', `
+      INSERT INTO tool_categories (id, name, description, sensitivity) VALUES
+        ('production', 'Produktion & Kapazitaet', 'OEE, Maschinenauslastung, Auftraege', 'low'),
+        ('materials', 'Material & Lager', 'Lagerbestand, Materialverfuegbarkeit', 'low'),
+        ('mrp', 'MRP / Disposition', 'Disposition, Engpaesse, Bedarfsplanung', 'medium'),
+        ('procurement', 'Einkauf & Lieferanten', 'Einkauf, Lieferanten, Preise, Bestellungen', 'high'),
+        ('quality', 'Qualitaet', 'SPC, Kalibrierung, Cpk, Qualitaetsmeldungen', 'medium'),
+        ('maintenance', 'Instandhaltung', 'Wartung, MTBF, Stillstaende', 'low'),
+        ('tms', 'Werkzeugverwaltung', 'Werkzeugverwaltung, Verschleiss', 'low'),
+        ('customer', 'Kunden & Vertrieb', 'Kundenauftraege, Liefertreue, Umsatz', 'high'),
+        ('energy', 'Energie', 'Energieverbrauch, Kosten', 'low'),
+        ('assembly', 'Montage', 'Montage, Vormontage, Prueffeld', 'low'),
+        ('subcontracting', 'Fremdbearbeitung', 'Fremdbearbeitungs-Auftraege und Bewertungen', 'medium'),
+        ('kg_analytics', 'KG Analyse', 'Knowledge-Graph Analysen, Impact, Risk', 'medium'),
+        ('historian', 'Historian', 'Zeitreihen, Trends, Anomalien', 'low'),
+        ('kg_sensors', 'KG Sensoren', 'Sensordaten, Maschinenentdeckung', 'low'),
+        ('sgm', 'Spritzguss', 'Spritzguss-Prozessdaten', 'low'),
+        ('actions', 'Aktionen (Schreib)', 'Schreibende Operationen', 'critical')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    // Seed default factory roles
+    await migrate('governance: seed factory_roles', `
+      INSERT INTO factory_roles (id, name, description, is_system) VALUES
+        ('operator', 'Maschinenbediener', 'Bedient Maschinen, sieht Produktionsdaten', true),
+        ('meister', 'Meister / Schichtleiter', 'Schichtleitung, breiterer Zugriff auf Produktion+Qualitaet', true),
+        ('planner', 'Fertigungsplaner', 'Plant Fertigung, MRP, Materialdisposition', true),
+        ('quality_mgr', 'Qualitaetssicherung', 'Qualitaetsmanagement und SPC', true),
+        ('maintenance_mgr', 'Instandhaltungsleiter', 'Wartung und Instandhaltung', true),
+        ('procurement_mgr', 'Einkaufsleiter', 'Einkauf und Lieferantenmanagement', true),
+        ('plant_manager', 'Produktionsleiter', 'Gesamtueberblick Produktion', true),
+        ('management', 'Geschaeftsfuehrung', 'Vollzugriff auf alle Daten', true),
+        ('full_access', 'Vollzugriff (Legacy)', 'Alle Kategorien — fuer bestehende Admins', true)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    // Seed role → category permissions
+    await migrate('governance: seed role_permissions', `
+      -- operator: production, tms, assembly, historian
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('operator', 'production'), ('operator', 'tms'), ('operator', 'assembly'), ('operator', 'historian')
+      ON CONFLICT DO NOTHING;
+
+      -- meister: production, materials, tms, maintenance, quality, assembly, energy, historian, kg_sensors
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('meister', 'production'), ('meister', 'materials'), ('meister', 'tms'),
+        ('meister', 'maintenance'), ('meister', 'quality'), ('meister', 'assembly'),
+        ('meister', 'energy'), ('meister', 'historian'), ('meister', 'kg_sensors')
+      ON CONFLICT DO NOTHING;
+
+      -- planner: production, materials, mrp, procurement, subcontracting, kg_analytics
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('planner', 'production'), ('planner', 'materials'), ('planner', 'mrp'),
+        ('planner', 'procurement'), ('planner', 'subcontracting'), ('planner', 'kg_analytics')
+      ON CONFLICT DO NOTHING;
+
+      -- quality_mgr: quality, production, historian, sgm
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('quality_mgr', 'quality'), ('quality_mgr', 'production'),
+        ('quality_mgr', 'historian'), ('quality_mgr', 'sgm')
+      ON CONFLICT DO NOTHING;
+
+      -- maintenance_mgr: maintenance, tms, energy, historian, kg_sensors, production
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('maintenance_mgr', 'maintenance'), ('maintenance_mgr', 'tms'),
+        ('maintenance_mgr', 'energy'), ('maintenance_mgr', 'historian'),
+        ('maintenance_mgr', 'kg_sensors'), ('maintenance_mgr', 'production')
+      ON CONFLICT DO NOTHING;
+
+      -- procurement_mgr: procurement, materials, mrp, subcontracting, customer
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('procurement_mgr', 'procurement'), ('procurement_mgr', 'materials'),
+        ('procurement_mgr', 'mrp'), ('procurement_mgr', 'subcontracting'),
+        ('procurement_mgr', 'customer')
+      ON CONFLICT DO NOTHING;
+
+      -- plant_manager: broad access
+      INSERT INTO role_permissions (role_id, category_id) VALUES
+        ('plant_manager', 'production'), ('plant_manager', 'materials'),
+        ('plant_manager', 'mrp'), ('plant_manager', 'quality'),
+        ('plant_manager', 'maintenance'), ('plant_manager', 'tms'),
+        ('plant_manager', 'energy'), ('plant_manager', 'assembly'),
+        ('plant_manager', 'subcontracting'), ('plant_manager', 'kg_analytics'),
+        ('plant_manager', 'historian')
+      ON CONFLICT DO NOTHING;
+
+      -- management + full_access: ALL categories
+      INSERT INTO role_permissions (role_id, category_id)
+      SELECT r.id, c.id FROM factory_roles r CROSS JOIN tool_categories c
+      WHERE r.id IN ('management', 'full_access')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // Assign full_access role to existing admin users (backward compat — no function loss)
+    await migrate('governance: assign full_access to admins', `
+      INSERT INTO user_roles (user_id, role_id, assigned_by)
+      SELECT id, 'full_access', id FROM users WHERE role = 'admin'
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // ─── Data Retention ─────────────────────────────────────────────────────
+    // Audit log: keep 90 days, delete older entries on every startup
+    try {
+      const deleted = await client.query(
+        `DELETE FROM audit_log WHERE ts < NOW() - INTERVAL '90 days'`
+      );
+      if ((deleted.rowCount || 0) > 0) {
+        logger.info({ deleted: deleted.rowCount }, 'Audit log retention: cleaned old entries');
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Audit log retention cleanup failed');
+    }
+
+    // Expired refresh tokens + email tokens
+    try {
+      await client.query(`DELETE FROM refresh_tokens WHERE expires_at < NOW() - INTERVAL '7 days'`);
+      await client.query(`DELETE FROM email_tokens WHERE expires_at < NOW() - INTERVAL '7 days'`);
+      await client.query(`DELETE FROM oauth_states WHERE expires_at < NOW() - INTERVAL '1 day'`);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Token cleanup failed');
+    }
+
+    // ─── Schema Versioning ──────────────────────────────────────────────────
+    await migrate('schema_version: create table', `
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INT PRIMARY KEY,
+        applied_at TIMESTAMPTZ DEFAULT NOW(),
+        description TEXT
+      );
+    `);
+
+    // Record current schema version
+    await migrate('schema_version: set v1', `
+      INSERT INTO schema_version (version, description)
+      VALUES (1, 'Initial hardened schema — governance, marketplace, historian seed')
+      ON CONFLICT (version) DO NOTHING;
+    `);
+
+    const versionResult = await client.query('SELECT MAX(version) AS v FROM schema_version');
+    logger.info({ schemaVersion: versionResult.rows[0]?.v || 0 }, 'Schema version');
+
+    // ─── Admin Seed from ENV ──────────────────────────────────────────────
+    try {
+      const userCount = await client.query('SELECT COUNT(*) AS c FROM users');
+      if (parseInt(userCount.rows[0].c) === 0) {
+        const adminEmail = process.env.ADMIN_EMAIL;
+        const adminPassword = process.env.ADMIN_PASSWORD;
+        if (adminEmail && adminPassword) {
+          const bcrypt = await import('bcryptjs');
+          const hash = await bcrypt.hash(adminPassword, 12);
+          await client.query(
+            `INSERT INTO users (email, password_hash, name, role, tier, email_verified)
+             VALUES ($1, $2, 'Admin', 'admin', 'premium', TRUE)
+             ON CONFLICT (email) DO NOTHING`,
+            [adminEmail, hash]
+          );
+          // Assign full_access governance role
+          await client.query(
+            `INSERT INTO user_roles (user_id, role_id)
+             SELECT id, 'full_access' FROM users WHERE email = $1
+             ON CONFLICT DO NOTHING`,
+            [adminEmail]
+          );
+          logger.info({ email: adminEmail }, 'Admin user seeded from ENV');
+        } else {
+          logger.warn('No users in DB and ADMIN_EMAIL/ADMIN_PASSWORD not set — no admin seeded');
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Admin seed failed');
+    }
 
     logger.info('Schema initialized');
   } finally {

@@ -70,6 +70,34 @@ export const wikiArticles: WikiArticle[] = [
     category: "Referenz",
   },
   {
+    slug: "knowledge-graph",
+    title: "Knowledge Graph",
+    description:
+      "Schema-driven KG building, vector embeddings, semantic search, impact analysis",
+    category: "Architektur",
+  },
+  {
+    slug: "historian",
+    title: "Historian & Time-Series",
+    description:
+      "Industrial MQTT → TimescaleDB pipeline, anomaly detection, downsampling",
+    category: "Architektur",
+  },
+  {
+    slug: "opcua-mtp",
+    title: "OPC-UA Server Integration",
+    description:
+      "OPC-UA Server anbinden, Edge Gateway, MQTT UNS Pipeline, MTP fur Prozessindustrie, ISA-95",
+    category: "Architektur",
+  },
+  {
+    slug: "governance",
+    title: "Governance & RBAC",
+    description:
+      "Role-based tool access, audit logging, tool classification, factory roles",
+    category: "Betrieb",
+  },
+  {
     slug: "troubleshooting",
     title: "Troubleshooting & FAQ",
     description: "Common errors, debugging tips, FAQ",

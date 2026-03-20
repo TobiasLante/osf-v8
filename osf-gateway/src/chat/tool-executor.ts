@@ -1,6 +1,12 @@
 import { logger } from '../logger';
 import { config } from '../config';
 import { ff } from '../feature-flags';
+import { pool } from '../db/pool';
+import { kgSensorToolDefs, isKgSensorTool, handleKgSensorTool } from '../kg-agent/tools';
+import { isToolAllowed, filterToolsForUser } from '../auth/permissions';
+import { audit } from '../auth/audit';
+import { toolCallsTotal, mcpFailuresTotal } from '../metrics';
+import { recordToolCall } from '../internal-metrics';
 
 // ─── MCP Circuit Breaker ──────────────────────────────────────────────────────
 class McpCircuitBreaker {
@@ -84,14 +90,59 @@ function stripMcpSuffix(url: string): string {
   return url.replace(/\/mcp\/?$/, '');
 }
 
-export const MCP_SERVERS: Record<string, string> = {
-  erp: stripMcpSuffix(process.env.MCP_ERP_URL || process.env.MCP_URL_ERP || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  oee: stripMcpSuffix(process.env.MCP_OEE_URL || process.env.MCP_URL_OEE || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  qms: stripMcpSuffix(process.env.MCP_QMS_URL || process.env.MCP_URL_QMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  tms: stripMcpSuffix(process.env.MCP_TMS_URL || process.env.MCP_URL_TMS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
-  uns: stripMcpSuffix(process.env.MCP_UNS_URL || process.env.MCP_URL_UNS || 'http://factory-v3-fertigung.factory.svc.cluster.local:8025'),
-  kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://factory-v3-fertigung.factory.svc.cluster.local:8020'),
+// ─── Dynamic MCP Server Registry (v9) ────────────────────────────────────────
+// Loads from mcp_servers DB table. Falls back to env vars for backward compat.
+
+const ENV_FALLBACK_SERVERS: Record<string, string> = {
+  erp: stripMcpSuffix(process.env.MCP_ERP_URL || process.env.MCP_URL_ERP || 'http://localhost:8020'),
+  oee: stripMcpSuffix(process.env.MCP_OEE_URL || process.env.MCP_URL_OEE || 'http://localhost:8020'),
+  qms: stripMcpSuffix(process.env.MCP_QMS_URL || process.env.MCP_URL_QMS || 'http://localhost:8020'),
+  tms: stripMcpSuffix(process.env.MCP_TMS_URL || process.env.MCP_URL_TMS || 'http://localhost:8020'),
+  uns: stripMcpSuffix(process.env.MCP_UNS_URL || process.env.MCP_URL_UNS || 'http://localhost:8025'),
+  kg:  stripMcpSuffix(process.env.MCP_KG_URL  || process.env.MCP_URL_KG  || 'http://localhost:8020'),
 };
+
+let dbServersCache: Record<string, string> | null = null;
+let dbServersCacheTime = 0;
+const DB_CACHE_TTL = 60_000; // Reload from DB every 60s
+
+async function loadMcpServersFromDb(): Promise<Record<string, string>> {
+  try {
+    const result = await pool.query(
+      "SELECT name, url FROM mcp_servers WHERE status = 'online'"
+    );
+    const servers: Record<string, string> = {};
+    for (const row of result.rows) {
+      servers[row.name] = stripMcpSuffix(row.url);
+    }
+    return servers;
+  } catch {
+    // Table may not exist yet or DB down — silent fallback
+    return {};
+  }
+}
+
+async function getMcpServers(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (dbServersCache && now - dbServersCacheTime < DB_CACHE_TTL) {
+    return dbServersCache;
+  }
+
+  const dbServers = await loadMcpServersFromDb();
+  // Merge: DB servers override env fallbacks
+  const merged = { ...ENV_FALLBACK_SERVERS, ...dbServers };
+  dbServersCache = merged;
+  dbServersCacheTime = now;
+  return merged;
+}
+
+// Synchronous access for backward compat (uses cache or env fallback)
+export function getMcpServersCached(): Record<string, string> {
+  return dbServersCache || ENV_FALLBACK_SERVERS;
+}
+
+// Legacy export for code that reads MCP_SERVERS directly
+export const MCP_SERVERS = ENV_FALLBACK_SERVERS;
 
 const CACHE_TTL = config.mcp.toolCacheTtlMs;
 
@@ -128,18 +179,32 @@ async function fetchToolsFromUrl(url: string): Promise<any[]> {
 }
 
 export async function getMcpToolsForServer(server: string): Promise<any[]> {
-  const url = MCP_SERVERS[server];
+  const servers = await getMcpServers();
+  const url = servers[server];
   if (!url) throw new Error(`Unknown MCP server: ${server}`);
   return fetchToolsFromUrl(url);
 }
 
-/** Get tools from ALL MCP servers combined, deduplicated by tool name */
+/** Get tools from ALL MCP servers, filtered by user governance permissions */
+export async function getMcpToolsForUser(userId: string): Promise<any[]> {
+  const allTools = await getMcpTools();
+  return filterToolsForUser(userId, allTools);
+}
+
+/** Get tools from ALL MCP servers combined + local KG sensor tools, deduplicated by tool name */
 export async function getMcpTools(): Promise<any[]> {
+  const servers = await getMcpServers();
   // Deduplicate URLs so we don't query the same endpoint multiple times
-  const uniqueUrls = [...new Set(Object.values(MCP_SERVERS))];
+  const uniqueUrls = [...new Set(Object.values(servers))];
   const results = await Promise.allSettled(
     uniqueUrls.map(url => fetchToolsFromUrl(url))
   );
+
+  // Warn if all MCP servers are down
+  const allRejected = results.every(r => r.status === 'rejected');
+  if (allRejected && uniqueUrls.length > 0) {
+    logger.warn({ serverCount: uniqueUrls.length }, 'All MCP servers unreachable');
+  }
 
   const seen = new Set<string>();
   const tools: any[] = [];
@@ -153,6 +218,15 @@ export async function getMcpTools(): Promise<any[]> {
       }
     }
   }
+
+  // Add local KG sensor tools (no MCP round-trip, query Apache AGE directly)
+  for (const t of kgSensorToolDefs) {
+    if (!seen.has(t.function.name)) {
+      seen.add(t.function.name);
+      tools.push(t);
+    }
+  }
+
   return tools;
 }
 
@@ -166,8 +240,9 @@ async function getToolServerMap(): Promise<Map<string, string>> {
     return toolServerMap;
   }
 
+  const servers = await getMcpServers();
   toolServerMap = new Map();
-  for (const server of Object.keys(MCP_SERVERS)) {
+  for (const server of Object.keys(servers)) {
     try {
       const tools = await getMcpToolsForServer(server);
       for (const t of tools) {
@@ -186,15 +261,51 @@ async function getToolServerMap(): Promise<Map<string, string>> {
 
 export async function callMcpTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  userId?: string,
+  userEmail?: string,
 ): Promise<string> {
+  // Governance: permission check (hard gate)
+  if (userId) {
+    const allowed = await isToolAllowed(userId, name);
+    if (!allowed) {
+      audit({
+        user_id: userId,
+        user_email: userEmail,
+        action: 'tool_denied',
+        tool_name: name,
+        source: 'chat',
+        detail: `Tool call denied by governance`,
+      });
+      logger.warn({ userId, tool: name }, 'Tool call denied by governance');
+      return JSON.stringify({ error: `Zugriff verweigert: Sie haben keine Berechtigung fuer das Tool "${name}". Kontaktieren Sie Ihren Administrator.` });
+    }
+
+    // Audit successful tool call
+    audit({
+      user_id: userId,
+      user_email: userEmail,
+      action: 'tool_call',
+      tool_name: name,
+      source: 'chat',
+    });
+  }
+
+  // Handle local KG sensor tools directly (no MCP round-trip)
+  if (isKgSensorTool(name)) {
+    toolCallsTotal.inc({ tool: name, status: 'local' });
+    recordToolCall(true);
+    return handleKgSensorTool(name, args);
+  }
+
   const map = await getToolServerMap();
   const server = map.get(name);
   if (!server) {
     return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
 
-  const url = MCP_SERVERS[server];
+  const servers = getMcpServersCached();
+  const url = servers[server];
 
   // Circuit breaker check — fast-fail if MCP server is known-down
   if (ff.enableMcpCircuitBreaker) {
@@ -218,17 +329,25 @@ export async function callMcpTool(
     });
   } catch (err: any) {
     if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordFailure();
+    toolCallsTotal.inc({ tool: name, status: 'error' });
+    mcpFailuresTotal.inc({ url });
+    recordToolCall(false);
     return JSON.stringify({ error: `MCP unreachable after retries: ${err.message}` });
   }
 
   if (!resp.ok) {
     const text = await resp.text();
     if (ff.enableMcpCircuitBreaker && resp.status >= 500) getMcpCircuitBreaker(url).recordFailure();
+    toolCallsTotal.inc({ tool: name, status: 'error' });
+    mcpFailuresTotal.inc({ url });
+    recordToolCall(false);
     return JSON.stringify({ error: `MCP error ${resp.status}: ${text}` });
   }
 
   // Success — reset circuit breaker
   if (ff.enableMcpCircuitBreaker) getMcpCircuitBreaker(url).recordSuccess();
+  toolCallsTotal.inc({ tool: name, status: 'ok' });
+  recordToolCall(true);
 
   const data: any = await resp.json();
   if (data.error) {

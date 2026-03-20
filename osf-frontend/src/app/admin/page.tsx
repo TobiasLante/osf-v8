@@ -39,7 +39,11 @@ interface BannerState {
   active: boolean;
 }
 
+<<<<<<< HEAD
 type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods";
+=======
+type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods" | "agents" | "roles" | "categories" | "mcp" | "classifications" | "audit" | "dashboard" | "profiles";
+>>>>>>> feat/v9-embeddings-charts-mqtt
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -75,7 +79,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods"] as Tab[]).map((t) => (
+        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods", "agents", "roles", "categories", "mcp", "classifications", "audit", "dashboard", "profiles"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -85,7 +89,7 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {t === "health" ? "Health" : t === "users" ? "Users" : t === "stats" ? "Stats" : t === "activity" ? "Activity" : t === "news" ? "News" : t === "banner" ? "Banner" : t === "infra" ? "Infrastructure" : "NR Pods"}
+            {{ health: "Health", users: "Users", stats: "Stats", activity: "Activity", news: "News", banner: "Banner", infra: "Infrastructure", nrpods: "NR Pods", agents: "Agents", roles: "Roles", categories: "Categories", mcp: "MCP Servers", classifications: "Classifications", audit: "Audit", dashboard: "Dashboard", profiles: "Profiles" }[t]}
           </button>
         ))}
       </div>
@@ -98,6 +102,17 @@ export default function AdminPage() {
       {tab === "banner" && <ErrorBoundary name="banner"><BannerTab /></ErrorBoundary>}
       {tab === "infra" && <ErrorBoundary name="infra"><InfraTab /></ErrorBoundary>}
       {tab === "nrpods" && <ErrorBoundary name="nrpods"><NrPodsTab /></ErrorBoundary>}
+<<<<<<< HEAD
+=======
+      {tab === "roles" && <ErrorBoundary name="roles"><RolesTab /></ErrorBoundary>}
+      {tab === "categories" && <ErrorBoundary name="categories"><CategoriesTab /></ErrorBoundary>}
+      {tab === "mcp" && <ErrorBoundary name="mcp"><McpServersTab /></ErrorBoundary>}
+      {tab === "audit" && <ErrorBoundary name="audit"><AuditTab /></ErrorBoundary>}
+      {tab === "agents" && <ErrorBoundary name="agents"><AgentsTab /></ErrorBoundary>}
+      {tab === "classifications" && <ErrorBoundary name="classifications"><ClassificationsTab /></ErrorBoundary>}
+      {tab === "dashboard" && <ErrorBoundary name="dashboard"><DashboardTab /></ErrorBoundary>}
+      {tab === "profiles" && <ErrorBoundary name="profiles"><TopicProfilesTab /></ErrorBoundary>}
+>>>>>>> feat/v9-embeddings-charts-mqtt
     </main>
   );
 }
@@ -622,6 +637,7 @@ function CreateUserModal({
             className="w-full px-3 py-2 bg-bg border border-border rounded text-text text-sm [&>option]:text-gray-900 [&>option]:bg-white"
           >
             <option value="user">User</option>
+            <option value="demo">Demo</option>
             <option value="admin">Admin</option>
           </select>
           <div className="flex gap-3 justify-end pt-2">
@@ -1709,7 +1725,7 @@ function NrPodsTab() {
     if (!confirm("This will release ALL active pods and kill all warm pods. New warm pods will be created. Continue?")) return;
     setDraining(true);
     try {
-      const result = await apiFetch<{ released: number; deleted: number }>("/admin/nr-pods/drain-all", { method: "POST" });
+      await apiFetch<{ released: number; deleted: number }>("/admin/nr-pods/drain-all", { method: "POST" });
       await fetchData();
     } catch (err: any) {
       setError(err.message);
@@ -2016,3 +2032,1189 @@ function valueColor(value: number | null | undefined, warn: number, danger: numb
   if (value >= warn) return "text-yellow-400";
   return "text-green-400";
 }
+
+// ─── v9: Factory Roles Tab ──────────────────────────────────────────────────
+
+interface FactoryRole {
+  id: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+  user_count: string;
+  categories: string[];
+  created_at: string;
+}
+
+function RolesTab() {
+  const [roles, setRoles] = useState<FactoryRole[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editCats, setEditCats] = useState<string[]>([]);
+  const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch<{ roles: FactoryRole[] }>("/admin/roles"),
+      apiFetch<{ categories: { id: string; name: string }[] }>("/admin/tool-categories"),
+    ])
+      .then(([r, c]) => {
+        setRoles(r.roles);
+        setAllCategories(c.categories);
+      })
+      .catch((err: any) => console.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const savePermissions = async (roleId: string) => {
+    try {
+      await apiFetch(`/admin/roles/${roleId}/permissions`, {
+        method: "PUT",
+        body: JSON.stringify({ categories: editCats }),
+      });
+      setRoles((prev) =>
+        prev.map((r) => (r.id === roleId ? { ...r, categories: editCats } : r))
+      );
+      setEditId(null);
+    } catch (err: any) {
+      alert(err.message || "Failed to save");
+    }
+  };
+
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading roles...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-text">Factory Roles ({roles.length})</h2>
+      </div>
+      <div className="grid gap-3">
+        {roles.map((role) => (
+          <div key={role.id} className="p-4 rounded-md border border-border bg-bg-surface">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h3 className="font-semibold text-text">{role.name}</h3>
+                <p className="text-xs text-text-muted">{role.description}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-text-dim">{role.user_count} users</span>
+                {role.is_system && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">system</span>
+                )}
+              </div>
+            </div>
+            {editId === role.id ? (
+              <div className="mt-3 space-y-2">
+                <div className="text-xs text-text-muted mb-1">Allowed Categories:</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {allCategories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() =>
+                        setEditCats((prev) =>
+                          prev.includes(cat.id)
+                            ? prev.filter((c) => c !== cat.id)
+                            : [...prev, cat.id]
+                        )
+                      }
+                      className={`px-2 py-1 rounded text-xs transition-all ${
+                        editCats.includes(cat.id)
+                          ? "bg-accent text-bg"
+                          : "border border-border text-text-dim hover:border-accent/30"
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => savePermissions(role.id)}
+                    className="px-3 py-1.5 rounded text-xs bg-accent text-bg font-medium hover:bg-accent-hover"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditId(null)}
+                    className="px-3 py-1.5 rounded text-xs text-text-muted hover:text-text"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex flex-wrap gap-1">
+                  {role.categories.map((cat) => (
+                    <span
+                      key={cat}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-bg-surface-2 text-text-muted"
+                    >
+                      {cat}
+                    </span>
+                  ))}
+                  {role.categories.length === 0 && (
+                    <span className="text-[10px] text-text-dim">No categories assigned</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setEditId(role.id);
+                    setEditCats(role.categories);
+                  }}
+                  className="ml-auto text-xs text-accent hover:text-accent-hover"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── v9: Tool Categories Tab ────────────────────────────────────────────────
+
+interface ToolCategory {
+  id: string;
+  name: string;
+  description: string;
+  sensitivity: string;
+  tool_count: string;
+  created_at: string;
+}
+
+function CategoriesTab() {
+  const [categories, setCategories] = useState<ToolCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [classifications, setClassifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
+      apiFetch<{ classifications: any[] }>("/admin/tool-classifications").catch((err: any) => { console.error(err.message); return { classifications: [] }; }),
+    ])
+      .then(([c, cl]) => {
+        setCategories(c.categories);
+        setClassifications(cl.classifications || []);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading categories...</div>;
+
+  const sensColor: Record<string, string> = {
+    critical: "text-red-400 bg-red-400/10 border-red-400/20",
+    high: "text-orange-400 bg-orange-400/10 border-orange-400/20",
+    medium: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
+    low: "text-green-400 bg-green-400/10 border-green-400/20",
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-lg font-semibold text-text">Tool Categories ({categories.length})</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {categories.map((cat) => {
+          const catTools = classifications.filter((c: any) => c.category_id === cat.id);
+          return (
+            <div key={cat.id} className="p-4 rounded-md border border-border bg-bg-surface">
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="font-semibold text-text text-sm">{cat.name}</h3>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    sensColor[cat.sensitivity] || "text-text-dim"
+                  }`}
+                >
+                  {cat.sensitivity}
+                </span>
+              </div>
+              <p className="text-xs text-text-muted mb-3">{cat.description}</p>
+              <div className="flex items-center justify-between text-xs text-text-dim">
+                <span>{cat.tool_count} tools classified</span>
+                {catTools.length > 0 && (
+                  <span>{catTools.filter((t: any) => t.status === "approved").length} approved</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── v9: MCP Servers Tab ────────────────────────────────────────────────────
+
+interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  auth_type: string;
+  status: string;
+  tool_count: number;
+  categories: string[];
+  health_check_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+function McpServersTab() {
+  const [servers, setServers] = useState<McpServer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [discovering, setDiscovering] = useState<string | null>(null);
+  const [selectedServer, setSelectedServer] = useState<string | null>(null);
+  const [tools, setTools] = useState<any[]>([]);
+
+  const loadServers = useCallback(() => {
+    apiFetch<{ servers: McpServer[] }>("/admin/mcp-servers")
+      .then((d) => setServers(d.servers))
+      .catch((err: any) => console.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { loadServers(); }, [loadServers]);
+
+  const discover = async (id: string) => {
+    setDiscovering(id);
+    try {
+      await apiFetch(`/admin/mcp-servers/${id}/discover`, { method: "POST" });
+      // Poll for completion
+      setTimeout(() => {
+        loadServers();
+        setDiscovering(null);
+      }, 3000);
+    } catch {
+      setDiscovering(null);
+    }
+  };
+
+  const loadTools = async (id: string) => {
+    if (selectedServer === id) {
+      setSelectedServer(null);
+      return;
+    }
+    setSelectedServer(id);
+    try {
+      const data = await apiFetch<any>(`/admin/mcp-servers/${id}`);
+      setTools(data.tools || []);
+    } catch {
+      setTools([]);
+    }
+  };
+
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading MCP servers...</div>;
+
+  const statusColor: Record<string, string> = {
+    online: "bg-emerald-400",
+    pending: "bg-yellow-400",
+    error: "bg-red-400",
+    offline: "bg-red-400",
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-text">MCP Servers ({servers.length})</h2>
+      <div className="space-y-3">
+        {servers.map((srv) => (
+          <div key={srv.id} className="rounded-md border border-border bg-bg-surface overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-center gap-3">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusColor[srv.status] || "bg-gray-400"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-text">{srv.name}</h3>
+                    <span className="text-[10px] text-text-dim font-mono truncate">{srv.url}</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-text-muted">
+                    <span>{srv.tool_count} tools</span>
+                    <span>Status: {srv.status}</span>
+                    {srv.health_check_at && (
+                      <span>Last check: {new Date(srv.health_check_at).toLocaleTimeString()}</span>
+                    )}
+                    {srv.error_message && (
+                      <span className="text-red-400">{srv.error_message}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => discover(srv.id)}
+                    disabled={discovering === srv.id}
+                    className="px-3 py-1.5 rounded text-xs bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 disabled:opacity-50"
+                  >
+                    {discovering === srv.id ? "Discovering..." : "Discover"}
+                  </button>
+                  <button
+                    onClick={() => loadTools(srv.id)}
+                    className="px-3 py-1.5 rounded text-xs border border-border text-text-muted hover:text-text hover:border-accent/30"
+                  >
+                    {selectedServer === srv.id ? "Hide Tools" : "Show Tools"}
+                  </button>
+                </div>
+              </div>
+              {srv.categories.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {srv.categories.map((cat) => (
+                    <span key={cat} className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-bg-surface-2 text-text-muted">
+                      {cat}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedServer === srv.id && (
+              <div className="border-t border-border bg-bg-surface-2 p-4">
+                <div className="text-xs font-semibold text-text-muted mb-2">
+                  Discovered Tools ({tools.length})
+                </div>
+                {tools.length === 0 ? (
+                  <div className="text-xs text-text-dim">No tools discovered yet. Click Discover.</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {tools.map((tool: any, i: number) => {
+                      const fn = tool.function || tool;
+                      return (
+                        <div key={i} className="p-2 rounded border border-border bg-bg-surface text-xs">
+                          <div className="font-mono font-semibold text-accent">{fn.name || "?"}</div>
+                          <div className="text-text-muted mt-0.5 line-clamp-2">{fn.description || ""}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {servers.length === 0 && (
+          <div className="text-text-dim text-center py-8">No MCP servers registered</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── v9: Audit Export Tab ───────────────────────────────────────────────────
+
+function AuditTab() {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [toDate, setToDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  const loadAudit = useCallback(() => {
+    setLoading(true);
+    apiFetch<{ entries: any[]; total: number }>(`/admin/audit?from=${fromDate}&to=${toDate}&limit=50`)
+      .then((d) => {
+        setEntries(d.entries || []);
+        setTotal(d.total || 0);
+      })
+      .catch((err: any) => console.error('Audit load failed:', err.message))
+      .finally(() => setLoading(false));
+  }, [fromDate, toDate]);
+
+  useEffect(() => { loadAudit(); }, [loadAudit]);
+
+  const downloadExport = (format: "csv" | "json") => {
+    const url = `${process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai"}/admin/audit/export?from=${fromDate}&to=${toDate}&format=${format}`;
+    const token = localStorage.getItem("osf_token");
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Export failed: HTTP ${r.status}`);
+        return r.blob();
+      })
+      .then((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `audit-export-${fromDate}_${toDate}.${format}`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => alert("Export failed"));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold text-text">Audit Log</h2>
+        <div className="flex-1" />
+        <label className="text-xs text-text-muted">From</label>
+        <input
+          type="date"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          className="px-2 py-1 rounded text-xs border border-border bg-bg-surface text-text"
+        />
+        <label className="text-xs text-text-muted">To</label>
+        <input
+          type="date"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          className="px-2 py-1 rounded text-xs border border-border bg-bg-surface text-text"
+        />
+        <button
+          onClick={() => downloadExport("csv")}
+          className="px-3 py-1.5 rounded text-xs bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20"
+        >
+          Export CSV
+        </button>
+        <button
+          onClick={() => downloadExport("json")}
+          className="px-3 py-1.5 rounded text-xs border border-border text-text-muted hover:text-text hover:border-accent/30"
+        >
+          Export JSON
+        </button>
+      </div>
+
+      <div className="text-xs text-text-dim">{total} total entries</div>
+
+      {loading ? (
+        <div className="text-text-muted py-8 text-center">Loading...</div>
+      ) : entries.length === 0 ? (
+        <div className="text-text-dim text-center py-8 border border-border rounded-md">
+          No audit entries in this date range
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border text-text-muted">
+                <th className="text-left py-2 px-2">Time</th>
+                <th className="text-left py-2 px-2">User</th>
+                <th className="text-left py-2 px-2">Action</th>
+                <th className="text-left py-2 px-2">Tool</th>
+                <th className="text-left py-2 px-2">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e: any, i: number) => (
+                <tr key={i} className="border-b border-border/50 hover:bg-bg-surface-2">
+                  <td className="py-1.5 px-2 text-text-dim whitespace-nowrap">
+                    {new Date(e.created_at || e.timestamp).toLocaleString()}
+                  </td>
+                  <td className="py-1.5 px-2 text-text-muted">{e.user_email || e.email || "-"}</td>
+                  <td className="py-1.5 px-2">
+                    <span className="px-1.5 py-0.5 rounded bg-bg-surface-2 text-text font-mono">
+                      {e.action}
+                    </span>
+                  </td>
+                  <td className="py-1.5 px-2 text-accent font-mono">{e.tool_name || "-"}</td>
+                  <td className="py-1.5 px-2 text-text-dim max-w-xs truncate">{e.detail || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Agents Tab ──────────────────────────────────────────────────────────────
+
+function AgentsTab() {
+  const [agents, setAgents] = useState<any[]>([]);
+  const [checkedAt, setCheckedAt] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch("/admin/agents/status")
+      .then((d) => { setAgents(d.agents || []); setCheckedAt(d.checkedAt || ""); })
+      .catch((e) => setError(e.message));
+  }, []);
+
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
+  if (agents.length === 0 && !checkedAt) return <div className="text-text-muted text-sm">Loading agents...</div>;
+
+  const statusColor = (s: string) =>
+    ["running", "ok", "online", "healthy"].includes(s) ? "bg-green-500"
+    : ["error", "offline", "critical"].includes(s) ? "bg-red-500"
+    : "bg-yellow-500";
+
+  const buildDetails = (a: any): { label: string; value: string }[] => {
+    const d: { label: string; value: string }[] = [];
+    if (a.type) d.push({ label: "Type", value: a.type });
+    if (a.machines !== undefined) d.push({ label: "Machines", value: String(a.machines) });
+    if (a.sensors !== undefined) d.push({ label: "Sensors", value: String(a.sensors) });
+    if (a.discovered !== undefined) d.push({ label: "Discovered", value: a.discovered.toLocaleString() });
+    if (a.updates !== undefined) d.push({ label: "Updates", value: a.updates.toLocaleString() });
+    if (a.mqtt) {
+      d.push({ label: "MQTT Connected", value: a.mqtt.connected ? "Yes" : "No" });
+      if (a.mqtt.received) d.push({ label: "Messages Received", value: a.mqtt.received.toLocaleString() });
+    }
+    if (a.flush) {
+      d.push({ label: "Rows Inserted", value: a.flush.inserted?.toLocaleString() || "-" });
+      if (a.flush.msgPerSec) d.push({ label: "Rate", value: `${a.flush.msgPerSec} msg/s` });
+    }
+    if (a.toolCount !== undefined) d.push({ label: "Tools", value: String(a.toolCount) });
+    if (a.url) d.push({ label: "URL", value: a.url });
+    if (a.version) d.push({ label: "Version", value: a.version });
+    return d;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-text">Agent Status</h2>
+        {checkedAt && <span className="text-xs text-text-dim">Checked: {new Date(checkedAt).toLocaleString()}</span>}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {agents.map((agent: any) => (
+          <div key={agent.name} className="rounded-lg border border-border bg-bg-surface p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${statusColor(agent.status)}`} />
+              <span className="font-medium text-text">{agent.name}</span>
+              <span className="text-xs text-text-dim ml-auto">{agent.status}</span>
+            </div>
+            {agent.description && <p className="text-xs text-text-muted mb-3">{agent.description}</p>}
+            <div className="space-y-1">
+              {buildDetails(agent).map((d) => (
+                <div key={d.label} className="flex justify-between text-sm">
+                  <span className="text-text-muted">{d.label}</span>
+                  <span className="text-text font-mono text-right max-w-[60%] truncate">{d.value}</span>
+                </div>
+              ))}
+            </div>
+            {agent.perTable && agent.perTable.length > 0 && (
+              <div className="mt-3 pt-2 border-t border-border/50">
+                <span className="text-xs text-text-dim font-medium">Per-Table Stats</span>
+                {agent.perTable.map((t: any) => (
+                  <div key={t.table} className="flex justify-between text-xs mt-1">
+                    <span className="text-text-muted font-mono">{t.table}</span>
+                    <span className="text-text">{t.inserted?.toLocaleString()} rows, {t.flushes} flushes</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {agents.length === 0 && (
+        <p className="text-text-dim text-sm">No agents registered.</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Classifications Tab ─────────────────────────────────────────────────────
+
+function ClassificationsTab() {
+  const [classifications, setClassifications] = useState<any[]>([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch("/admin/tool-classifications")
+      .then((d) => setClassifications(d.classifications || d || []))
+      .catch((e) => setError(e.message));
+  }, []);
+
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
+
+  const statusColor = (s: string) =>
+    s === "approved" ? "text-green-400" : s === "denied" ? "text-red-400" : "text-yellow-400";
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-text">Tool Classifications</h2>
+      {classifications.length === 0 ? (
+        <p className="text-text-dim text-sm">No classifications found.</p>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-bg-surface text-text-muted text-xs">
+                <th className="text-left px-4 py-2">Tool</th>
+                <th className="text-left px-4 py-2">Category</th>
+                <th className="text-left px-4 py-2">Status</th>
+                <th className="text-left px-4 py-2">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classifications.map((c: any, i: number) => (
+                <tr key={i} className="border-t border-border/50 hover:bg-bg-surface-2">
+                  <td className="px-4 py-2 text-text font-mono">{c.tool_name}</td>
+                  <td className="px-4 py-2 text-text-muted">{c.category_id || c.category || "-"}</td>
+                  <td className={`px-4 py-2 font-medium ${statusColor(c.status)}`}>{c.status}</td>
+                  <td className="px-4 py-2 text-text-dim">
+                    {c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Dashboard Tab ───────────────────────────────────────────────────────────
+
+function DashboardTab() {
+  const [snapshot, setSnapshot] = useState<any>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const load = () =>
+      apiFetch("/admin/dashboard/snapshot")
+        .then(setSnapshot)
+        .catch((e) => setError(e.message));
+    load();
+    const iv = setInterval(load, 10000);
+    return () => clearInterval(iv);
+  }, []);
+
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
+  if (!snapshot) return <div className="text-text-muted text-sm">Loading dashboard...</div>;
+
+  const mem = snapshot.memory || {};
+  const formatBytes = (b: number) => b ? `${(b / 1024 / 1024).toFixed(1)} MB` : "-";
+  const formatUptime = (s: number) => {
+    if (!s) return "-";
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `${h}h ${m}m`;
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-text">Real-Time Dashboard</h2>
+
+      {/* Key Metrics */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Uptime", val: formatUptime(snapshot.uptime) },
+          { label: "RSS Memory", val: formatBytes(mem.rss) },
+          { label: "Heap Used", val: formatBytes(mem.heapUsed) },
+          { label: "Event Loop Lag", val: snapshot.eventLoopLag ? `${snapshot.eventLoopLag.toFixed(1)} ms` : "-" },
+        ].map((m) => (
+          <div key={m.label} className="rounded-lg border border-border bg-bg-surface p-3">
+            <div className="text-xs text-text-muted mb-1">{m.label}</div>
+            <div className="text-lg font-mono text-text">{m.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* DB Connections */}
+      {snapshot.db && (
+        <div className="rounded-lg border border-border bg-bg-surface p-4">
+          <h3 className="text-sm font-medium text-text-muted mb-2">Database</h3>
+          <div className="flex gap-6 text-sm">
+            <span className="text-text">Total: <span className="font-mono">{snapshot.db.totalCount ?? "-"}</span></span>
+            <span className="text-text">Idle: <span className="font-mono">{snapshot.db.idleCount ?? "-"}</span></span>
+            <span className="text-text">Waiting: <span className="font-mono">{snapshot.db.waitingCount ?? "-"}</span></span>
+          </div>
+        </div>
+      )}
+
+      {/* Request Rate */}
+      {snapshot.requests && (
+        <div className="rounded-lg border border-border bg-bg-surface p-4">
+          <h3 className="text-sm font-medium text-text-muted mb-2">Requests / Minute</h3>
+          <div className="flex items-baseline gap-3">
+            <span className="text-2xl font-mono text-accent">{snapshot.requests.perMin}</span>
+            <span className="text-sm text-text-dim">Error rate: {(snapshot.requests.errorRate * 100).toFixed(1)}%</span>
+          </div>
+          {snapshot.requests.history && snapshot.requests.history.length > 0 && (
+            <div className="flex items-end gap-1 h-12 mt-2">
+              {snapshot.requests.history.map((h: any, i: number) => {
+                const vals = snapshot.requests.history.map((x: any) => x.requests);
+                const max = Math.max(...vals, 1);
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 bg-accent/30 rounded-t"
+                    style={{ height: `${(h.requests / max) * 100}%` }}
+                    title={`${h.requests} requests`}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs text-text-dim">Auto-refreshes every 10 seconds</p>
+    </div>
+  );
+}
+
+// ─── v9: Topic Profiles Tab ─────────────────────────────────────────────────
+
+interface TopicProfileData {
+  id: number;
+  name: string;
+  prefix: string;
+  subscription: string;
+  seg_machine: number | null;
+  seg_work_order: number | null;
+  seg_tool_id: number | null;
+  seg_category: number | null;
+  seg_variable_start: number;
+  null_marker: string | null;
+  is_builtin: boolean;
+  enabled: boolean;
+  priority: number;
+  example_topic: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DiscoverySuggestion {
+  prefix: string;
+  subscription: string;
+  seg_machine: number | null;
+  seg_work_order: number | null;
+  seg_tool_id: number | null;
+  seg_category: number | null;
+  seg_variable_start: number;
+  null_marker: string | null;
+  confidence: number;
+  reasoning: string;
+  sample_topics: string[];
+  segment_stats: { index: number; unique_count: number; samples: string[] }[];
+}
+
+function TopicProfilesTab() {
+  const [profiles, setProfiles] = useState<TopicProfileData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+
+  // Discovery state
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverDuration, setDiscoverDuration] = useState(30);
+  const [suggestions, setSuggestions] = useState<DiscoverySuggestion[]>([]);
+  const [discoverErrors, setDiscoverErrors] = useState<string[]>([]);
+  const [discoverInfo, setDiscoverInfo] = useState<string | null>(null);
+
+  // Live preview
+  const [previewTopic, setPreviewTopic] = useState("");
+  const [previewResult, setPreviewResult] = useState<string | null>(null);
+
+  // Form state for create/edit
+  const [form, setForm] = useState({
+    name: "", prefix: "", subscription: "",
+    seg_machine: "", seg_work_order: "", seg_tool_id: "",
+    seg_category: "", seg_variable_start: "5",
+    null_marker: "---", priority: "0", example_topic: "",
+  });
+
+  const loadProfiles = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ profiles: TopicProfileData[] }>("/admin/historian/profiles");
+      setProfiles(data.profiles || []);
+    } catch {
+      setProfiles([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadProfiles(); }, [loadProfiles]);
+
+  const resetForm = () => setForm({
+    name: "", prefix: "", subscription: "",
+    seg_machine: "", seg_work_order: "", seg_tool_id: "",
+    seg_category: "", seg_variable_start: "5",
+    null_marker: "---", priority: "0", example_topic: "",
+  });
+
+  const handleCreate = async () => {
+    try {
+      await apiFetch("/admin/historian/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          prefix: form.prefix,
+          subscription: form.subscription || `${form.prefix}/#`,
+          seg_machine: form.seg_machine ? parseInt(form.seg_machine) : null,
+          seg_work_order: form.seg_work_order ? parseInt(form.seg_work_order) : null,
+          seg_tool_id: form.seg_tool_id ? parseInt(form.seg_tool_id) : null,
+          seg_category: form.seg_category ? parseInt(form.seg_category) : null,
+          seg_variable_start: parseInt(form.seg_variable_start) || 5,
+          null_marker: form.null_marker || "---",
+          priority: parseInt(form.priority) || 0,
+          example_topic: form.example_topic || null,
+        }),
+      });
+      setShowCreate(false);
+      resetForm();
+      loadProfiles();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleUpdate = async (id: number) => {
+    try {
+      await apiFetch(`/admin/historian/profiles/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          prefix: form.prefix,
+          subscription: form.subscription || `${form.prefix}/#`,
+          seg_machine: form.seg_machine ? parseInt(form.seg_machine) : null,
+          seg_work_order: form.seg_work_order ? parseInt(form.seg_work_order) : null,
+          seg_tool_id: form.seg_tool_id ? parseInt(form.seg_tool_id) : null,
+          seg_category: form.seg_category ? parseInt(form.seg_category) : null,
+          seg_variable_start: parseInt(form.seg_variable_start) || 5,
+          null_marker: form.null_marker || "---",
+          priority: parseInt(form.priority) || 0,
+          example_topic: form.example_topic || null,
+        }),
+      });
+      setEditId(null);
+      resetForm();
+      loadProfiles();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Delete this profile?")) return;
+    try {
+      await apiFetch(`/admin/historian/profiles/${id}`, { method: "DELETE" });
+      loadProfiles();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleToggle = async (profile: TopicProfileData) => {
+    try {
+      await apiFetch(`/admin/historian/profiles/${profile.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !profile.enabled }),
+      });
+      loadProfiles();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const startEdit = (p: TopicProfileData) => {
+    setEditId(p.id);
+    setShowCreate(false);
+    setForm({
+      name: p.name,
+      prefix: p.prefix,
+      subscription: p.subscription,
+      seg_machine: p.seg_machine !== null ? String(p.seg_machine) : "",
+      seg_work_order: p.seg_work_order !== null ? String(p.seg_work_order) : "",
+      seg_tool_id: p.seg_tool_id !== null ? String(p.seg_tool_id) : "",
+      seg_category: p.seg_category !== null ? String(p.seg_category) : "",
+      seg_variable_start: String(p.seg_variable_start),
+      null_marker: p.null_marker || "---",
+      priority: String(p.priority),
+      example_topic: p.example_topic || "",
+    });
+  };
+
+  const handleDiscover = async () => {
+    setDiscovering(true);
+    setSuggestions([]);
+    setDiscoverErrors([]);
+    setDiscoverInfo(`Sampling MQTT topics for ${discoverDuration}s...`);
+    try {
+      const data = await apiFetch<{
+        duration_s: number;
+        total_topics: number;
+        suggestions: DiscoverySuggestion[];
+        errors: string[];
+      }>("/admin/historian/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duration_s: discoverDuration }),
+      });
+      setSuggestions(data.suggestions || []);
+      setDiscoverErrors(data.errors || []);
+      setDiscoverInfo(`Found ${data.total_topics} topics in ${data.duration_s.toFixed(1)}s`);
+    } catch (err: any) {
+      setDiscoverErrors([err.message]);
+      setDiscoverInfo(null);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const adoptSuggestion = async (s: DiscoverySuggestion) => {
+    try {
+      await apiFetch("/admin/historian/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${s.prefix} (discovered)`,
+          prefix: s.prefix,
+          subscription: s.subscription,
+          seg_machine: s.seg_machine,
+          seg_work_order: s.seg_work_order,
+          seg_tool_id: s.seg_tool_id,
+          seg_category: s.seg_category,
+          seg_variable_start: s.seg_variable_start,
+          null_marker: s.null_marker || "---",
+          priority: 10,
+          example_topic: s.sample_topics[0] || null,
+        }),
+      });
+      setSuggestions((prev) => prev.filter((x) => x.prefix !== s.prefix));
+      loadProfiles();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Live preview — parse a topic against current profiles
+  useEffect(() => {
+    if (!previewTopic.trim()) { setPreviewResult(null); return; }
+    const parts = previewTopic.split("/");
+    let matched = false;
+    for (const p of profiles) {
+      if (!p.enabled || parts[0] !== p.prefix) continue;
+      if (parts.length <= p.seg_variable_start) continue;
+      const nullM = p.null_marker || "---";
+      const machine = p.seg_machine !== null && p.seg_machine < parts.length ? parts[p.seg_machine] : "?";
+      const wo = p.seg_work_order !== null && p.seg_work_order < parts.length ? parts[p.seg_work_order] : null;
+      const tool = p.seg_tool_id !== null && p.seg_tool_id < parts.length ? parts[p.seg_tool_id] : null;
+      const cat = p.seg_category !== null && p.seg_category < parts.length ? parts[p.seg_category] : "?";
+      const variable = parts.slice(p.seg_variable_start).join("/");
+      setPreviewResult(
+        `Profile: ${p.name}\nMachine: ${machine}\nWork Order: ${wo === nullM ? "(null)" : wo || "(none)"}\nTool: ${tool === nullM ? "(null)" : tool || "(none)"}\nCategory: ${cat}\nVariable: ${variable}`
+      );
+      matched = true;
+      break;
+    }
+    if (!matched) setPreviewResult("No matching profile");
+  }, [previewTopic, profiles]);
+
+  if (loading) return <div className="text-text-muted py-8 text-center">Loading profiles...</div>;
+
+  const formFields = (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="text-xs text-text-muted">Name</label>
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Prefix</label>
+        <input value={form.prefix} onChange={(e) => setForm({ ...form, prefix: e.target.value, subscription: `${e.target.value}/#` })} className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Subscription</label>
+        <input value={form.subscription} onChange={(e) => setForm({ ...form, subscription: e.target.value })} className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Priority</label>
+        <input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Seg: Machine</label>
+        <input type="number" value={form.seg_machine} onChange={(e) => setForm({ ...form, seg_machine: e.target.value })} placeholder="e.g. 1" className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Seg: Work Order</label>
+        <input type="number" value={form.seg_work_order} onChange={(e) => setForm({ ...form, seg_work_order: e.target.value })} placeholder="e.g. 2" className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Seg: Tool ID</label>
+        <input type="number" value={form.seg_tool_id} onChange={(e) => setForm({ ...form, seg_tool_id: e.target.value })} placeholder="e.g. 3" className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Seg: Category</label>
+        <input type="number" value={form.seg_category} onChange={(e) => setForm({ ...form, seg_category: e.target.value })} placeholder="e.g. 4" className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Seg: Variable Start</label>
+        <input type="number" value={form.seg_variable_start} onChange={(e) => setForm({ ...form, seg_variable_start: e.target.value })} className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted">Null Marker</label>
+        <input value={form.null_marker} onChange={(e) => setForm({ ...form, null_marker: e.target.value })} className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+      <div className="col-span-2">
+        <label className="text-xs text-text-muted">Example Topic</label>
+        <input value={form.example_topic} onChange={(e) => setForm({ ...form, example_topic: e.target.value })} placeholder="Factory/BZ-1/FA-001/T01/BDE/Spindle_RPM" className="w-full px-2 py-1.5 rounded border border-border bg-bg text-text text-sm" />
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-text">Topic Profiles</h2>
+          <p className="text-xs text-text-dim mt-1">Configure how MQTT topics are parsed into machine, category, and variable fields</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowCreate(!showCreate); setEditId(null); resetForm(); }}
+            className="px-3 py-1.5 rounded text-xs font-medium bg-accent text-bg hover:bg-accent-hover"
+          >
+            {showCreate ? "Cancel" : "+ New Profile"}
+          </button>
+        </div>
+      </div>
+
+      {/* Create Form */}
+      {showCreate && (
+        <div className="rounded-lg border border-accent/30 bg-bg-surface p-4 space-y-3">
+          <h3 className="text-sm font-medium text-text">Create New Profile</h3>
+          {formFields}
+          <button onClick={handleCreate} className="px-4 py-1.5 rounded text-xs font-medium bg-accent text-bg hover:bg-accent-hover">
+            Create Profile
+          </button>
+        </div>
+      )}
+
+      {/* Profile List */}
+      <div className="space-y-3">
+        {profiles.map((p) => (
+          <div key={p.id} className={`rounded-lg border bg-bg-surface p-4 ${p.enabled ? "border-border" : "border-border opacity-60"}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-text">{p.name}</span>
+                {p.is_builtin && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">built-in</span>
+                )}
+                <span className="text-xs text-text-dim font-mono">{p.subscription}</span>
+                <span className="text-xs text-text-dim">Priority: {p.priority}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleToggle(p)}
+                  className={`text-xs px-2 py-1 rounded ${p.enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}
+                >
+                  {p.enabled ? "Enabled" : "Disabled"}
+                </button>
+                <button onClick={() => startEdit(p)} className="text-xs text-accent hover:text-accent-hover">Edit</button>
+                {!p.is_builtin && (
+                  <button onClick={() => handleDelete(p.id)} className="text-xs text-red-400 hover:text-red-300">Delete</button>
+                )}
+              </div>
+            </div>
+            <div className="mt-2 flex gap-4 text-xs text-text-dim">
+              <span>Machine: seg[{p.seg_machine ?? "-"}]</span>
+              <span>Order: seg[{p.seg_work_order ?? "-"}]</span>
+              <span>Tool: seg[{p.seg_tool_id ?? "-"}]</span>
+              <span>Category: seg[{p.seg_category ?? "-"}]</span>
+              <span>Variable: seg[{p.seg_variable_start}+]</span>
+              <span>Null: &quot;{p.null_marker}&quot;</span>
+            </div>
+            {p.example_topic && (
+              <div className="mt-1 text-xs font-mono text-text-dim">Example: {p.example_topic}</div>
+            )}
+
+            {/* Inline Edit */}
+            {editId === p.id && (
+              <div className="mt-3 pt-3 border-t border-border space-y-3">
+                {formFields}
+                <div className="flex gap-2">
+                  <button onClick={() => handleUpdate(p.id)} className="px-3 py-1.5 rounded text-xs font-medium bg-accent text-bg hover:bg-accent-hover">Save</button>
+                  <button onClick={() => { setEditId(null); resetForm(); }} className="px-3 py-1.5 rounded text-xs text-text-muted hover:text-text">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {profiles.length === 0 && (
+          <div className="text-center py-8 text-text-dim text-sm">No profiles configured. Built-in defaults will be used.</div>
+        )}
+      </div>
+
+      {/* Live Preview */}
+      <div className="rounded-lg border border-border bg-bg-surface p-4">
+        <h3 className="text-sm font-medium text-text mb-2">Live Preview</h3>
+        <input
+          value={previewTopic}
+          onChange={(e) => setPreviewTopic(e.target.value)}
+          placeholder="Enter a topic to preview parsing, e.g. Factory/BZ-1/FA-001/T01/BDE/Spindle_RPM"
+          className="w-full px-3 py-2 rounded border border-border bg-bg text-text text-sm font-mono"
+        />
+        {previewResult && (
+          <pre className="mt-2 text-xs text-text-muted font-mono whitespace-pre-wrap bg-bg p-2 rounded">{previewResult}</pre>
+        )}
+      </div>
+
+      {/* Auto-Discovery */}
+      <div className="rounded-lg border border-border bg-bg-surface p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-text">Auto-Discovery</h3>
+            <p className="text-xs text-text-dim mt-0.5">Sample MQTT broker and use local LLM to analyze topic structure</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-text-muted">Duration:</label>
+            <input
+              type="range" min={10} max={120} value={discoverDuration}
+              onChange={(e) => setDiscoverDuration(parseInt(e.target.value))}
+              className="w-24"
+            />
+            <span className="text-xs text-text font-mono w-8">{discoverDuration}s</span>
+            <button
+              onClick={handleDiscover}
+              disabled={discovering}
+              className="px-4 py-1.5 rounded text-xs font-medium bg-accent text-bg hover:bg-accent-hover disabled:opacity-50"
+            >
+              {discovering ? "Sampling..." : "Discover"}
+            </button>
+          </div>
+        </div>
+
+        {discoverInfo && <p className="text-xs text-text-muted">{discoverInfo}</p>}
+        {discoverErrors.length > 0 && (
+          <div className="text-xs text-red-400 space-y-1">
+            {discoverErrors.map((e, i) => <p key={i}>{e}</p>)}
+          </div>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="space-y-3">
+            {suggestions.map((s, i) => (
+              <div key={i} className="rounded border border-border bg-bg p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-text">{s.prefix}/#</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      s.confidence >= 0.7 ? "bg-green-500/10 text-green-400" :
+                      s.confidence >= 0.4 ? "bg-yellow-500/10 text-yellow-400" :
+                      "bg-red-500/10 text-red-400"
+                    }`}>
+                      {(s.confidence * 100).toFixed(0)}% confidence
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => adoptSuggestion(s)}
+                    className="px-3 py-1 rounded text-xs font-medium bg-accent text-bg hover:bg-accent-hover"
+                  >
+                    Adopt
+                  </button>
+                </div>
+                <p className="text-xs text-text-dim mt-1">{s.reasoning}</p>
+                <div className="mt-2 flex gap-3 text-xs text-text-dim">
+                  <span>Machine: seg[{s.seg_machine ?? "-"}]</span>
+                  <span>Category: seg[{s.seg_category ?? "-"}]</span>
+                  <span>Variable: seg[{s.seg_variable_start}+]</span>
+                </div>
+                <div className="mt-1 text-xs font-mono text-text-dim truncate">
+                  Samples: {s.sample_topics.slice(0, 3).join(", ")}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+

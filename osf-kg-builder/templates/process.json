@@ -1,0 +1,149 @@
+{
+  "domain": "process",
+  "displayName": "Chemical Process Industry",
+  "standard": "ISA-88 / ISA-95",
+  "nodeTypes": [
+    {
+      "label": "Reactor",
+      "idProperty": "reactor_id",
+      "sourceTool": "get_reactors",
+      "properties": [
+        { "name": "reactor_id", "type": "string", "required": true, "description": "Reactor identifier" },
+        { "name": "name", "type": "string", "required": true, "description": "Reactor name" },
+        { "name": "type", "type": "string", "description": "Reactor type (CSTR, PFR, batch)" },
+        { "name": "capacity_l", "type": "float", "description": "Capacity in liters" },
+        { "name": "temperature_max", "type": "float", "description": "Maximum operating temperature (C)" },
+        { "name": "pressure_max", "type": "float", "description": "Maximum operating pressure (bar)" },
+        { "name": "status", "type": "string", "description": "Current status" }
+      ]
+    },
+    {
+      "label": "Charge",
+      "idProperty": "charge_id",
+      "sourceTool": "get_charges",
+      "properties": [
+        { "name": "charge_id", "type": "string", "required": true, "description": "Batch/charge number" },
+        { "name": "recipe_id", "type": "string", "description": "Recipe used" },
+        { "name": "reactor_id", "type": "string", "description": "Reactor used" },
+        { "name": "product_id", "type": "string", "description": "Product produced" },
+        { "name": "start_time", "type": "string", "description": "Start timestamp" },
+        { "name": "end_time", "type": "string", "description": "End timestamp" },
+        { "name": "yield_kg", "type": "float", "description": "Yield in kg" },
+        { "name": "status", "type": "string", "description": "Charge status (running, complete, rejected)" }
+      ]
+    },
+    {
+      "label": "RawMaterial",
+      "idProperty": "material_id",
+      "sourceTool": "get_raw_materials",
+      "properties": [
+        { "name": "material_id", "type": "string", "required": true, "description": "Material ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Material name" },
+        { "name": "cas_number", "type": "string", "description": "CAS registry number" },
+        { "name": "lot_number", "type": "string", "description": "Lot/batch number" },
+        { "name": "purity", "type": "float", "description": "Purity percentage" },
+        { "name": "hazard_class", "type": "string", "description": "GHS hazard classification" }
+      ]
+    },
+    {
+      "label": "Recipe",
+      "idProperty": "recipe_id",
+      "sourceTool": "get_recipes",
+      "properties": [
+        { "name": "recipe_id", "type": "string", "required": true, "description": "Recipe identifier" },
+        { "name": "name", "type": "string", "required": true, "description": "Recipe name" },
+        { "name": "version", "type": "string", "description": "Recipe version" },
+        { "name": "product_id", "type": "string", "description": "Target product" },
+        { "name": "temperature_setpoint", "type": "float", "description": "Target temperature (C)" },
+        { "name": "duration_min", "type": "float", "description": "Nominal duration in minutes" }
+      ]
+    },
+    {
+      "label": "Product",
+      "idProperty": "product_id",
+      "sourceTool": "get_products",
+      "properties": [
+        { "name": "product_id", "type": "string", "required": true, "description": "Product ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Product name" },
+        { "name": "grade", "type": "string", "description": "Product grade" }
+      ]
+    },
+    {
+      "label": "AnalysisResult",
+      "idProperty": "analysis_id",
+      "sourceTool": "get_analyses",
+      "properties": [
+        { "name": "analysis_id", "type": "string", "required": true, "description": "Analysis ID" },
+        { "name": "charge_id", "type": "string", "description": "Related charge" },
+        { "name": "parameter", "type": "string", "description": "Measured parameter" },
+        { "name": "value", "type": "float", "description": "Measured value" },
+        { "name": "unit", "type": "string", "description": "Unit of measurement" },
+        { "name": "passed", "type": "boolean", "description": "Within specification" }
+      ]
+    }
+  ],
+  "edgeTypes": [
+    {
+      "label": "PRODUCED_IN",
+      "fromType": "Charge",
+      "toType": "Reactor",
+      "fkProperty": "reactor_id",
+      "sourceTool": "get_charges"
+    },
+    {
+      "label": "FOLLOWS_RECIPE",
+      "fromType": "Charge",
+      "toType": "Recipe",
+      "fkProperty": "recipe_id",
+      "sourceTool": "get_charges"
+    },
+    {
+      "label": "YIELDS",
+      "fromType": "Charge",
+      "toType": "Product",
+      "fkProperty": "product_id",
+      "sourceTool": "get_charges"
+    },
+    {
+      "label": "ANALYZED_BY",
+      "fromType": "Charge",
+      "toType": "AnalysisResult",
+      "fkProperty": "charge_id",
+      "sourceTool": "get_analyses"
+    },
+    {
+      "label": "CONTAINS",
+      "fromType": "Charge",
+      "toType": "RawMaterial",
+      "fkProperty": "material_id",
+      "sourceTool": "get_charge_materials"
+    }
+  ],
+  "complianceChecks": [
+    {
+      "name": "Every charge must have analysis results",
+      "cypher": "MATCH (c:Charge) WHERE NOT (c)-[:ANALYZED_BY]->() RETURN count(c) AS violations",
+      "severity": "warning"
+    }
+  ],
+  "sampleChecks": [
+    { "type": "node_min_count", "label": "Reactor", "min": 1 },
+    { "type": "node_min_count", "label": "Charge", "min": 1 },
+    { "type": "edge_exists", "label": "PRODUCED_IN" },
+    { "type": "edge_exists", "label": "FOLLOWS_RECIPE" }
+  ],
+  "tools": [
+    {
+      "name": "process_reactor_utilization",
+      "description": "Reactor utilization — charges per reactor and average yield in kg",
+      "cypher": "MATCH (c:Charge)-[:PRODUCED_IN]->(r:Reactor) RETURN r.name AS reactor, r.type AS type, count(c) AS charges, avg(c.yield_kg) AS avg_yield_kg ORDER BY charges DESC",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "process_charge_quality",
+      "description": "Quality analysis results for a specific charge — all measured parameters and pass/fail status",
+      "cypher": "MATCH (c:Charge {charge_id: $id})-[:ANALYZED_BY]->(a:AnalysisResult) RETURN a.parameter AS parameter, a.value AS value, a.unit AS unit, a.passed AS passed ORDER BY a.parameter",
+      "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "description": "Charge ID" } }, "required": ["id"] }
+    }
+  ]
+}

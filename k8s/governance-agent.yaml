@@ -1,0 +1,93 @@
+# OSF v9 — Governance Agent (LLM-based tool classification for RBAC)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: governance-agent
+  namespace: osf
+  labels:
+    app: governance-agent
+    version: v9
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: governance-agent
+  template:
+    metadata:
+      labels:
+        app: governance-agent
+        version: v9
+    spec:
+      containers:
+      - name: governance-agent
+        image: 192.168.178.150:32000/osf-governance-agent:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8031
+          name: http
+        envFrom:
+        - configMapRef:
+            name: osf-config
+        env:
+        - name: GOVERNANCE_PORT
+          value: "8031"
+        - name: LLM_URL
+          valueFrom:
+            configMapKeyRef:
+              name: osf-config
+              key: LLM_GOVERNANCE_URL
+        - name: LLM_MODEL
+          value: "qwen2.5-14b-instruct"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8031
+          failureThreshold: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8031
+          periodSeconds: 30
+          failureThreshold: 5
+          timeoutSeconds: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8031
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: governance-agent
+  namespace: osf
+  labels:
+    app: governance-agent
+spec:
+  type: ClusterIP
+  selector:
+    app: governance-agent
+  ports:
+  - name: http
+    port: 8031
+    targetPort: 8031

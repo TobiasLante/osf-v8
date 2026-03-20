@@ -1,0 +1,194 @@
+{
+  "domain": "pharma",
+  "displayName": "Pharmaceutical / Bioprocess Manufacturing",
+  "standard": "ISA-88 / GMP / 21 CFR Part 11",
+  "nodeTypes": [
+    {
+      "label": "Equipment",
+      "idProperty": "equipment_id",
+      "sourceTool": "get_equipment",
+      "properties": [
+        { "name": "equipment_id", "type": "string", "required": true, "description": "Equipment identifier" },
+        { "name": "name", "type": "string", "required": true, "description": "Equipment name" },
+        { "name": "type", "type": "string", "description": "Equipment type (vessel, reactor, fermenter, etc.)" },
+        { "name": "area", "type": "string", "description": "Production area" },
+        { "name": "cleanroom_class", "type": "string", "description": "Cleanroom classification (ISO 5-8)" },
+        { "name": "qualification_status", "type": "string", "description": "IQ/OQ/PQ status" }
+      ]
+    },
+    {
+      "label": "Batch",
+      "idProperty": "batch_id",
+      "sourceTool": "get_batches",
+      "properties": [
+        { "name": "batch_id", "type": "string", "required": true, "description": "Batch number" },
+        { "name": "product_id", "type": "string", "required": true, "description": "Product being manufactured" },
+        { "name": "recipe_id", "type": "string", "description": "Master batch record / recipe" },
+        { "name": "equipment_id", "type": "string", "description": "Primary equipment used" },
+        { "name": "operator_id", "type": "string", "description": "Responsible operator" },
+        { "name": "status", "type": "string", "description": "Batch status (in-progress, released, rejected)" },
+        { "name": "start_date", "type": "string", "description": "Batch start date" },
+        { "name": "end_date", "type": "string", "description": "Batch end date" },
+        { "name": "yield_kg", "type": "float", "description": "Batch yield" }
+      ]
+    },
+    {
+      "label": "Product",
+      "idProperty": "product_id",
+      "sourceTool": "get_products",
+      "properties": [
+        { "name": "product_id", "type": "string", "required": true, "description": "Product code" },
+        { "name": "name", "type": "string", "required": true, "description": "Product name" },
+        { "name": "dosage_form", "type": "string", "description": "Dosage form (tablet, capsule, injection, etc.)" },
+        { "name": "strength", "type": "string", "description": "Product strength" },
+        { "name": "ndc", "type": "string", "description": "National Drug Code" }
+      ]
+    },
+    {
+      "label": "Ingredient",
+      "idProperty": "ingredient_id",
+      "sourceTool": "get_ingredients",
+      "properties": [
+        { "name": "ingredient_id", "type": "string", "required": true, "description": "Ingredient ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Ingredient name" },
+        { "name": "type", "type": "string", "description": "API / excipient / solvent" },
+        { "name": "lot_number", "type": "string", "description": "Lot number" },
+        { "name": "supplier_id", "type": "string", "description": "Supplier" },
+        { "name": "expiry_date", "type": "string", "description": "Expiry date" },
+        { "name": "coa_status", "type": "string", "description": "Certificate of Analysis status" }
+      ]
+    },
+    {
+      "label": "TestResult",
+      "idProperty": "test_id",
+      "sourceTool": "get_test_results",
+      "properties": [
+        { "name": "test_id", "type": "string", "required": true, "description": "Test ID" },
+        { "name": "batch_id", "type": "string", "required": true, "description": "Related batch" },
+        { "name": "test_type", "type": "string", "description": "Test type (identity, potency, purity, sterility)" },
+        { "name": "parameter", "type": "string", "description": "Measured parameter" },
+        { "name": "value", "type": "float", "description": "Test value" },
+        { "name": "unit", "type": "string", "description": "Unit" },
+        { "name": "specification_min", "type": "float", "description": "Spec lower limit" },
+        { "name": "specification_max", "type": "float", "description": "Spec upper limit" },
+        { "name": "passed", "type": "boolean", "description": "Within specification" },
+        { "name": "tested_by", "type": "string", "description": "Analyst" },
+        { "name": "test_date", "type": "string", "description": "Test date" }
+      ]
+    },
+    {
+      "label": "Recipe",
+      "idProperty": "recipe_id",
+      "sourceTool": "get_recipes",
+      "properties": [
+        { "name": "recipe_id", "type": "string", "required": true, "description": "Master batch record ID" },
+        { "name": "name", "type": "string", "required": true, "description": "Recipe name" },
+        { "name": "version", "type": "string", "description": "Version number" },
+        { "name": "product_id", "type": "string", "description": "Target product" },
+        { "name": "effective_date", "type": "string", "description": "Effective date" },
+        { "name": "approved_by", "type": "string", "description": "QA approver" }
+      ]
+    },
+    {
+      "label": "Deviation",
+      "idProperty": "deviation_id",
+      "sourceTool": "get_deviations",
+      "properties": [
+        { "name": "deviation_id", "type": "string", "required": true, "description": "Deviation ID" },
+        { "name": "batch_id", "type": "string", "description": "Related batch" },
+        { "name": "description", "type": "string", "description": "Deviation description" },
+        { "name": "severity", "type": "string", "description": "Severity (minor, major, critical)" },
+        { "name": "root_cause", "type": "string", "description": "Root cause" },
+        { "name": "capa_id", "type": "string", "description": "Related CAPA" },
+        { "name": "status", "type": "string", "description": "Status (open, closed)" }
+      ]
+    }
+  ],
+  "edgeTypes": [
+    {
+      "label": "PRODUCED_ON",
+      "fromType": "Batch",
+      "toType": "Equipment",
+      "fkProperty": "equipment_id",
+      "sourceTool": "get_batches"
+    },
+    {
+      "label": "PRODUCES",
+      "fromType": "Batch",
+      "toType": "Product",
+      "fkProperty": "product_id",
+      "sourceTool": "get_batches"
+    },
+    {
+      "label": "FOLLOWS_RECIPE",
+      "fromType": "Batch",
+      "toType": "Recipe",
+      "fkProperty": "recipe_id",
+      "sourceTool": "get_batches"
+    },
+    {
+      "label": "CONTAINS",
+      "fromType": "Batch",
+      "toType": "Ingredient",
+      "fkProperty": "ingredient_id",
+      "sourceTool": "get_batch_ingredients"
+    },
+    {
+      "label": "TESTED_BY",
+      "fromType": "Batch",
+      "toType": "TestResult",
+      "fkProperty": "batch_id",
+      "sourceTool": "get_test_results"
+    },
+    {
+      "label": "HAS_DEVIATION",
+      "fromType": "Batch",
+      "toType": "Deviation",
+      "fkProperty": "batch_id",
+      "sourceTool": "get_deviations"
+    }
+  ],
+  "complianceChecks": [
+    {
+      "name": "Every batch must have test results (21 CFR Part 211)",
+      "cypher": "MATCH (b:Batch) WHERE NOT (b)-[:TESTED_BY]->() RETURN count(b) AS violations",
+      "severity": "error"
+    },
+    {
+      "name": "Every equipment must be qualified",
+      "cypher": "MATCH (e:Equipment) WHERE e.qualification_status IS NULL OR e.qualification_status = '' RETURN count(e) AS violations",
+      "severity": "warning"
+    },
+    {
+      "name": "Rejected batches must have deviations",
+      "cypher": "MATCH (b:Batch {status: 'rejected'}) WHERE NOT (b)-[:HAS_DEVIATION]->() RETURN count(b) AS violations",
+      "severity": "error"
+    }
+  ],
+  "sampleChecks": [
+    { "type": "node_min_count", "label": "Batch", "min": 1 },
+    { "type": "node_min_count", "label": "Equipment", "min": 1 },
+    { "type": "edge_exists", "label": "TESTED_BY" },
+    { "type": "edge_exists", "label": "CONTAINS" }
+  ],
+  "tools": [
+    {
+      "name": "pharma_failed_batches",
+      "description": "All batches with failed test results — batch ID, test type, measured value",
+      "cypher": "MATCH (b:Batch)-[:TESTED_BY]->(t:TestResult {passed: false}) RETURN b.batch_id AS batch, t.test_type AS test, t.value AS value, t.unit AS unit",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "pharma_batch_genealogy",
+      "description": "Full genealogy for a batch — equipment, recipe, ingredients, test results, deviations",
+      "cypher": "MATCH (b:Batch {batch_id: $id}) OPTIONAL MATCH (b)-[:PRODUCED_ON]->(e:Equipment) OPTIONAL MATCH (b)-[:FOLLOWS_RECIPE]->(r:Recipe) OPTIONAL MATCH (b)-[:CONTAINS]->(i:Ingredient) OPTIONAL MATCH (b)-[:TESTED_BY]->(t:TestResult) OPTIONAL MATCH (b)-[:HAS_DEVIATION]->(d:Deviation) RETURN b.batch_id AS batch, b.status AS status, e.name AS equipment, r.name AS recipe, collect(DISTINCT i.name) AS ingredients, collect(DISTINCT {test: t.test_type, passed: t.passed, value: t.value}) AS tests, collect(DISTINCT {id: d.deviation_id, severity: d.severity}) AS deviations",
+      "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "description": "Batch ID" } }, "required": ["id"] }
+    },
+    {
+      "name": "pharma_deviation_summary",
+      "description": "Summary of all deviations grouped by severity with counts",
+      "cypher": "MATCH (d:Deviation) RETURN d.severity AS severity, count(d) AS count, collect(d.deviation_id) AS ids ORDER BY count DESC",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    }
+  ]
+}

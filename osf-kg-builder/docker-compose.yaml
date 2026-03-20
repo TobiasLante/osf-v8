@@ -1,0 +1,120 @@
+##
+## v9 KG Platform — Builder (batch job) + Server (always-on)
+## Usage: docker compose up -d
+## Build:  docker compose up kg-builder  (one-shot)
+## Server: docker compose up -d kg-server web neo4j postgres
+##
+
+services:
+
+  # ── KG Builder (batch job — runs once, then exits) ──────────────
+  kg-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.builder
+    container_name: osf-kg-builder
+    restart: "no"
+    env_file: .env
+    command: ["--domain", "${DOMAIN:-discrete}"]
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - v9
+
+  # ── KG Server (always-on: MCP + REST + MQTT bridge) ────────────
+  kg-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: osf-kg-server
+    restart: unless-stopped
+    ports:
+      - "${KG_SERVER_PORT:-8035}:8035"
+    env_file: .env
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8035/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - v9
+
+  # ── v9 Web UI (static export served by nginx) ─────────────────
+  web:
+    image: nginx:1.27-alpine
+    container_name: osf-v9-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3009}:80"
+    volumes:
+      - ./web/out:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - v9
+
+  # ── Neo4j (Knowledge Graph) ───────────────────────────────────
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: osf-neo4j
+    restart: unless-stopped
+    ports:
+      - "${NEO4J_HTTP_PORT:-37474}:7474"
+      - "${NEO4J_BOLT_PORT:-37687}:7687"
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_server_memory_heap_max__size=1G
+      - NEO4J_server_memory_pagecache_size=512M
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - v9
+
+  # ── PostgreSQL (only for kg_builder_runs table) ───────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: osf-v9-postgres
+    restart: unless-stopped
+    ports:
+      - "${PG_PORT:-35432}:5432"
+    environment:
+      - POSTGRES_DB=${ERP_DB_NAME:-erpdb}
+      - POSTGRES_USER=${ERP_DB_USER:-admin}
+      - POSTGRES_PASSWORD=${ERP_DB_PASSWORD:?Set ERP_DB_PASSWORD in .env}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ERP_DB_USER:-admin}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - v9
+
+networks:
+  v9:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  pg-data:

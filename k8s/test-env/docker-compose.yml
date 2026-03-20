@@ -1,0 +1,153 @@
+# OSF v9 Test Environment — Docker Compose for .110
+# Completely isolated from K8s production. Own Postgres, own sessions.
+#
+# Usage:
+#   1. cp .env.template .env
+#   2. docker compose up -d --build
+#   3. Open http://192.168.178.110:3000 (Frontend) or :8080 (Chat UI)
+#   4. Login: admin@test.local / Test1234!
+
+services:
+  # ─── Local PostgreSQL (Gateway DB) ──────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: osf
+      POSTGRES_USER: osf_admin
+      POSTGRES_PASSWORD: ${OSF_DB_PASSWORD:-testenv123}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U osf_admin -d osf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── OSF Gateway ────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ../../osf-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8012:8012"
+    environment:
+      NODE_ENV: production
+      PORT: "8012"
+
+      # Local Postgres (docker-internal)
+      DATABASE_URL: "postgresql://osf_admin:${OSF_DB_PASSWORD:-testenv123}@postgres:5432/osf"
+
+      # Auth — OWN secrets (sessions don't cross with K8s)
+      JWT_SECRET: ${JWT_SECRET:-test-env-jwt-secret-change-me}
+      LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+
+      # Admin seed (first startup creates this admin user)
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@test.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Test1234!}
+
+      # Node-RED disabled (no K8s API on .110)
+      NR_DISABLED: "true"
+
+      # Factory DBs (via K8s NodePorts on .150)
+      FACTORY_DB_HOST: "192.168.178.150"
+      FACTORY_DB_PORT: "30432"
+      FACTORY_DB_NAME: "bigdata_homelab"
+      FACTORY_DB_USER: "admin"
+      FACTORY_DB_PASSWORD: ${FACTORY_DB_PASSWORD}
+
+      ERP_DB_HOST: "192.168.178.150"
+      ERP_DB_PORT: "30431"
+      ERP_DB_NAME: "erpdb"
+      ERP_DB_USER: "admin"
+      ERP_DB_PASSWORD: ${ERP_DB_PASSWORD}
+
+      QMS_DB_HOST: "192.168.178.150"
+      QMS_DB_PORT: "30433"
+      QMS_DB_NAME: "qmsdb"
+      QMS_DB_USER: "admin"
+      QMS_DB_PASSWORD: ${QMS_DB_PASSWORD}
+
+      # MCP Servers (via K8s NodePorts on .150)
+      MCP_URL_ERP: "http://192.168.178.150:30438"
+      MCP_URL_OEE: "http://192.168.178.150:30438"
+      MCP_URL_QMS: "http://192.168.178.150:30438"
+      MCP_URL_TMS: "http://192.168.178.150:30438"
+      MCP_URL_UNS: "http://192.168.178.150:31972"
+      MCP_URL_KG:  "http://192.168.178.150:30438"
+
+      # Historian + Governance (local containers)
+      HISTORIAN_URL: "http://historian:8030"
+      GOVERNANCE_AGENT_URL: "http://governance-agent:8031"
+
+      # LLM Server (direct, not in K8s)
+      LLM_URL_FREE: "http://192.168.178.120:5002"
+      LLM_URL_PREMIUM: "http://192.168.178.120:5001"
+
+      # MQTT (via K8s NodePort on .150)
+      MQTT_BROKER_URL: "mqtt://192.168.178.150:31883"
+
+      # CORS — allow .110 access
+      CORS_ORIGINS: "http://192.168.178.110:3000,http://192.168.178.110:3001,http://192.168.178.110:8080,http://localhost:3000"
+
+      # Feature flags
+      FF_ENABLE_METRICS: "true"
+      FF_CATEGORY_TOOL_SELECTION: "true"
+
+  # ─── OSF Frontend (Next.js — alle v9 Pages) ─────────────────────────
+  frontend:
+    build:
+      context: ../../osf-frontend
+      dockerfile: ../k8s/test-env/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: "http://192.168.178.110:8012"
+    depends_on:
+      - gateway
+    ports:
+      - "3001:3000"
+
+  # ─── Chat UI (nginx + static HTML) ─────────────────────────────────
+  chat-ui:
+    build:
+      context: ../../chat-ui
+    depends_on:
+      - gateway
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./chat-ui-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # ─── Historian (MQTT → TimescaleDB + History MCP) ───────────────────
+  historian:
+    build:
+      context: ../../historian
+    depends_on:
+      - gateway
+    environment:
+      HISTORIAN_DB_HOST: "192.168.178.150"
+      HISTORIAN_DB_PORT: "30432"
+      HISTORIAN_DB_NAME: "bigdata_homelab"
+      HISTORIAN_DB_USER: "admin"
+      HISTORIAN_DB_PASSWORD: ${FACTORY_DB_PASSWORD}
+      MQTT_BROKER_URL: "mqtt://192.168.178.150:31883"
+      HISTORIAN_PORT: "8030"
+    ports:
+      - "8030:8030"
+
+  # ─── Governance Agent (LLM tool classification) ─────────────────────
+  governance-agent:
+    build:
+      context: ../../governance-agent
+    environment:
+      GOVERNANCE_PORT: "8031"
+      LLM_URL: "http://192.168.178.120:5002"
+      LLM_MODEL: "qwen2.5-14b-instruct"
+      DATABASE_URL: "postgresql://osf_admin:${OSF_DB_PASSWORD:-testenv123}@postgres:5432/osf"
+    ports:
+      - "8031:8031"
+
+volumes:
+  pgdata:

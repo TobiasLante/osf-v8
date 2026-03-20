@@ -1,6 +1,10 @@
 {
   "name": "openshopfloor",
+<<<<<<< HEAD
   "version": "1.17.0",
+=======
+  "version": "1.2.0",
+>>>>>>> feat/v9-embeddings-charts-mqtt
   "private": true,
   "scripts": {
     "dev": "next dev",

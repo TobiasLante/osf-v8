@@ -221,8 +221,34 @@ This document describes ALL available tools organized by domain. Use it to selec
 - Supply chain risk assessment → `kg_supply_chain_risk` + `kg_supplier_herfindahl` + `kg_cluster_analysis`
 - Cross-domain question → combine KG tools with domain-specific factory tools for complete picture
 
+## History & Trends (Time-Series)
+**When:** Historical data, trends over time, anomalies, machine comparison over time, "how did X change", drift detection, time-series queries
+**Tools:**
+- `history_get_trend` — Time-series for a variable of a machine (e.g. OEE of CNC-01 over last 24h)
+- `history_compare` — Compare a variable between two machines in the same period
+- `history_aggregate` — Aggregated values (AVG, MIN, MAX) per hour/day/week
+- `history_anomalies` — Find values that deviate more than N sigma from the mean
+- `history_machines` — List all machines with data in the historian (with data point counts)
+- `history_variables` — List all variables for a machine (with last value)
+**Patterns:**
+- Trend analysis → `history_get_trend` for the variable, then `history_aggregate` for daily summaries
+- Anomaly detection → `history_anomalies` to find outliers, then `history_get_trend` to see the full context
+- Machine comparison → `history_compare` for side-by-side, then `history_aggregate` for both
+- "What machines are reporting?" → `history_machines` for overview, then `history_variables` per machine
+
+## Sensor Discovery (KG Auto-Discovery)
+**When:** What machines/sensors exist, what is connected, live topology, UNS structure, auto-discovered devices
+**Tools:**
+- `kg_discovered_machines` — All machines auto-discovered from MQTT UNS (with sensor count and last seen)
+- `kg_machine_sensors` — All sensors of a machine with last value, unit, category
+**Patterns:**
+- Factory topology → `kg_discovered_machines` for machine list, then `kg_machine_sensors` per machine for detail
+- Combine with history → `kg_machine_sensors` to find variable names, then `history_get_trend` for time-series
+
 ## Cross-Domain Patterns
 - "Why is customer X unhappy?" → `factory_get_customer_otd` + `factory_get_orders_at_risk` + `factory_get_quality_notifications` + `kg_customer_delivery_risk`
 - "Create a shift report" → `factory_get_latest_oee` + `factory_get_production_history` + `factory_get_scrap_history` + `factory_get_downtime_report` + `factory_get_blocked_orders_count` + `factory_get_spc_alarms`
 - "What's our biggest risk right now?" → `kg_bottleneck_analysis` + `kg_supply_chain_risk` + `factory_get_orders_at_risk` + `factory_get_low_stock_items` + `tms_get_critical`
 - "Optimize production for next week" → `factory_get_capacity_overview` + `factory_get_orders_at_risk` + `factory_get_material_coverage` + `factory_get_machine_pool_members` + `kg_pool_demand_forecast`
+- "How did machine X perform this week?" → `history_get_trend` (OEE) + `history_aggregate` (daily) + `factory_get_machine_oee` (current) + `history_anomalies` (outliers)
+- "What sensors are on this machine?" → `kg_machine_sensors` + `history_variables` for full picture with time-series

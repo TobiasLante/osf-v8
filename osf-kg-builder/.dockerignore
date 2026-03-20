@@ -1,0 +1,11 @@
+node_modules
+dist
+web/.next
+web/out
+web/node_modules
+.env
+.env.*
+!.env.example
+*.md
+.git
+.gitignore

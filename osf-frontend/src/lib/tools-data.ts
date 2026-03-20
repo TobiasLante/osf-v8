@@ -18,6 +18,10 @@ export const categories = [
   "Subcontracting",
   "Pre-Assembly",
   "Test Field",
+  "History",
+  "Knowledge Graph",
+  "UNS",
+  "Discovery",
 ] as const;
 
 export const categoryMeta: Record<string, { label: string; description: string; icon: string }> = {
@@ -38,6 +42,10 @@ export const categoryMeta: Record<string, { label: string; description: string; 
   Subcontracting: { label: "Subcontracting", description: "External processing orders, supplier capacity", icon: "M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" },
   "Pre-Assembly": { label: "Pre-Assembly", description: "Cell status, OEE, buffer levels, maintenance", icon: "M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" },
   "Test Field": { label: "Test Field", description: "Function tests, leak tests, burn-in, defect analysis", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" },
+  History: { label: "History", description: "Time-series trends, comparisons, aggregations, anomaly detection", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+  "Knowledge Graph": { label: "Knowledge Graph", description: "Impact analysis, paths, neighbors, semantic search, schema", icon: "M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l-2-1m2 1l-2 1m2-1v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" },
+  UNS: { label: "UNS (MQTT)", description: "Subscribe, publish, query latest, topic history, broker health", icon: "M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" },
+  Discovery: { label: "Discovery", description: "Auto-discovered machines and sensors from MQTT UNS", icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" },
 };
 
 export const tools: Tool[] = [
@@ -145,4 +153,32 @@ export const tools: Tool[] = [
   { name: "montage_get_prueffeld_ergebnisse", description: "Pass/fail rate of the test field.", category: "Test Field", params: [{ name: "hours", required: false }] },
   { name: "montage_get_prueffeld_queue", description: "Parts in the test field queue.", category: "Test Field", params: [] },
   { name: "montage_get_prueffeld_fehleranalyse", description: "Defect analysis by defect type and product.", category: "Test Field", params: [] },
+  // History (6)
+  { name: "history_get_trend", description: "Time-series data for a machine variable over configurable hours.", category: "History", params: [{ name: "machine", required: true }, { name: "variable", required: true }, { name: "hours", required: false }, { name: "limit", required: false }] },
+  { name: "history_compare", description: "Compare same variable between two machines.", category: "History", params: [{ name: "machine_a", required: true }, { name: "machine_b", required: true }, { name: "variable", required: true }, { name: "hours", required: false }] },
+  { name: "history_aggregate", description: "Aggregated values (AVG/MIN/MAX) per granularity.", category: "History", params: [{ name: "machine", required: true }, { name: "variable", required: true }, { name: "granularity", required: false }, { name: "hours", required: false }] },
+  { name: "history_anomalies", description: "Find values deviating beyond N sigma from mean.", category: "History", params: [{ name: "machine", required: true }, { name: "variable", required: true }, { name: "hours", required: false }, { name: "sigma", required: false }] },
+  { name: "history_machines", description: "List all machines with historian data and data point counts.", category: "History", params: [{ name: "hours", required: false }] },
+  { name: "history_variables", description: "List all recorded variables for a specific machine.", category: "History", params: [{ name: "machine", required: true }] },
+  // Knowledge Graph (8)
+  { name: "kg_impact", description: "Trace downstream impact from a source node (up to 3 hops).", category: "Knowledge Graph", params: [{ name: "node_id", required: true }] },
+  { name: "kg_path", description: "Find shortest path between two nodes.", category: "Knowledge Graph", params: [{ name: "from_id", required: true }, { name: "to_id", required: true }] },
+  { name: "kg_neighbors", description: "Get all neighbor nodes within configurable depth.", category: "Knowledge Graph", params: [{ name: "node_id", required: true }, { name: "depth", required: false }] },
+  { name: "kg_aggregate", description: "Aggregate numeric property across a label.", category: "Knowledge Graph", params: [{ name: "label", required: true }, { name: "property", required: true }] },
+  { name: "kg_search", description: "Semantic search by natural language using vector embeddings.", category: "Knowledge Graph", params: [{ name: "query", required: true }, { name: "limit", required: false }, { name: "label_filter", required: false }] },
+  { name: "kg_schema", description: "Get complete KG schema — labels, relationships, properties.", category: "Knowledge Graph", params: [] },
+  { name: "kg_subgraph", description: "Extract subgraph around a node within radius.", category: "Knowledge Graph", params: [{ name: "node_id", required: true }, { name: "radius", required: false }] },
+  { name: "kg_filter", description: "Filter nodes by label and property conditions.", category: "Knowledge Graph", params: [{ name: "label", required: true }, { name: "conditions", required: true }, { name: "limit", required: false }] },
+  // UNS (8)
+  { name: "uns_subscribe", description: "Subscribe to MQTT topic with wildcard support.", category: "UNS", params: [{ name: "topic", required: true }] },
+  { name: "uns_publish", description: "Publish message to MQTT topic.", category: "UNS", params: [{ name: "topic", required: true }, { name: "payload", required: true }] },
+  { name: "uns_query_latest", description: "Query latest value for a topic.", category: "UNS", params: [{ name: "topic", required: true }] },
+  { name: "uns_list_topics", description: "List all active MQTT topics.", category: "UNS", params: [{ name: "prefix", required: false }] },
+  { name: "uns_history", description: "Retrieve historical values for a topic.", category: "UNS", params: [{ name: "topic", required: true }, { name: "hours", required: false }] },
+  { name: "uns_aggregate", description: "Compute aggregations over topic data.", category: "UNS", params: [{ name: "topic", required: true }, { name: "operation", required: true }, { name: "hours", required: false }] },
+  { name: "uns_schema", description: "Get payload schema for a topic.", category: "UNS", params: [{ name: "topic", required: true }] },
+  { name: "uns_health", description: "Check MQTT broker connectivity and status.", category: "UNS", params: [] },
+  // Discovery (2)
+  { name: "kg_discovered_machines", description: "All machines auto-discovered from MQTT UNS.", category: "Discovery", params: [] },
+  { name: "kg_machine_sensors", description: "All sensors on a discovered machine with last values.", category: "Discovery", params: [{ name: "machine", required: true }] },
 ];

@@ -4,4 +4,4 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://analytics.zeroguess.ai; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://analytics.zeroguess.ai; font-src 'self' data:; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://analytics.zeroguess.ai; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' https://video.zeroguess.ai; connect-src 'self' https://analytics.zeroguess.ai; font-src 'self' data:; frame-ancestors 'none'

@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: osf-neo4j
+  namespace: osf
+  labels:
+    app: osf-neo4j
+    version: "8.8"
+spec:
+  serviceName: osf-neo4j
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-neo4j
+  template:
+    metadata:
+      labels:
+        app: osf-neo4j
+        version: "8.8"
+    spec:
+      initContainers:
+        - name: set-auth
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              PW=$(cat /secrets/NEO4J_PASSWORD)
+              echo "neo4j/${PW}" > /auth/NEO4J_AUTH
+          volumeMounts:
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+            - name: auth
+              mountPath: /auth
+      containers:
+        - name: neo4j
+          image: neo4j:5.26-community
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              export NEO4J_AUTH=$(cat /auth/NEO4J_AUTH)
+              exec /startup/docker-entrypoint.sh neo4j
+          ports:
+            - containerPort: 7687
+              name: bolt
+            - containerPort: 7474
+              name: http
+          env:
+            - name: NEO4J_PLUGINS
+              value: '["apoc"]'
+            - name: NEO4J_server_memory_heap_max__size
+              value: "1G"
+            - name: NEO4J_server_memory_pagecache_size
+              value: "512M"
+            - name: NEO4J_server_default__listen__address
+              value: "0.0.0.0"
+          volumeMounts:
+            - name: neo4j-data
+              mountPath: /data
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7474
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7474
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: secrets
+          secret:
+            secretName: osf-secrets
+            items:
+              - key: NEO4J_PASSWORD
+                path: NEO4J_PASSWORD
+        - name: auth
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: neo4j-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-neo4j
+  namespace: osf
+  labels:
+    app: osf-neo4j
+spec:
+  selector:
+    app: osf-neo4j
+  ports:
+    - name: bolt
+      port: 7687
+      targetPort: 7687
+    - name: http
+      port: 7474
+      targetPort: 7474

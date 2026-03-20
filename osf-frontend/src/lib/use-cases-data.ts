@@ -91,4 +91,49 @@ export const useCases: UseCase[] = [
     kpis: ["OTD > 95%", "Late Orders → 0", "Risk Detection -48h"],
     difficulty: "Advanced",
   },
+  {
+    title: "Supply Chain Risk Radar",
+    icon: "\u{1F6E1}",
+    description:
+      "Use Knowledge Graph impact analysis to identify single-point-of-failure suppliers, trace order dependencies across machines, and simulate what-if scenarios for machine downtime.",
+    tools: [
+      "kg_impact",
+      "kg_path",
+      "kg_neighbors",
+      "kg_aggregate",
+      "factory_get_supplier_evaluation",
+    ],
+    kpis: ["Supply chain resilience score", "Single-point-of-failure count", "Alternative supplier coverage"],
+    difficulty: "Advanced",
+  },
+  {
+    title: "Real-Time Anomaly Detective",
+    icon: "\u{1F50D}",
+    description:
+      "Monitor live MQTT sensor data via the Unified Namespace, detect anomalies using the Historian's statistical analysis, and correlate findings with KG context for root cause analysis.",
+    tools: [
+      "history_anomalies",
+      "history_get_trend",
+      "kg_discovered_machines",
+      "kg_machine_sensors",
+      "uns_query_latest",
+    ],
+    kpis: ["Anomaly detection rate", "Mean time to root cause", "False positive ratio"],
+    difficulty: "Intermediate",
+  },
+  {
+    title: "Digital Thread Tracer",
+    icon: "\u{1F9F5}",
+    description:
+      "Trace a product's complete digital thread — from raw material through production to delivery — using Knowledge Graph path analysis and factory order data.",
+    tools: [
+      "kg_path",
+      "kg_subgraph",
+      "factory_get_work_order",
+      "factory_get_bom_multi_level",
+      "factory_get_customer_orders",
+    ],
+    kpis: ["Order traceability depth", "Material genealogy coverage", "Lead time visibility"],
+    difficulty: "Beginner",
+  },
 ];

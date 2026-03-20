@@ -1,12 +1,12 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 
 export function Footer() {
+<<<<<<< HEAD
   const pathname = usePathname();
   if (pathname === "/fomi") return null;
 
+=======
+>>>>>>> feat/v9-embeddings-charts-mqtt
   return (
     <footer className="border-t border-border bg-bg-surface">
       <div className="mx-auto max-w-7xl px-6 py-12">

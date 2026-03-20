@@ -4,6 +4,8 @@ import { decryptApiKey } from '../auth/crypto';
 import { logger } from '../logger';
 import { config as appConfig } from '../config';
 import { ff } from '../feature-flags';
+import { llmLatencySeconds } from '../metrics';
+import { recordLlmCall } from '../internal-metrics';
 
 // ─── LLM Concurrency Control ────────────────────────────────────────────────
 class Semaphore {
@@ -65,6 +67,7 @@ class CircuitBreaker {
   private failures = 0;
   private lastFailure = 0;
   private state: 'closed' | 'open' | 'half-open' = 'closed';
+  private halfOpenProbeInFlight = false;
   constructor(
     private threshold: number = appConfig.llm.circuitBreakerThreshold,
     private resetTimeMs: number = appConfig.llm.circuitBreakerResetMs,
@@ -73,11 +76,13 @@ class CircuitBreaker {
   recordSuccess(): void {
     this.failures = 0;
     this.state = 'closed';
+    this.halfOpenProbeInFlight = false;
   }
 
   recordFailure(): void {
     this.failures++;
     this.lastFailure = Date.now();
+    this.halfOpenProbeInFlight = false;
     if (this.failures >= this.threshold) {
       this.state = 'open';
       logger.warn({ failures: this.failures }, 'LLM circuit breaker OPEN');
@@ -88,9 +93,23 @@ class CircuitBreaker {
     if (this.state === 'closed') return true;
     if (this.state === 'open' && Date.now() - this.lastFailure > this.resetTimeMs) {
       this.state = 'half-open';
+      this.halfOpenProbeInFlight = true;
       return true; // Allow one probe request
     }
-    return this.state === 'half-open';
+    if (this.state === 'half-open') {
+      // Only allow one probe at a time in half-open state
+      if (this.halfOpenProbeInFlight) return false;
+      this.halfOpenProbeInFlight = true;
+      return true;
+    }
+    return false;
+  }
+
+  /** Read-only check: is the circuit breaker in open state? Does NOT transition state. */
+  isOpen(): boolean {
+    if (this.state === 'closed') return false;
+    if (this.state === 'open' && Date.now() - this.lastFailure > this.resetTimeMs) return false; // would transition to half-open
+    return this.state === 'open';
   }
 }
 
@@ -139,7 +158,7 @@ export function isLlmOverloaded(): { overloaded: boolean; totalQueued: number; t
  */
 export function isLlmCircuitOpen(): string | null {
   for (const [url, cb] of circuitBreakers) {
-    if (!cb.canAttempt()) {
+    if (cb.isOpen()) {
       return ff.llmFallbackMessage;
     }
   }
@@ -330,6 +349,7 @@ export async function callLlm(
     logger.info({ baseUrl: config.baseUrl, pending: sem.pending }, 'LLM semaphore: queuing request');
   }
   await sem.acquire(appConfig.llm.semaphoreTimeoutMs, signal);
+  const llmStartTime = Date.now();
 
   try {
     const isAnthropic = config.baseUrl.includes('anthropic.com');
@@ -411,6 +431,11 @@ export async function callLlm(
     }
 
     cb.recordSuccess();
+    const llmDurationMs = Date.now() - llmStartTime;
+    const tier = config.baseUrl.includes('5001') ? 'premium' : 'free';
+    llmLatencySeconds.observe({ tier }, llmDurationMs / 1000);
+    recordLlmCall(llmDurationMs);
+
     const data: any = await resp.json();
 
     let result: LlmResponse;
