@@ -172,7 +172,7 @@ async function handleMessage(topic: string, payload: Buffer, rules: TransformRul
   }
 
   // Capture raw message
-  rawMap.set(topic, { ts: new Date().toISOString(), topic, value: data.Value ?? data });
+  rawMap.set(topic, { ts: new Date().toISOString(), topic, value: data });
   
 
   // Validate
