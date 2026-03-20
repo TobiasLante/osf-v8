@@ -28,6 +28,8 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
   const [runs, setRuns] = useState<Run[]>([]);
   const [selectedRun, setSelectedRun] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [buildResult, setBuildResult] = useState<any>(null);
   const [reviewing, setReviewing] = useState(false);
   const [reviewResults, setReviewResults] = useState<any>(null);
   const [error, setError] = useState('');
@@ -40,6 +42,27 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
   }, []);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
+
+  const startBuild = async () => {
+    setBuilding(true);
+    setError('');
+    setBuildResult(null);
+    try {
+      const data = await apiFetch<any>('/api/kg/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain }),
+      });
+      setBuildResult(data);
+      onRunComplete?.(data.runId);
+      await loadRuns();
+      if (data.runId) await loadRun(data.runId);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBuilding(false);
+    }
+  };
 
   const loadRun = async (id: string) => {
     setLoading(true);
@@ -80,11 +103,28 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
 
   return (
     <div className={className}>
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)] mb-3">Pipeline Runs</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-dim)] mb-3">Build Pipeline</h2>
 
-      <p className="text-xs text-[var(--text-muted)] mb-4">
-        Build via CLI: <code className="bg-[var(--surface-3)] px-1.5 py-0.5 rounded text-emerald-400">npm run build-kg -- --domain {domain}</code>
-      </p>
+      <button
+        onClick={startBuild}
+        disabled={building}
+        className="w-full btn-primary py-3 text-base shadow-lg shadow-emerald-500/20 mb-4"
+      >
+        {building ? 'Building Knowledge Graph...' : 'Build Knowledge Graph'}
+      </button>
+
+      {buildResult && (
+        <div className={`card mb-4 ${buildResult.status === 'complete' ? '!border-emerald-500/30 !bg-emerald-500/5' : '!border-red-500/30 !bg-red-500/5'}`}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-semibold text-[var(--text)]">{buildResult.status === 'complete' ? 'Build Complete' : 'Build Failed'}</span>
+            {buildResult.accuracy !== undefined && <span className={`badge ${buildResult.accuracy >= 80 ? 'badge-emerald' : 'badge-amber'}`}>{buildResult.accuracy}%</span>}
+          </div>
+          <div className="text-xs text-[var(--text-muted)]">
+            {buildResult.totalNodes} nodes, {buildResult.totalEdges} edges
+            {buildResult.error && <span className="text-red-400 ml-2">{buildResult.error}</span>}
+          </div>
+        </div>
+      )}
 
       {/* Run List */}
       {runs.length > 0 ? (

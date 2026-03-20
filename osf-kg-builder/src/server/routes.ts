@@ -14,6 +14,7 @@ import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
 import { runValidation, formatValidationReport } from '../builder/validator';
 import { saveSchemaRun } from '../builder/schema-planner';
+import { runBuildPipeline } from '../builder/pipeline';
 import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas } from '../builder/schema-kg-builder';
 
@@ -366,6 +367,35 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
       logger.error({ err: (err as Error).message }, '[Route] build-from-schemas failed');
       res.status(500).json({ error: (err as Error).message });
     }
+  });
+
+  // ── Build KG (trigger from UI) ───────────────────────────────
+  let buildRunning = false;
+
+  router.post('/api/kg/build', async (req: Request, res: Response) => {
+    if (buildRunning) {
+      res.status(409).json({ error: 'A build is already running' });
+      return;
+    }
+
+    const { domain } = req.body || {};
+    buildRunning = true;
+
+    try {
+      const result = await runBuildPipeline({
+        domain: domain || config.domain || 'discrete',
+      });
+      res.json(result);
+    } catch (e: any) {
+      logger.error({ err: e.message }, 'Build failed');
+      res.status(500).json({ error: e.message });
+    } finally {
+      buildRunning = false;
+    }
+  });
+
+  router.get('/api/kg/build/status', (_req: Request, res: Response) => {
+    res.json({ running: buildRunning });
   });
 
   return router;
