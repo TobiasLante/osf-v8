@@ -147,7 +147,7 @@ function TopicTreeNode({ node, depth = 0, expandedSet, onToggle }: {
         {age !== null && <span className="text-[10px] text-[var(--text-dim)] ml-auto shrink-0">{age}s</span>}
       </div>
       {!hasChildren && node.value && expandedSet.has(node.fullTopic + "::detail") && (
-        <pre className="text-[10px] text-[var(--text-muted)] font-mono ml-6 p-2 bg-[var(--surface-2)] rounded mb-1 max-h-40 overflow-auto whitespace-pre-wrap">
+        <pre className="text-[10px] text-[var(--text-muted)] font-mono ml-6 p-2 bg-[var(--surface-2)] rounded mb-1 max-h-64 overflow-auto whitespace-pre-wrap">
           {(() => { try { return JSON.stringify(JSON.parse(node.value!), null, 2); } catch { return node.value; } })()}
         </pre>
       )}
