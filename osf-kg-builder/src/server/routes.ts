@@ -6,7 +6,7 @@ import { generateEmbedding } from '../shared/embedding-service';
 import { semanticSearch, getEmbeddingStats } from '../shared/vector-store';
 import { SchemaProposal, SchemaRun } from '../shared/types';
 import { generateChart } from './chart-engine';
-import { getBridgeStats } from './mqtt-bridge';
+import { getBridgeStats, getRawMessages, getEnrichedMessages } from './mqtt-bridge';
 import { handleMcpRequest } from './mcp-handler';
 import { cypherQuery, getDriver, validateLabel } from '../shared/cypher-utils';
 import { callLlm, ChatMessage } from '../shared/llm-client';
@@ -128,6 +128,10 @@ export function createRouter(graphAvailable: boolean, vectorAvailable: boolean):
   // ── MQTT Status ────────────────────────────────────────────────
   router.get('/api/kg/mqtt/status', (_req: Request, res: Response) => {
     res.json(getBridgeStats());
+  });
+
+  router.get('/api/kg/mqtt/messages', (_req: Request, res: Response) => {
+    res.json({ raw: getRawMessages(), enriched: getEnrichedMessages() });
   });
 
   // ── Builder Runs (read-only) ───────────────────────────────────

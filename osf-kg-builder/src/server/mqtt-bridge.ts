@@ -35,12 +35,23 @@ interface BridgeStats {
   errors: number;
 }
 
+export interface MqttMessage {
+  ts: string;
+  topic: string;
+  value: any;
+}
+
 let client: MqttClient | null = null;
 let stats: BridgeStats = { received: 0, validated: 0, rejected: 0, kgUpdated: 0, errors: 0 };
 let running = false;
 let batchBuffer: string[] = [];
 let batchTimer: ReturnType<typeof setInterval> | null = null;
 let flushing = false;
+
+// Ring buffers for live view (last 50 messages)
+const RAW_BUFFER_SIZE = 50;
+const rawMessages: MqttMessage[] = [];
+const enrichedMessages: MqttMessage[] = [];
 
 const BATCH_INTERVAL_MS = 2000;
 const BATCH_MAX_SIZE = 50;
@@ -143,6 +154,9 @@ export function getBridgeStats(): BridgeStats & { running: boolean; bufferSize: 
   return { ...stats, running, bufferSize: batchBuffer.length };
 }
 
+export function getRawMessages(): MqttMessage[] { return rawMessages; }
+export function getEnrichedMessages(): MqttMessage[] { return enrichedMessages; }
+
 /**
  * Handle a single incoming message: validate → enrich → buffer for KG.
  */
@@ -157,6 +171,10 @@ async function handleMessage(topic: string, payload: Buffer, rules: TransformRul
     stats.rejected++;
     return;
   }
+
+  // Capture raw message
+  rawMessages.push({ ts: new Date().toISOString(), topic, value: data.Value ?? data });
+  if (rawMessages.length > RAW_BUFFER_SIZE) rawMessages.shift();
 
   // Validate
   if (!validateMessage(data, rule.validation)) {
@@ -196,6 +214,10 @@ async function handleMessage(topic: string, payload: Buffer, rules: TransformRul
     }
   }
   props.last_mqtt_update = new Date().toISOString();
+
+  // Capture enriched message
+  enrichedMessages.push({ ts: new Date().toISOString(), topic, value: { label, id: nodeId, ...props } });
+  if (enrichedMessages.length > RAW_BUFFER_SIZE) enrichedMessages.shift();
 
   const cypher = vertexCypher(label, String(nodeId), props);
   batchBuffer.push(cypher);
