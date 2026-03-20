@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osf-kg-builder
+  namespace: osf
+  labels:
+    app: osf-kg-builder
+    version: v9
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: osf-kg-builder
+        version: v9
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kg-builder
+          image: 192.168.178.150:32000/osf-kg-builder:v9
+          args: ["--domain", "discrete"]
+          envFrom:
+            - configMapRef:
+                name: osf-config
+            - secretRef:
+                name: osf-secrets
+          env:
+            - name: NEO4J_URL
+              value: "bolt://osf-neo4j:7687"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: NEO4J_PASSWORD
+            - name: NEO4J_DATABASE
+              value: "neo4j"
+            - name: EMBEDDING_URL
+              value: "http://192.168.178.120:5003"
+            - name: EMBEDDING_MODEL
+              value: "nomic-embed-text"
+            - name: EMBEDDING_DIM
+              value: "768"
+            - name: DOMAIN
+              value: "discrete"
+            - name: MCP_PROXY_URL
+              value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+            - name: HISTORIAN_URL
+              value: "http://historian:8030"
+            - name: ERP_DB_HOST
+              value: "192.168.178.150"
+            - name: ERP_DB_PORT
+              value: "30432"
+            - name: ERP_DB_NAME
+              value: "bigdata_homelab"
+            - name: ERP_DB_USER
+              value: "admin"
+            - name: ERP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: FACTORY_DB_PASSWORD
+            - name: DB_SCHEMA
+              value: "llm_test_v3"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

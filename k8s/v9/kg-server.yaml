@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-kg-server
+  namespace: osf
+  labels:
+    app: osf-kg-server
+    version: v9
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-kg-server
+  template:
+    metadata:
+      labels:
+        app: osf-kg-server
+        version: v9
+    spec:
+      containers:
+        - name: kg-server
+          image: 192.168.178.150:32000/osf-kg-server:v9
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8035
+          envFrom:
+            - configMapRef:
+                name: osf-config
+            - secretRef:
+                name: osf-secrets
+          env:
+            - name: PORT
+              value: "8035"
+            - name: NEO4J_URL
+              value: "bolt://osf-neo4j:7687"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: NEO4J_PASSWORD
+            - name: NEO4J_DATABASE
+              value: "neo4j"
+            - name: EMBEDDING_URL
+              value: "http://192.168.178.120:5003"
+            - name: EMBEDDING_MODEL
+              value: "nomic-embed-text"
+            - name: EMBEDDING_DIM
+              value: "768"
+            - name: DOMAIN
+              value: "discrete"
+            - name: MQTT_RAW_URL
+              value: "mqtt://192.168.178.150:31883"
+            - name: HISTORIAN_URL
+              value: "http://historian:8030"
+            - name: MCP_PROXY_URL
+              value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+            - name: GATEWAY_DB_URL
+              value: "postgresql://$(ERP_DB_USER):$(ERP_DB_PASSWORD)@osf-postgres:5432/osf"
+            - name: KG_SERVER_URL
+              value: "http://osf-kg-server:8035"
+            - name: ERP_DB_HOST
+              value: "192.168.178.150"
+            - name: ERP_DB_PORT
+              value: "30432"
+            - name: ERP_DB_NAME
+              value: "bigdata_homelab"
+            - name: ERP_DB_USER
+              value: "admin"
+            - name: ERP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: osf-secrets
+                  key: FACTORY_DB_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8035
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8035
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-kg-server
+  namespace: osf
+  labels:
+    app: osf-kg-server
+spec:
+  selector:
+    app: osf-kg-server
+  ports:
+    - port: 8035
+      targetPort: 8035
+      protocol: TCP
