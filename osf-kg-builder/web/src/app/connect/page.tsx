@@ -152,25 +152,150 @@ history_variables    — All variables for a machine`}
         />
 
         <ConnectGuide
-          title="3. OPC-UA (Machine Data)"
-          description="Import machine structure from MTP/AutomationML files. OPC-UA endpoints are extracted and stored in the KG."
+          title="3. MQTT / UNS (Live Machine Data)"
+          description="Factory Simulator publishes live machine data via MQTT in ISA-95 UNS topic structure. The Historian records it, the MQTT Bridge writes it to Neo4j."
           steps={[
-            'Provide MTP files (AutomationML XML) via URL',
-            'Set MTP_URLS env var (comma-separated)',
-            'KG Builder parses Equipment, Services, Variables, OPC-UA endpoints',
-            'Equipment hierarchy appears in the Knowledge Graph',
+            'Machines publish to MQTT broker at 192.168.178.150:31883 (NodePort)',
+            'Topic structure: Factory/{Machine}/{WorkOrder}/{Tool}/{Category}/{Variable}',
+            'Categories: BDE (production counters), ProcessData (OEE, cycle times, temps)',
+            'Historian subscribes Factory/# and stores in TimescaleDB (historian_db)',
+            'KG Server MQTT Bridge subscribes Factory/# and updates Neo4j nodes in real-time',
           ]}
-          example={`# MTP parsing extracts:
-Equipment: Reaktor_R101 (PEA)
-  Services: Heizen (Idle→Running→Completed), Kuehlen
-  Variables: TIC01_PV (Float, °C), FIC01_PV (Float, l/h)
-  OPC-UA: opc.tcp://192.168.1.101:4840
+          example={`# === Machines (10 CNC/Mech + 4 SGM + 2 Montage) ===
+CNC-01 (7533)   CNC-02 (8011)   DRH-01 (9012)   FRS-01 (9013)
+SGF-01 (9014)   FRS-02 (9015)   FRS-5A (9016)   DRH-02 (9017)
+SGF-02 (9018)   FRS-03 (9019)
+SGM-002  SGM-004  SGM-005  SGM-006  (Injection Molding)
+ML-1  ML-2  (Montage Lines)
 
-# Becomes KG nodes:
-(:Equipment {id:"Reaktor_R101", opcuaEndpoint:"opc.tcp://..."})
-(:Service {id:"Heizen", states:"Idle,Running,Completed"})`}
+# === BDE Variables (all machines) ===
+Factory/CNC-01/FA240001/WZM-001/BDE/Act_Qty_Good      → Good parts (pcs)
+Factory/CNC-01/FA240001/WZM-001/BDE/Act_Qty_Scrap      → Scrap parts (pcs)
+Factory/CNC-01/FA240001/WZM-001/BDE/Act_Qty_Rework     → Rework parts (pcs)
+Factory/CNC-01/FA240001/WZM-001/BDE/Plan_Qty_Total     → Planned qty (pcs)
+Factory/CNC-01/FA240001/WZM-001/BDE/Act_Num_Cycles     → Cycles/hour
+
+# === ProcessData Variables (all machines) ===
+.../ProcessData/Act_CycleTime      → Actual cycle time (s)
+.../ProcessData/Plan_CycleTime     → Planned cycle time (s)
+.../ProcessData/Act_RunMode_Asset  → Production/Idle/Setup/Maintenance/Fault
+.../ProcessData/Act_OEE            → Overall Equipment Effectiveness (%)
+.../ProcessData/Act_Availability   → OEE Availability (%)
+.../ProcessData/Act_Performance    → OEE Performance (%)
+.../ProcessData/Act_Quality        → OEE Quality (%)
+
+# === SGM-specific (97 injection molding parameters) ===
+.../ProcessData/Act_Temp_Barrel     → Barrel temperature (°C)
+.../ProcessData/Act_Pressure_Injection_Max → Max injection pressure (bar)
+.../ProcessData/Act_Speed_Injection  → Injection speed (mm/s)
+.../ProcessData/Act_Volume_Shot      → Shot volume (cm³)
+.../ProcessData/Act_Force_Clamping   → Clamping force (kN)
+.../ProcessData/Act_Energy_Total     → Energy per shot (kWh)
+# ... 90+ more Act_/Set_ pairs for temperatures, times, pressures, speeds
+
+# === UNS Payload Format (every message) ===
+{
+  "timestamp": "2026-03-20T18:30:00.000Z",
+  "Value": 87.3,
+  "Unit": "%",
+  "Definition": "Overall Equipment Effectiveness",
+  "Datatype": "Float",
+  "ValueQualityQualifier": "good",
+  "ValueOriginQualifier": "simulated",
+  "ValueProcessingQualifier": "last"
+}`}
           envVars={[
-            { key: 'MTP_URLS', value: 'http://semodia.local/mtp/reactor.aml', desc: 'Comma-separated MTP file URLs' },
+            { key: 'MQTT_RAW_URL', value: 'mqtt://192.168.178.150:31883', desc: 'MQTT broker (NodePort)' },
+            { key: 'MQTT_BROKER_URL', value: 'mqtt://mqtt-broker.demo.svc.cluster.local:1883', desc: 'MQTT broker (ClusterIP, for pods)' },
+          ]}
+        />
+
+        <ConnectGuide
+          title="4. OPC-UA Servers (35 Machine Endpoints)"
+          description="Each factory machine runs its own OPC-UA server (opcua-sim). Data is event-driven from PostgreSQL via LISTEN/NOTIFY — updates in real-time when the simulator ticks."
+          steps={[
+            'OPC-UA servers run in opcua-sim container (/opt/opcua-sim)',
+            'Anonymous access, no certificate needed (SecurityPolicy.None)',
+            'Connect with any OPC-UA client: UaExpert, Prosys, node-opcua, Python opcua',
+            'Resource path: /UA/Factory on each port',
+            'Data updates via PG LISTEN/NOTIFY — no polling needed',
+          ]}
+          example={`# === 35 OPC-UA Servers — Port Map ===
+
+CNC / Mechanical (10 machines):
+  opc.tcp://HOST:4840  →  CNC-01 (7533) — CNC Maschine 1
+  opc.tcp://HOST:4841  →  CNC-02 (8011) — CNC Maschine 2
+  opc.tcp://HOST:4842  →  DRH-01 (9012) — Drehmaschine 1
+  opc.tcp://HOST:4843  →  FRS-01 (9013) — Fräsmaschine 1
+  opc.tcp://HOST:4844  →  SGF-01 (9014) — Schleifmaschine 1
+  opc.tcp://HOST:4845  →  FRS-02 (9015) — Fräsmaschine 2
+  opc.tcp://HOST:4846  →  FRS-5A (9016) — 5-Achs-Fräsmaschine
+  opc.tcp://HOST:4847  →  DRH-02 (9017) — Drehmaschine 2
+  opc.tcp://HOST:4848  →  SGF-02 (9018) — Schleifmaschine 2
+  opc.tcp://HOST:4849  →  FRS-03 (9019) — Fräsmaschine 3
+
+SGM Injection Molding (20 machines):
+  opc.tcp://HOST:4850  →  SGM-001 — Spritzgussmaschine 1
+  opc.tcp://HOST:4851  →  SGM-002
+  ...
+  opc.tcp://HOST:4869  →  SGM-020
+
+Assembly Lines (2):
+  opc.tcp://HOST:4870  →  ML-1 — Montage Linie 1
+  opc.tcp://HOST:4871  →  ML-2 — Montage Linie 2
+
+FFS Cells (3):
+  opc.tcp://HOST:4880  →  BZ-1 — FFS Bearbeitungszelle 1
+  opc.tcp://HOST:4881  →  BZ-2 — FFS Bearbeitungszelle 2
+  opc.tcp://HOST:4882  →  BZ-3 — FFS Bearbeitungszelle 3
+
+# === OPC-UA Address Space (BDE — all machines) ===
+Machine_Status (Int32)     — 0=Produktion, 1=Stillstand, 2=Rüsten, 3=Wartung, 4=Störung
+Machine_Status_Text        — "Production", "Idle", "Setup", "Maintenance", "Fault"
+Good_Parts (Int32)         — Gutteile
+Scrap_Parts (Int32)        — Ausschuss
+Rework_Parts (Int32)       — Nacharbeit
+Cycle_Time_Planned (Float) — Takt-Sollzeit (s)
+Cycle_Time_Actual (Float)  — Takt-Istzeit (s)
+Power_kW (Float)           — Aktueller Stromverbrauch
+Energy_kWh (Float)         — Kumulierter Energieverbrauch
+Production_Order (String)  — Laufender Auftrag
+Article_ID (String)        — Aktueller Artikel
+Tool_ID (String)           — Aktuelles Werkzeug
+Shift_Number (Int32)       — Schichtnummer
+Operator_ID (String)       — Bediener
+
+# === SGM-specific Address Space (97 additional nodes) ===
+# Organized in subfolders: Temperature, Time, Pressure, Volume, Speed, Position, Energy, Material
+Temperature/Melting_Actual (Float, °C)    Temperature/Melting_Set (Float, °C)
+Temperature/Zone1_Actual...Zone6_Actual   Temperature/Zone1_Set...Zone6_Set
+Temperature/Nozzle_Actual                 Temperature/Nozzle_Set
+Temperature/Mould_Fixed_Actual            Temperature/Mould_Moving_Actual
+Temperature/Oil_Actual                    Temperature/Dryer_Actual
+Time/Cycle_Actual (Float, s)              Time/Dosing_Actual, Filling, Holding, Cooling
+Pressure/Holding_Actual (Float, bar)      Pressure/Injection_Max_Actual
+Pressure/Force_Closing_Actual (Float, kN) Pressure/Torque_Screw (Float, Nm)
+Volume/Shot_Actual (Float, cm³)           Volume/Cushion_Actual
+Speed/Injection_Actual (Float, mm/s)      Speed/Screw_RPM_Actual
+Position/Screw_Dosing_Actual (Float, mm)  Position/Mould_Open_Actual
+Energy/Total_kWh                          Energy/Power_Current (Float, kW)
+Material/Humidity_Granulate (Float, %)    Material/Weight_Shot (Float, g)
+Material/Shot_Counter (Int32)
+
+# === Connect with Python ===
+from opcua import Client
+client = Client("opc.tcp://192.168.178.150:4853")  # SGM-004
+client.connect()
+oee = client.get_node("ns=1;s=Act_OEE").get_value()
+temp = client.get_node("ns=1;s=Temperature.Melting_Actual").get_value()
+
+# === Connect with Node.js ===
+const { OPCUAClient } = require("node-opcua");
+const client = OPCUAClient.create({ endpoint: "opc.tcp://HOST:4853" });
+await client.connect("opc.tcp://192.168.178.150:4853");`}
+          envVars={[
+            { key: 'HOST', value: '192.168.178.150 (K8s NodePort) or opcua-sim:PORT (ClusterIP)', desc: 'OPC-UA server host' },
+            { key: 'Port range', value: 'CNC 4840-4849, SGM 4850-4869, Assembly 4870-4871, FFS 4880-4882', desc: '35 servers, one per machine' },
           ]}
         />
 

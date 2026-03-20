@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 
 const navLinks = [
+  { href: "/fomi", label: "FoMI 2026" },
   { href: "/features", label: "Features" },
   { href: "/explore", label: "Explore" },
   { href: "/i3x", label: "i3X" },
