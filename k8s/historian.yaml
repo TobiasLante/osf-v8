@@ -40,17 +40,11 @@ spec:
               name: osf-secrets
               key: FACTORY_DB_PASSWORD
         - name: HISTORIAN_DB_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: osf-config
-              key: FACTORY_DB_HOST
+          value: "postgress-big-svc.bigdata.svc.cluster.local"
         - name: HISTORIAN_DB_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: osf-config
-              key: FACTORY_DB_PORT
+          value: "5433"
         - name: HISTORIAN_DB_NAME
-          value: "bigdata_homelab"
+          value: "historian_db"
         - name: HISTORIAN_DB_USER
           value: "admin"
         - name: HISTORIAN_DB_PASSWORD

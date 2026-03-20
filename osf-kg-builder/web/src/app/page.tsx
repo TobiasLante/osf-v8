@@ -7,7 +7,7 @@ import Link from 'next/link';
 interface HealthData {
   graphAvailable: boolean;
   vectorAvailable: boolean;
-  mqtt: { transform: boolean; bridge: boolean };
+  mqtt: { running: boolean; received: number; kgUpdated: number };
 }
 
 interface EmbeddingStats {
@@ -71,16 +71,10 @@ export default function OverviewPage() {
           detail={`${embeddings?.total ?? 0} embeddings`}
         />
         <StatusCard
-          title="MQTT Transform"
-          value={health?.mqtt?.transform ? 'Running' : 'Stopped'}
-          status={health?.mqtt?.transform ? 'ok' : 'off'}
-          detail="Raw → Curated"
-        />
-        <StatusCard
-          title="KG Bridge"
-          value={health?.mqtt?.bridge ? 'Running' : 'Stopped'}
-          status={health?.mqtt?.bridge ? 'ok' : 'off'}
-          detail="MQTT → Graph"
+          title="MQTT Bridge"
+          value={health?.mqtt?.running ? 'Running' : 'Stopped'}
+          status={health?.mqtt?.running ? 'ok' : 'off'}
+          detail={health?.mqtt?.kgUpdated ? `${health.mqtt.kgUpdated} nodes updated` : 'MQTT → Neo4j'}
         />
       </div>
 

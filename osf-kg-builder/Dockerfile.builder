@@ -2,6 +2,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
+COPY .swcrc ./
 COPY src/ src/
 COPY templates/ templates/
 RUN npx swc src -d dist --copy-files --strip-leading-paths

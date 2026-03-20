@@ -43,7 +43,7 @@ export default function Sidebar() {
           </div>
           <div>
             <h1 className="text-sm font-bold tracking-tight text-white">ZeroGuess AI</h1>
-            <p className="text-[10px] text-[var(--text-dim)] leading-tight">v9 Platform</p>
+            <p className="text-[10px] text-[var(--text-dim)] leading-tight">KG Platform</p>
           </div>
         </div>
       </Link>
@@ -88,7 +88,7 @@ export default function Sidebar() {
       <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-[#ff9500] animate-pulse" />
-          <span className="text-xs text-[var(--text-dim)]">v9.0.0</span>
+          <span className="text-xs text-[var(--text-dim)]">v9.3</span>
         </div>
         <ThemeToggle />
       </div>

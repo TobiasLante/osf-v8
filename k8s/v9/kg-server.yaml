@@ -57,7 +57,7 @@ spec:
             - name: MCP_PROXY_URL
               value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
             - name: GATEWAY_DB_URL
-              value: "postgresql://$(ERP_DB_USER):$(ERP_DB_PASSWORD)@osf-postgres:5432/osf"
+              value: "postgresql://osf_admin:$(DB_PASSWORD)@osf-postgres:5432/osf"
             - name: KG_SERVER_URL
               value: "http://osf-kg-server:8035"
             - name: ERP_DB_HOST

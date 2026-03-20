@@ -1,0 +1,131 @@
+## KG Server — Network Policies
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kg-server-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-kg-server
+  policyTypes:
+    - Egress
+  egress:
+    # Neo4j (same namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: osf-neo4j
+      ports:
+        - port: 7687
+          protocol: TCP
+    # Gateway PG (same namespace, for auto-registration)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: osf-postgres-new
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Factory PG (bigdata namespace, for kg_builder_runs)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bigdata
+      ports:
+        - port: 5433
+          protocol: TCP
+    # Historian MCP (same namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: historian
+      ports:
+        - port: 8030
+          protocol: TCP
+    # Factory Sim MCP (factory namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+      ports:
+        - port: 8020
+          protocol: TCP
+    # LLM Server (external .120)
+    - to:
+        - ipBlock:
+            cidr: 192.168.178.120/32
+      ports:
+        - port: 5001
+          protocol: TCP
+        - port: 5003
+          protocol: TCP
+    # MQTT Broker (demo namespace ClusterIP + external NodePort)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: demo
+      ports:
+        - port: 1883
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 192.168.178.150/32
+      ports:
+        - port: 31883
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kg-server-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-kg-server
+  policyTypes:
+    - Ingress
+  ingress:
+    # Gateway discovers and calls KG Server MCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+      ports:
+        - port: 8035
+          protocol: TCP
+---
+## Neo4j — allow ingress from KG Server + KG Builder
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: neo4j-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-neo4j
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: osf-kg-server
+        - podSelector:
+            matchLabels:
+              app: osf-kg-builder
+      ports:
+        - port: 7687
+          protocol: TCP
+        - port: 7474
+          protocol: TCP
