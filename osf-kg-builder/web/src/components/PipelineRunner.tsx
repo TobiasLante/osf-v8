@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Domain } from './DomainSelector';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, API_URL } from '@/lib/api';
 
 interface Run {
   id: string;
@@ -30,6 +30,10 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
   const [loading, setLoading] = useState(false);
   const [building, setBuilding] = useState(false);
   const [buildResult, setBuildResult] = useState<any>(null);
+  const [buildPhase, setBuildPhase] = useState(-1);
+  const [buildStep, setBuildStep] = useState('');
+  const [buildLog, setBuildLog] = useState<string[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
   const [reviewing, setReviewing] = useState(false);
   const [reviewResults, setReviewResults] = useState<any>(null);
   const [error, setError] = useState('');
@@ -43,20 +47,61 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
+  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [buildLog]);
+
   const startBuild = async () => {
     setBuilding(true);
     setError('');
     setBuildResult(null);
+    setBuildPhase(-1);
+    setBuildStep('Starting...');
+    setBuildLog([]);
+
     try {
-      const data = await apiFetch<any>('/api/kg/build', {
+      const res = await fetch(`${API_URL}/api/kg/build`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain }),
       });
-      setBuildResult(data);
-      onRunComplete?.(data.runId);
-      await loadRuns();
-      if (data.runId) await loadRun(data.runId);
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop() || '';
+
+        for (const part of parts) {
+          for (const line of part.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.type === 'progress') {
+                setBuildPhase(ev.phase);
+                setBuildStep(ev.step);
+                setBuildLog(prev => [...prev, `[Phase ${ev.phase}] ${ev.step}`]);
+              } else if (ev.type === 'done') {
+                setBuildResult(ev);
+                onRunComplete?.(ev.runId);
+                await loadRuns();
+                if (ev.runId) await loadRun(ev.runId);
+              } else if (ev.type === 'error') {
+                setError(ev.message);
+              }
+            } catch {}
+          }
+        }
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -110,10 +155,27 @@ export default function PipelineRunner({ domain = 'manufacturing', className, on
         disabled={building}
         className="w-full btn-primary py-3 text-base shadow-lg shadow-emerald-500/20 mb-4"
       >
-        {building ? 'Building Knowledge Graph...' : 'Build Knowledge Graph'}
+        {building ? 'Building Knowledge Graph...' : `Build Knowledge Graph (${domain})`}
       </button>
 
-      {buildResult && (
+      {/* Build Progress */}
+      {building && (
+        <div className="card mb-4 !border-blue-500/30 !bg-blue-500/5">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            <span className="text-sm font-semibold text-blue-400">Phase {buildPhase >= 0 ? buildPhase : '...'}</span>
+            <span className="text-xs text-[var(--text-muted)]">{buildStep}</span>
+          </div>
+          <div className="rounded-lg bg-[var(--surface-2)] max-h-40 overflow-y-auto p-3 font-mono text-xs space-y-0.5">
+            {buildLog.map((line, i) => (
+              <div key={i} className="text-[var(--text-muted)]">{line}</div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
+
+      {buildResult && !building && (
         <div className={`card mb-4 ${buildResult.status === 'complete' ? '!border-emerald-500/30 !bg-emerald-500/5' : '!border-red-500/30 !bg-red-500/5'}`}>
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-semibold text-[var(--text)]">{buildResult.status === 'complete' ? 'Build Complete' : 'Build Failed'}</span>

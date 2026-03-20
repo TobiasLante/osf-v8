@@ -2,13 +2,13 @@
 
 import { useState, useCallback } from 'react';
 
-export type Domain = 'manufacturing' | 'pharma' | 'chemical' | 'medtech';
+export type Domain = 'discrete' | 'process' | 'pharma' | 'automotive';
 
-const DOMAINS: Array<{ id: Domain; name: string; description: string; standard: string }> = [
-  { id: 'manufacturing', name: 'Manufacturing',  description: 'Discrete manufacturing, CNC, assembly',         standard: 'ISA-95 / CESMII' },
-  { id: 'pharma',        name: 'Pharma',         description: 'Batch processes, GMP, bioprocessing',           standard: 'ISA-88 / MTP' },
-  { id: 'chemical',      name: 'Chemical',       description: 'Continuous & batch, reactors, columns',         standard: 'ISA-88/95 / MTP' },
-  { id: 'medtech',       name: 'Medtech',        description: 'Device traceability, UDI, clean room',          standard: 'MDR / ISO 13485' },
+const DOMAINS: Array<{ id: Domain; name: string; description: string; standard: string; ready: boolean }> = [
+  { id: 'discrete',    name: 'Discrete Manufacturing',  description: 'CNC, assembly, injection molding — Factory Sim v3',  standard: 'ISA-95 / CESMII',   ready: true },
+  { id: 'pharma',      name: 'Pharma / Bioprocess',     description: 'Batch processes, GMP, recipes, test results',       standard: 'ISA-88 / GMP',      ready: false },
+  { id: 'process',     name: 'Chemical / Process',      description: 'Reactors, charges, continuous + batch',             standard: 'ISA-88/95 / MTP',   ready: false },
+  { id: 'automotive',  name: 'Automotive',              description: 'Assembly stations, VIN tracing, torque data',       standard: 'VDA / IATF 16949',  ready: false },
 ];
 
 interface Props {
@@ -18,7 +18,7 @@ interface Props {
 }
 
 export default function DomainSelector({ className, onSelect, selected: controlled }: Props) {
-  const [internal, setInternal] = useState<Domain>('manufacturing');
+  const [internal, setInternal] = useState<Domain>('discrete');
   const selected = controlled ?? internal;
 
   const handleSelect = useCallback((d: Domain) => {
@@ -34,13 +34,17 @@ export default function DomainSelector({ className, onSelect, selected: controll
           <button
             key={d.id}
             onClick={() => handleSelect(d.id)}
+            disabled={!d.ready}
             className={`card text-left transition-all ${
               selected === d.id
                 ? 'border-emerald-500/50 shadow-md shadow-emerald-500/10'
-                : 'hover:border-[var(--border-active)]'
+                : d.ready ? 'hover:border-[var(--border-active)]' : 'opacity-40 cursor-not-allowed'
             }`}
           >
-            <div className="font-semibold text-sm text-[var(--text)]">{d.name}</div>
+            <div className="flex items-center gap-2">
+              <div className="font-semibold text-sm text-[var(--text)]">{d.name}</div>
+              {!d.ready && <span className="text-[10px] text-[var(--text-dim)] bg-[var(--surface-3)] px-1.5 py-0.5 rounded">coming soon</span>}
+            </div>
             <div className="text-xs text-[var(--text-muted)] mt-1">{d.description}</div>
             <div className="text-xs text-emerald-400 mt-2 font-mono">{d.standard}</div>
           </button>

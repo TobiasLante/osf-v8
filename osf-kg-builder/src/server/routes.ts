@@ -369,7 +369,7 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
     }
   });
 
-  // ── Build KG (trigger from UI) ───────────────────────────────
+  // ── Build KG (trigger from UI, SSE streaming) ────────────────
   let buildRunning = false;
 
   router.post('/api/kg/build', async (req: Request, res: Response) => {
@@ -381,16 +381,30 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
     const { domain } = req.body || {};
     buildRunning = true;
 
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
+
     try {
       const result = await runBuildPipeline({
         domain: domain || config.domain || 'discrete',
+        onProgress: (event) => {
+          emitSSE(res, { type: 'progress', ...event });
+        },
       });
-      res.json(result);
+      emitSSE(res, { type: 'done', ...result });
     } catch (e: any) {
       logger.error({ err: e.message }, 'Build failed');
-      res.status(500).json({ error: e.message });
+      emitSSE(res, { type: 'error', message: e.message });
     } finally {
       buildRunning = false;
+      clearInterval(heartbeat);
+      if (!res.writableEnded) res.end();
     }
   });
 

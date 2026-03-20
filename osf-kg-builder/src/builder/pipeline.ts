@@ -15,6 +15,8 @@ import { llmExtractNodes } from './llm-extractor';
 import { executeRelationshipBuilding } from './relationship-builder';
 import { runValidation, formatValidationReport } from './validator';
 
+export type ProgressCallback = (event: { phase: number; step: string; detail?: string }) => void;
+
 export interface PipelineOptions {
   domain: string;
   smProfileUrl?: string;
@@ -22,6 +24,7 @@ export interface PipelineOptions {
   mtpUrls?: string[];
   i3xEndpoints?: string[];
   skipDiscovery?: boolean;
+  onProgress?: ProgressCallback;
 }
 
 export interface PipelineResult {
@@ -53,15 +56,20 @@ export async function runBuildPipeline(options: PipelineOptions): Promise<Pipeli
     updatedAt: new Date().toISOString(),
   };
 
+  const emit = options.onProgress || (() => {});
+
   try {
     // ── Initialize Graph ──────────────────────────────────────────
+    emit({ phase: 0, step: 'Connecting to Neo4j...' });
     const graphOk = await initializeGraph();
     if (!graphOk) throw new Error('Neo4j not available');
 
     await initVectorStore();
+    emit({ phase: 0, step: 'Neo4j + Vector Store ready' });
 
     // ── Phase 0: External Imports (SM Profile, MTP, i3X) ─────────
     logger.info('Phase 0: External imports...');
+    emit({ phase: 0, step: 'External imports...' });
 
     let smProfile: SMProfileSchema | undefined;
     const smUrl = options.smProfileUrl || config.smProfileUrl;
@@ -107,13 +115,13 @@ export async function runBuildPipeline(options: PipelineOptions): Promise<Pipeli
     }
 
     // ── Phase 1: Schema Planning ──────────────────────────────────
-    logger.info('Phase 1: Schema planning...');
+    emit({ phase: 1, step: 'Discovering MCP tools...' });
 
     const discovery = options.skipDiscovery
       ? { tools: [], discoveredAt: new Date().toISOString() }
       : await discoverAndSample(options.authToken);
 
-    logger.info({ tools: discovery.tools.length }, 'Tool discovery complete');
+    emit({ phase: 1, step: `Discovered ${discovery.tools.length} tools. Planning schema...` });
 
     const proposal = await planSchema(discovery, smProfile, i3xProposal, allMtpNodeTypes, allMtpEdgeTypes);
     run.proposal = proposal;
@@ -121,14 +129,15 @@ export async function runBuildPipeline(options: PipelineOptions): Promise<Pipeli
     run.status = 'extracting';
     await saveSchemaRun(run);
 
-    logger.info({ nodeTypes: proposal.nodeTypes.length, edgeTypes: proposal.edgeTypes.length }, 'Schema planned');
+    emit({ phase: 1, step: `Schema: ${proposal.nodeTypes.length} node types, ${proposal.edgeTypes.length} edge types` });
 
     // ── Phase 2: Entity Extraction (deterministic first, LLM fallback) ──
-    logger.info('Phase 2: Entity extraction...');
+    emit({ phase: 2, step: `Extracting ${proposal.nodeTypes.length} node types...` });
 
     const llmFallbackTypes: NodeTypeSpec[] = [];
 
     for (const nt of proposal.nodeTypes) {
+      emit({ phase: 2, step: `Extracting ${nt.label} from ${nt.sourceTool}...`, detail: nt.label });
       const result = await deterministicExtract(nt, options.authToken, (msg, detail) => {
         logger.info({ ...detail }, msg);
       });
@@ -153,9 +162,10 @@ export async function runBuildPipeline(options: PipelineOptions): Promise<Pipeli
     await saveSchemaRun(run);
 
     // ── Phase 3: Relationship Building ────────────────────────────
-    logger.info('Phase 3: Relationship building...');
+    emit({ phase: 3, step: `Building ${proposal.edgeTypes.length} edge types...` });
 
     await executeRelationshipBuilding(proposal.edgeTypes, options.authToken, (msg, detail) => {
+      emit({ phase: 3, step: msg, detail: detail?.edgeType });
       logger.info({ ...detail }, msg);
     });
 
@@ -163,7 +173,7 @@ export async function runBuildPipeline(options: PipelineOptions): Promise<Pipeli
     await saveSchemaRun(run);
 
     // ── Phase 4: Validation ───────────────────────────────────────
-    logger.info('Phase 4: Validation...');
+    emit({ phase: 4, step: 'Validating graph...' });
 
     const validationReport = await runValidation(proposal);
     run.validationReport = validationReport;

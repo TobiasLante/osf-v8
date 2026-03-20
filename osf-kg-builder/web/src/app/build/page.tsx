@@ -7,7 +7,7 @@ import PipelineRunner from '@/components/PipelineRunner';
 import GraphExplorer from '@/components/GraphExplorer';
 
 export default function BuildPage() {
-  const [domain, setDomain] = useState<Domain>('manufacturing');
+  const [domain, setDomain] = useState<Domain>('discrete');
   const [completedRunId, setCompletedRunId] = useState<string | null>(null);
 
   return (
