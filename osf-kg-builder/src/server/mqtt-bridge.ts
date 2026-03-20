@@ -201,8 +201,10 @@ async function handleMessage(topic: string, payload: Buffer, rules: TransformRul
   }
 
   // Extract node info and buffer Cypher for KG write
-  const nodeId = data.id || data.machine_id || data.sensor_id || data.equipment_id;
-  if (!nodeId) return;
+  // Try payload fields first, then extract machine from topic (Factory/{Machine}/...)
+  const topicParts = topic.split('/');
+  const nodeId = data.id || data.machine_id || data.sensor_id || data.equipment_id || topicParts[1];
+  if (!nodeId || nodeId === '---') return;
 
   const label = deriveLabel(topic, data);
   if (!label) return;
