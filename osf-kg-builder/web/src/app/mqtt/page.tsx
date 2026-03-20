@@ -1,9 +1,13 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/api';
+import { useEffect, useState, useCallback } from "react";
 
-// ── ISA-95 Mapping (identical to openshopfloor /uns) ─────────────
+
+
+
+import { apiFetch, API_URL } from "@/lib/api";
+
+// ── ISA-95 Machine → Hierarchy Mapping ──────────────────────────────
 const ISA95_MAP: Record<string, { area: string; workCenter: string; cell: string }> = {
   "CNC-":     { area: "Fertigung", workCenter: "MechBearbeitung", cell: "CNC" },
   "DRH-":     { area: "Fertigung", workCenter: "MechBearbeitung", cell: "Drehen" },
@@ -11,284 +15,461 @@ const ISA95_MAP: Record<string, { area: string; workCenter: string; cell: string
   "SGF-":     { area: "Fertigung", workCenter: "MechBearbeitung", cell: "Schleifen" },
   "SGM-":     { area: "Fertigung", workCenter: "Spritzguss",      cell: "SGM" },
   "ML-":      { area: "Montage",   workCenter: "Endmontage",      cell: "Linie" },
-  "BZ-":      { area: "Fertigung", workCenter: "FFS",             cell: "Zelle" },
+  "Montage-": { area: "Montage",   workCenter: "Endmontage",      cell: "Linie" },
 };
+
 const ENTERPRISE = "OSF";
 const SITE = "Werk-Sued";
-const SITE_LEVEL = new Set(["ERP"]);
-const AREA_LEVEL = new Set(["QMS", "TMS", "WMS"]);
 
-function getMachineMapping(m: string) {
-  for (const [p, v] of Object.entries(ISA95_MAP)) { if (m.startsWith(p)) return v; }
+// Categories that belong at Site or Area level (not under equipment)
+const SITE_LEVEL_CATEGORIES = new Set(["ERP"]);
+const AREA_LEVEL_CATEGORIES = new Set(["QMS", "TMS", "WMS"]);
+
+function getMachineMapping(machine: string) {
+  for (const [prefix, mapping] of Object.entries(ISA95_MAP)) {
+    if (machine.startsWith(prefix)) return mapping;
+  }
   return { area: "Sonstige", workCenter: "Sonstige", cell: "Sonstige" };
 }
 
-// ── Types ────────────────────────────────────────────────────────
-interface Msg { ts: string; topic: string; value: any; }
-interface Stats { received: number; validated: number; rejected: number; kgUpdated: number; errors: number; running: boolean; bufferSize: number; }
-interface TNode { name: string; fp: string; value?: string; unit?: string; def?: string; ts?: number; children: Map<string, TNode>; }
+// ── Types ───────────────────────────────────────────────────────────
+interface MqttMessage {
+  topic: string;
+  payload: string;
+  ts: number;
+}
 
-// ── ISA-95 Tree Builder ─────────────────────────────────────────
-function buildTree(messages: Msg[], rootName: string): TNode {
-  const root: TNode = { name: rootName, fp: rootName, children: new Map() };
-  function ensure(parent: TNode, name: string): TNode {
+interface TopicNode {
+  name: string;
+  fullTopic: string;
+  value?: string;
+  ts?: number;
+  children: Map<string, TopicNode>;
+}
+
+// ── Tree Builders ───────────────────────────────────────────────────
+
+/** Flat MQTT tree — topics as-is */
+function buildFlatTree(messages: Map<string, MqttMessage>): TopicNode {
+  const root: TopicNode = { name: "Factory", fullTopic: "", children: new Map() };
+  for (const [topic, msg] of Array.from(messages.entries())) {
+    const parts = topic.split("/");
+    let node = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (!node.children.has(part)) {
+        node.children.set(part, {
+          name: part,
+          fullTopic: parts.slice(0, i + 1).join("/"),
+          children: new Map(),
+        });
+      }
+      node = node.children.get(part)!;
+    }
+    node.value = msg.payload;
+    node.ts = msg.ts;
+  }
+  return root;
+}
+
+/** ISA-95 tree — remap Factory/{Machine}/{Order}/{Tool}/{Category}/{Var}
+ *  → Enterprise/Site/Area/WorkCenter/Cell/Machine/Category/Var
+ *  Orders and tools become metadata under the equipment node. */
+function buildIsa95Tree(messages: Map<string, MqttMessage>): TopicNode {
+  const root: TopicNode = { name: ENTERPRISE, fullTopic: "isa95", children: new Map() };
+
+  function ensureNode(parent: TopicNode, name: string, prefix: string): TopicNode {
     if (!parent.children.has(name)) {
-      parent.children.set(name, { name, fp: parent.fp + "/" + name, children: new Map() });
+      parent.children.set(name, { name, fullTopic: prefix + "/" + name, children: new Map() });
     }
     return parent.children.get(name)!;
   }
 
-  for (const msg of messages) {
-    const parts = msg.topic.split("/");
+  for (const [topic, msg] of Array.from(messages.entries())) {
+    const parts = topic.split("/");
+    // Expected: Factory / Machine / Order / Tool / Category / Variable
     if (parts.length < 2) continue;
+
     const machine = parts[1];
+    const order = parts[2] && parts[2] !== "---" ? parts[2] : null;
+    const tool = parts[3] && parts[3] !== "---" ? parts[3] : null;
     const category = parts[4] || "Data";
     const variable = parts[5] || null;
+
     const { area, workCenter, cell } = getMachineMapping(machine);
 
-    const siteNode = ensure(root, SITE);
-    let target: TNode;
+    // Build hierarchy based on where the category belongs per Walker Reynolds
+    const p = "isa95";
+    const siteNode = ensureNode(root, SITE, p);
 
-    if (SITE_LEVEL.has(category)) {
-      target = ensure(ensure(siteNode, category), machine);
-    } else if (AREA_LEVEL.has(category)) {
-      target = ensure(ensure(ensure(siteNode, area), category), machine);
+    // ERP → Site level (plant-wide: orders, BOMs, materials)
+    // QMS/TMS/WMS → Area level (area-specific: quality, tooling, warehouse)
+    // BDE/ProcessData → Equipment level (machine-specific)
+    let targetNode: TopicNode;
+    let targetPath: string;
+
+    if (SITE_LEVEL_CATEGORIES.has(category)) {
+      // ERP data at site level: OSF/Werk-Sued/ERP/{machine context}/{variable}
+      const catNode = ensureNode(siteNode, category, p + "/" + SITE);
+      targetNode = catNode;
+      targetPath = catNode.fullTopic;
+      // Add machine as context under ERP
+      const machCtx = ensureNode(targetNode, machine, targetPath);
+      targetNode = machCtx;
+      targetPath = machCtx.fullTopic;
+    } else if (AREA_LEVEL_CATEGORIES.has(category)) {
+      // QMS/TMS/WMS at area level: OSF/Werk-Sued/Fertigung/QMS/{machine}/{variable}
+      const areaNode = ensureNode(siteNode, area, p + "/" + SITE);
+      const catNode = ensureNode(areaNode, category, areaNode.fullTopic);
+      const machCtx = ensureNode(catNode, machine, catNode.fullTopic);
+      targetNode = machCtx;
+      targetPath = machCtx.fullTopic;
     } else {
-      const areaNode = ensure(siteNode, area);
-      const wcNode = ensure(areaNode, workCenter);
-      const cellNode = ensure(wcNode, cell);
-      const machNode = ensure(cellNode, machine);
-      target = ensure(machNode, category);
+      // BDE/ProcessData → full ISA-95 path under equipment
+      const areaNode = ensureNode(siteNode, area, p + "/" + SITE);
+      const wcNode = ensureNode(areaNode, workCenter, p + "/" + SITE + "/" + area);
+      const cellNode = ensureNode(wcNode, cell, p + "/" + SITE + "/" + area + "/" + workCenter);
+      const machineNode = ensureNode(cellNode, machine, p + "/" + SITE + "/" + area + "/" + workCenter + "/" + cell);
+      const catNode = ensureNode(machineNode, category, machineNode.fullTopic);
+      targetNode = catNode;
+      targetPath = catNode.fullTopic;
     }
 
-    if (variable) {
-      const vn = ensure(target, variable);
-      // Parse UNS payload
-      let val = msg.value;
-      if (typeof val === 'object' && val !== null) {
-        vn.value = val.Value !== undefined ? String(typeof val.Value === 'number' ? (Number.isInteger(val.Value) ? val.Value : val.Value.toFixed(2)) : val.Value) : JSON.stringify(val).substring(0, 40);
-        vn.unit = val.Unit || '';
-        vn.def = val.Definition || '';
+    // Attach order/tool/variable under the target node
+    if (order) {
+      const orderNode = ensureNode(targetNode, order, targetPath);
+      if (tool) {
+        const toolNode = ensureNode(orderNode, tool, orderNode.fullTopic);
+        if (variable) {
+          const varNode = ensureNode(toolNode, variable, toolNode.fullTopic);
+          varNode.value = msg.payload;
+          varNode.ts = msg.ts;
+        } else {
+          toolNode.value = msg.payload;
+          toolNode.ts = msg.ts;
+        }
+      } else if (variable) {
+        const varNode = ensureNode(orderNode, variable, orderNode.fullTopic);
+        varNode.value = msg.payload;
+        varNode.ts = msg.ts;
       } else {
-        vn.value = String(val);
+        orderNode.value = msg.payload;
+        orderNode.ts = msg.ts;
       }
-      vn.ts = new Date(msg.ts).getTime();
+    } else if (variable) {
+      const varNode = ensureNode(targetNode, variable, targetPath);
+      varNode.value = msg.payload;
+      varNode.ts = msg.ts;
+    } else {
+      targetNode.value = msg.payload;
+      targetNode.ts = msg.ts;
     }
   }
   return root;
 }
 
-function countTopics(node: TNode): number {
-  if (node.children.size === 0) return node.value ? 1 : 0;
-  let c = 0;
-  for (const ch of node.children.values()) c += countTopics(ch);
-  return c;
-}
-
-function maxDepth(node: TNode, d = 0): number {
+function maxDepth(node: TopicNode, d = 0): number {
   if (node.children.size === 0) return d;
   let mx = d;
-  for (const ch of node.children.values()) mx = Math.max(mx, maxDepth(ch, d + 1));
+  for (const child of Array.from(node.children.values())) {
+    mx = Math.max(mx, maxDepth(child, d + 1));
+  }
   return mx;
 }
 
-// ── Tree Node (identical style to openshopfloor /uns) ───────────
-function TreeNode({ node, depth = 0, exp, toggle }: { node: TNode; depth?: number; exp: Set<string>; toggle: (t: string) => void; }) {
-  const has = node.children.size > 0;
-  const open = exp.has(node.fp);
+// ── Payload Parser ──────────────────────────────────────────────────
+function parsePayloadValue(raw: string): { display: string; unit: string; label: string } | null {
+  try {
+    const obj = JSON.parse(raw);
+    if (obj.Value !== undefined) {
+      const val = typeof obj.Value === "number"
+        ? (Number.isInteger(obj.Value) ? String(obj.Value) : obj.Value.toFixed(2))
+        : String(obj.Value);
+      return { display: val, unit: obj.Unit || "", label: obj.Definition || "" };
+    }
+  } catch {}
+  return null;
+}
+
+// ── Tree Node Component ─────────────────────────────────────────────
+function TopicTreeNode({
+  node,
+  depth = 0,
+  expandedSet,
+  onToggle,
+}: {
+  node: TopicNode;
+  depth?: number;
+  expandedSet: Set<string>;
+  onToggle: (topic: string) => void;
+}) {
+  const hasChildren = node.children.size > 0;
+  const expanded = expandedSet.has(node.fullTopic);
   const age = node.ts ? Math.floor((Date.now() - node.ts) / 1000) : null;
   const fresh = age !== null && age < 5;
+  const parsed = node.value ? parsePayloadValue(node.value) : null;
 
   return (
     <div style={{ marginLeft: depth > 0 ? 14 : 0 }}>
       <div
-        className={`flex items-center gap-1.5 py-[3px] cursor-pointer hover:bg-[var(--surface-3)] rounded px-1 ${fresh ? 'bg-emerald-500/5' : ''}`}
-        onClick={() => has ? toggle(node.fp) : toggle(node.fp + "::d")}
+        className={`flex items-center gap-1.5 py-0.5 cursor-pointer hover:bg-bg-surface-2 rounded px-1 ${fresh ? "bg-accent/5" : ""}`}
+        onClick={() => hasChildren ? onToggle(node.fullTopic) : onToggle(node.fullTopic + "::detail")}
       >
-        {has ? (
-          <span className="text-[var(--text-dim)] text-xs w-3 text-center select-none">{open ? '\u25BC' : '\u25B6'}</span>
+        {hasChildren ? (
+          <span className="text-text-dim text-xs w-3 text-center select-none">{expanded ? "\u25BC" : "\u25B6"}</span>
         ) : (
-          <span className="w-3 text-center text-[var(--text-dim)] text-xs select-none">&middot;</span>
+          <span className="w-3 text-center text-text-dim text-xs select-none">&middot;</span>
         )}
-        <span className={`text-[11px] font-mono ${!has ? 'text-[#ff9500]' : 'text-[var(--text)]'}`}>{node.name}</span>
-        {node.value && (
-          <span className={`text-[11px] ml-1 truncate`}>
-            <span className={`font-mono font-semibold ${fresh ? 'text-emerald-400' : 'text-[var(--text-muted)]'}`}>{node.value}</span>
-            {node.unit && <span className="text-[var(--text-dim)] ml-1">{node.unit}</span>}
+        <span className={`text-[11px] font-mono ${!hasChildren ? "text-accent" : "text-text"}`}>
+          {node.name}
+        </span>
+        {parsed && (
+          <span className="text-[11px] ml-1 truncate">
+            <span className={`font-mono font-semibold ${fresh ? "text-emerald-400" : "text-text-muted"}`}>
+              {parsed.display}
+            </span>
+            {parsed.unit && <span className="text-text-dim ml-1">{parsed.unit}</span>}
           </span>
         )}
-        {has && <span className="text-[10px] text-[var(--text-dim)] ml-0.5">({node.children.size})</span>}
-        {age !== null && <span className="text-[10px] text-[var(--text-dim)] ml-auto shrink-0">{age}s</span>}
+        {!parsed && node.value && !hasChildren && (
+          <span className="text-[11px] text-text-dim ml-1 truncate max-w-[120px] font-mono">{node.value.slice(0, 60)}</span>
+        )}
+        {hasChildren && (
+          <span className="text-[10px] text-text-dim ml-0.5">({node.children.size})</span>
+        )}
+        {age !== null && (
+          <span className="text-[10px] text-text-dim ml-auto shrink-0">{age}s</span>
+        )}
       </div>
-      {/* Expanded detail for leaf nodes */}
-      {!has && node.value && exp.has(node.fp + "::d") && (
-        <pre className="text-[10px] text-[var(--text-muted)] font-mono ml-6 p-2 bg-[var(--surface-2)] rounded mb-1 max-h-40 overflow-auto whitespace-pre-wrap">
-          {node.def ? `${node.def}\nValue: ${node.value} ${node.unit || ''}` : node.value}
+      {!hasChildren && node.value && expandedSet.has(node.fullTopic + "::detail") && (
+        <pre className="text-[10px] text-text-muted font-mono ml-6 p-2 bg-bg-surface-2 rounded mb-1 max-h-40 overflow-auto whitespace-pre-wrap">
+          {(() => { try { return JSON.stringify(JSON.parse(node.value), null, 2); } catch { return node.value; } })()}
         </pre>
       )}
-      {open && Array.from(node.children.values())
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(ch => <TreeNode key={ch.fp} node={ch} depth={depth + 1} exp={exp} toggle={toggle} />)}
+      {expanded &&
+        Array.from(node.children.values())
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((child) => (
+            <TopicTreeNode
+              key={child.fullTopic}
+              node={child}
+              depth={depth + 1}
+              expandedSet={expandedSet}
+              onToggle={onToggle}
+            />
+          ))}
     </div>
   );
 }
 
-// ── Main Page ───────────────────────────────────────────────────
-export default function MqttPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [raw, setRaw] = useState<Msg[]>([]);
-  const [enriched, setEnriched] = useState<Msg[]>([]);
-  const [error, setError] = useState('');
-  const [rawExp, setRawExp] = useState<Set<string>>(() => new Set([ENTERPRISE]));
-  const [enrExp, setEnrExp] = useState<Set<string>>(() => new Set([ENTERPRISE]));
+// ── Main Page ───────────────────────────────────────────────────────
+export default function MqttUnsPage() {
+  const [connected, setConnected] = useState(false);
+  const [displayMessages, setDisplayMessages] = useState<Map<string, MqttMessage>>(new Map());
+  const [msgCount, setMsgCount] = useState(0);
+  const [flatExpanded, setFlatExpanded] = useState<Set<string>>(() => new Set(["Factory"]));
+  const [isaExpanded, setIsaExpanded] = useState<Set<string>>(() => new Set(["isa95"]));
 
-  const refresh = async () => {
-    try {
-      const [s, m] = await Promise.all([
-        apiFetch<Stats>('/api/kg/mqtt/status'),
-        apiFetch<{ raw: Msg[]; enriched: Msg[] }>('/api/kg/mqtt/messages'),
-      ]);
-      setStats(s); setRaw(m.raw); setEnriched(m.enriched); setError('');
-    } catch (e: any) { setError(e.message); }
-  };
+  const onToggleFlat = useCallback((topic: string) => {
+    setFlatExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(topic)) { next.delete(topic); } else { next.add(topic); }
+      return next;
+    });
+  }, []);
 
-  useEffect(() => { refresh(); const t = setInterval(refresh, 2000); return () => clearInterval(t); }, []);
+  const onToggleIsa = useCallback((topic: string) => {
+    setIsaExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(topic)) { next.delete(topic); } else { next.add(topic); }
+      return next;
+    });
+  }, []);
 
-  // Auto-expand first levels
+  // Poll /api/kg/mqtt/messages every 2s (replaces SSE)
   useEffect(() => {
-    const autoExpand = (prev: Set<string>) => {
-      const n = new Set(prev);
-      n.add(ENTERPRISE); n.add(ENTERPRISE + "/" + SITE);
-      n.add(ENTERPRISE + "/" + SITE + "/Fertigung");
-      n.add(ENTERPRISE + "/" + SITE + "/Montage");
-      return n;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/kg/mqtt/messages`);
+        const data = await res.json();
+        const rawArr: Array<{topic: string; ts: string; value: any}> = data.raw || [];
+        const map = new Map<string, MqttMessage>();
+        for (const m of rawArr) {
+          const payload = typeof m.value === 'object' ? JSON.stringify(m.value) : String(m.value);
+          map.set(m.topic, { topic: m.topic, payload, ts: new Date(m.ts).getTime() });
+        }
+        setDisplayMessages(map);
+        setMsgCount(rawArr.length);
+        setConnected(true);
+      } catch {
+        setConnected(false);
+      }
     };
-    if (raw.length > 0) setRawExp(autoExpand);
-    if (enriched.length > 0) setEnrExp(autoExpand);
-  }, [raw.length, enriched.length]);
+    poll();
+    const iv = setInterval(poll, 2000);
+    return () => clearInterval(iv);
+  }, []);
 
-  const tRaw = useCallback((t: string) => { setRawExp(p => { const n = new Set(p); n.has(t) ? n.delete(t) : n.add(t); return n; }); }, []);
-  const tEnr = useCallback((t: string) => { setEnrExp(p => { const n = new Set(p); n.has(t) ? n.delete(t) : n.add(t); return n; }); }, []);
 
-  const rawTree = buildTree(raw, ENTERPRISE);
-  const enrTree = buildTree(enriched, ENTERPRISE);
-  const rawTopics = countTopics(rawTree);
-  const enrTopics = countTopics(enrTree);
-  const enrDepth = maxDepth(enrTree);
+  const flatTree = buildFlatTree(displayMessages);
+  const isaTree = buildIsa95Tree(displayMessages);
+  const topicCount = displayMessages.size;
+  const isaDepth = maxDepth(isaTree);
 
   return (
-    <div className="max-w-[1600px] mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold mb-1">
-          MQTT Bridge{' '}
-          <span className="bg-gradient-to-r from-[#ff9500] to-[#ff5722] bg-clip-text text-transparent">UNS</span>
-        </h1>
-        <p className="text-sm text-[var(--text-muted)]">
-          Same factory data, two stages. Left: raw MQTT from broker (before processing).
-          Right: validated &amp; enriched data written to Neo4j Knowledge Graph.
-          Both mapped to ISA-95 Unified Namespace.
-        </p>
-      </div>
-
-      {/* Status Bar */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${stats?.running ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-          <span className="text-xs text-[var(--text-muted)]">{stats?.running ? 'Connected to MQTT broker' : 'Disconnected'}</span>
+    <div className="min-h-screen bg-bg relative">
+      
+      <div className="relative z-10 max-w-[1600px] mx-auto px-4 pt-8 pb-16">
+        {/* Header */}
+        <div className="mb-4">
+          <h1 className="text-2xl font-bold mb-1">
+            MQTT Bridge{" "}
+            <span className="bg-accent-gradient bg-clip-text text-transparent">UNS</span>
+          </h1>
+          <p className="text-sm text-text-muted">
+            Same factory, same data, two perspectives. Left: flat MQTT topics as most teams start.
+            Right: ISA-95 Unified Namespace (Walker Reynolds) &mdash; the real-world complexity
+            of a properly structured industrial data architecture.
+          </p>
         </div>
-        <span className="text-[var(--border)]">|</span>
-        <span className="text-xs text-[var(--text-dim)]">{stats?.received.toLocaleString() ?? 0} messages received</span>
-        <span className="text-xs text-[var(--text-dim)]">{stats?.validated.toLocaleString() ?? 0} validated</span>
-        <span className="text-xs text-[var(--text-dim)]">{stats?.kgUpdated.toLocaleString() ?? 0} KG writes</span>
-        <button onClick={refresh} className="ml-auto text-xs text-[var(--text-dim)] hover:text-[#ff9500]">Refresh</button>
-      </div>
 
-      {error && <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/5 px-4 py-2 text-sm text-red-400">{error}</div>}
-
-      {/* Two ISA-95 Panels */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        {/* Left: Raw UNS */}
-        <div className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] flex flex-col">
-          <div className="px-4 pt-3 pb-2 border-b border-[var(--border)]">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">RAW</span>
-              <h2 className="text-sm font-bold text-[var(--text)]">Unified Namespace</h2>
-            </div>
-            <p className="text-[11px] text-[var(--text-dim)]">
-              Raw MQTT messages from Factory/# mapped to ISA-95 hierarchy. Before validation.
-            </p>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-[var(--text-dim)]"><span className="text-emerald-400">Live</span> &middot; {rawTopics} Topics</span>
-            </div>
+        {/* Status Bar */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
+            <span className="text-xs text-text-muted">
+              {connected ? "Connected to MQTT broker" : "Connecting..."}
+            </span>
           </div>
-          <div className="p-3 min-h-[400px] max-h-[calc(100vh-380px)] overflow-auto">
-            {rawTopics === 0 ? (
-              <div className="flex items-center justify-center h-48 text-[var(--text-dim)] text-sm">
-                {stats?.running ? 'Waiting for messages...' : 'Connecting to MQTT broker...'}
+          <span className="text-border">|</span>
+          <span className="text-xs text-text-dim">{msgCount} messages received</span>
+          <span className="text-xs text-text-dim">{topicCount} active topics</span>
+        </div>
+
+        {/* Two-Panel Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          {/* Left: Flat MQTT */}
+          <div className="rounded-md border border-border bg-bg-surface flex flex-col">
+            <div className="px-4 pt-3 pb-2 border-b border-border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-text-dim/20 text-text-muted px-1.5 py-0.5 rounded">simple</span>
+                <h2 className="text-sm font-bold text-text">#shared.UNS</h2>
               </div>
-            ) : (
-              <TreeNode node={rawTree} depth={0} exp={rawExp} toggle={tRaw} />
-            )}
-          </div>
-        </div>
-
-        {/* Right: Enriched UNS → KG */}
-        <div className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] flex flex-col">
-          <div className="px-4 pt-3 pb-2 border-b border-[var(--border)]">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">ENRICHED</span>
-              <h2 className="text-sm font-bold text-[var(--text)]">Unified Namespace</h2>
-            </div>
-            <p className="text-[11px] text-[var(--text-dim)]">
-              Validated &amp; enriched data. Written to Neo4j KG via MERGE. Same ISA-95 structure.
-            </p>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-[var(--text-dim)]"><span className="text-blue-400">KG</span> &middot; {enrTopics} Topics</span>
-              {enrDepth > 0 && <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded">{enrDepth} levels deep</span>}
-            </div>
-          </div>
-          <div className="p-3 min-h-[400px] max-h-[calc(100vh-380px)] overflow-auto">
-            {enrTopics === 0 ? (
-              <div className="flex items-center justify-center h-48 text-[var(--text-dim)] text-sm">
-                {stats?.kgUpdated ? 'Loading...' : 'No KG writes yet — data appears after validation.'}
+              <p className="text-[11px] text-text-dim">
+                How most teams start. Simple, fast to implement. No enterprise context.
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10px] text-text-dim">
+                  <span className="text-emerald-400">Live</span> &middot; {topicCount} Topics
+                </span>
               </div>
-            ) : (
-              <TreeNode node={enrTree} depth={0} exp={enrExp} toggle={tEnr} />
-            )}
+            </div>
+            <div className="p-3 min-h-[400px] max-h-[calc(100vh-380px)] overflow-auto">
+              {topicCount === 0 ? (
+                <div className="flex items-center justify-center h-48 text-text-dim text-sm">
+                  {!connected ? "Connecting to MQTT broker..." : "Waiting for messages..."}
+                </div>
+              ) : (
+                Array.from(flatTree.children.values())
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((child) => (
+                    <TopicTreeNode key={child.fullTopic} node={child} depth={0} expandedSet={flatExpanded} onToggle={onToggleFlat} />
+                  ))
+              )}
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Info Cards (identical layout to openshopfloor /uns) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-md border border-[var(--border)] bg-[var(--surface-1)]">
-          <div className="text-xs font-semibold text-[var(--text)] mb-1">Raw MQTT</div>
-          <div className="text-[11px] text-[var(--text-muted)]">
-            Messages direct from Factory/# topic. Unvalidated, unfiltered. This is what the broker sees.
+          {/* Right: ISA-95 */}
+          <div className="rounded-md border border-border bg-bg-surface flex flex-col">
+            <div className="px-4 pt-3 pb-2 border-b border-border">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-accent/20 text-accent px-1.5 py-0.5 rounded">ISA-95</span>
+                <h2 className="text-sm font-bold text-text">Unified Namespace</h2>
+              </div>
+              <p className="text-[11px] text-text-dim">
+                Walker Reynolds&apos; UNS pattern. Full enterprise hierarchy. Same data. 3x deeper.
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10px] text-text-dim">
+                  <span className="text-emerald-400">Live</span> &middot; {topicCount} Topics
+                </span>
+                {isaDepth > 0 && (
+                  <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded">+{isaDepth} levels deep</span>
+                )}
+              </div>
+            </div>
+            <div className="p-3 min-h-[400px] max-h-[calc(100vh-380px)] overflow-auto">
+              {topicCount === 0 ? (
+                <div className="flex items-center justify-center h-48 text-text-dim text-sm">
+                  {!connected ? "Connecting to MQTT broker..." : "Waiting for messages..."}
+                </div>
+              ) : (
+                <TopicTreeNode node={isaTree} depth={0} expandedSet={isaExpanded} onToggle={onToggleIsa} />
+              )}
+            </div>
           </div>
         </div>
-        <div className="p-4 rounded-md border border-[var(--border)] bg-[var(--surface-1)]">
-          <div className="text-xs font-semibold text-[var(--text)] mb-1">
-            <span className="text-[#ff9500]">ISA-95</span> UNS
+
+        {/* Info Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 rounded-md border border-border bg-bg-surface">
+            <div className="text-xs font-semibold text-text mb-1">Flat MQTT</div>
+            <div className="text-[11px] text-text-muted">
+              6 levels deep. Machine-centric. Fast to set up, but no
+              context about where machines are, which site, which
+              production area.
+            </div>
           </div>
-          <div className="text-[11px] text-[var(--text-muted)]">
-            Walker Reynolds&apos; pattern: Enterprise &rarr; Site &rarr; Area &rarr; WorkCenter &rarr; Cell &rarr; Equipment.
-            ERP at site level, QMS/TMS at area level, BDE/Process under equipment.
+          <div className="p-4 rounded-md border border-border bg-bg-surface">
+            <div className="text-xs font-semibold text-text mb-1">
+              <span className="text-accent">ISA-95</span> UNS
+            </div>
+            <div className="text-[11px] text-text-muted">
+              Walker Reynolds&apos; pattern: Enterprise &rarr; Site &rarr; Area &rarr; WorkCenter &rarr; Cell &rarr; Equipment.
+              ERP at site level, QMS/TMS at area level, BDE/Process under equipment.
+            </div>
+          </div>
+          <div className="p-4 rounded-md border border-border bg-bg-surface">
+            <div className="text-xs font-semibold text-text mb-1">Data Placement</div>
+            <div className="text-[11px] text-text-muted">
+              ERP (orders, BOMs) &rarr; site level. QMS (quality), TMS (tooling), WMS (warehouse) &rarr; area level.
+              BDE, ProcessData &rarr; equipment level. Data lives where it&apos;s relevant.
+            </div>
+          </div>
+          <div className="p-4 rounded-md border border-border bg-bg-surface">
+            <div className="text-xs font-semibold text-text mb-1">AI + UNS</div>
+            <div className="text-[11px] text-text-muted">
+              8 MCP tools let AI agents query, subscribe, and act on live
+              UNS data. The structured namespace helps agents
+              understand factory topology.
+            </div>
           </div>
         </div>
-        <div className="p-4 rounded-md border border-[var(--border)] bg-[var(--surface-1)]">
-          <div className="text-xs font-semibold text-[var(--text)] mb-1">Enrichment</div>
-          <div className="text-[11px] text-[var(--text-muted)]">
-            Bridge validates required fields, adds timestamps, derives KG node label from topic.
-            Invalid messages are rejected. Valid ones get MERGE&apos;d into Neo4j.
-          </div>
-        </div>
-        <div className="p-4 rounded-md border border-[var(--border)] bg-[var(--surface-1)]">
-          <div className="text-xs font-semibold text-[var(--text)] mb-1">Neo4j KG</div>
-          <div className="text-[11px] text-[var(--text-muted)]">
-            Each validated message becomes a node update: MERGE by machine ID, SET properties + last_mqtt_update.
-            Batched every 2s for performance.
+
+        {/* Data Categories Legend */}
+        <div className="mt-4 p-4 rounded-md border border-border bg-bg-surface">
+          <div className="text-xs font-semibold text-text mb-2">Data Categories in UNS</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div>
+              <div className="text-[11px] font-mono text-accent">ProcessData</div>
+              <div className="text-[10px] text-text-dim">OEE, cycle times, temperatures, pressures, speeds</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-mono text-accent">BDE</div>
+              <div className="text-[10px] text-text-dim">Betriebsdaten: quantities, scrap, rework, cycles</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-mono text-accent">ERP</div>
+              <div className="text-[10px] text-text-dim">Orders, BOMs, materials, scheduling from SAP/ERP</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-mono text-accent">QMS</div>
+              <div className="text-[10px] text-text-dim">Quality inspections, SPC, defect tracking, CAPA</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-mono text-accent">TMS</div>
+              <div className="text-[10px] text-text-dim">Tool life, tool changes, wear tracking, inventory</div>
+            </div>
           </div>
         </div>
       </div>
