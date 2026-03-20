@@ -1,6 +1,6 @@
 {
   "name": "osf-historian",
-  "version": "8.7.0",
+  "version": "8.8.0",
   "description": "Industrial MQTT → TimescaleDB historian with routing, COPY protocol, and dashboard API",
   "private": true,
   "scripts": {

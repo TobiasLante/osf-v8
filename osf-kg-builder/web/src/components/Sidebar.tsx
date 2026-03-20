@@ -90,7 +90,7 @@ export default function Sidebar() {
       <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-[#ff9500] animate-pulse" />
-          <span className="text-xs text-[var(--text-dim)]">v8.7</span>
+          <span className="text-xs text-[var(--text-dim)]">v8.8</span>
         </div>
         <ThemeToggle />
       </div>
