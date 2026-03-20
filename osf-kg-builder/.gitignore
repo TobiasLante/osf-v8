@@ -1,2 +1,6 @@
 dist/
 node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/package-lock.json
