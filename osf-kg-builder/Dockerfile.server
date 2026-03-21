@@ -13,7 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY templates/ templates/
-RUN apk add --no-cache wget
+RUN apk add --no-cache wget git
 USER node
 EXPOSE 8035
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
