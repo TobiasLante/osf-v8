@@ -1,7 +1,7 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { Pool } from 'pg';
 import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
-import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel } from '../shared/cypher-utils';
+import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel, BulkNode, BulkEdge, executeBulkNodes, executeBulkEdges } from '../shared/cypher-utils';
 import { logger } from '../shared/logger';
 import { config } from '../shared/config';
 
@@ -283,6 +283,83 @@ export async function stopLiveUpdates(): Promise<void> {
 
 // ── Phase 2b: Instance Nodes from PostgreSQL Sources ────────────
 
+const MAX_CONCURRENT_SOURCES = 4;
+
+/** Load a single PG source → returns bulk nodes + edges */
+async function loadPgSource(
+  src: SourceSchema,
+  profile: SMProfile,
+): Promise<{ nodes: BulkNode[]; edges: BulkEdge[] }> {
+  const conn = src.connection!;
+  const pool = new Pool({
+    host: conn.host, port: conn.port, database: conn.database,
+    user: process.env.PG_USER || 'admin',
+    password: process.env.PG_PASSWORD || config.db.password,
+    max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000,
+  });
+
+  try {
+    const idCol = src.columnMappings!.find(c => c.isId);
+    if (!idCol) return { nodes: [], edges: [] };
+
+    validateIdentifier(conn.schema, 'connection.schema');
+    validateIdentifier(conn.table, 'connection.table');
+
+    // Build SELECT with computed columns
+    const isExpr = (col: string) => /[^a-zA-Z0-9_]/.test(col);
+    const colAliases = new Map<string, string>();
+    const selectParts: string[] = ['*'];
+    for (const cm of src.columnMappings!) {
+      if (isExpr(cm.column)) {
+        const alias = `_expr_${cm.smAttribute}`;
+        selectParts.push(`(${cm.column}) AS ${alias}`);
+        colAliases.set(cm.column, alias);
+      }
+    }
+
+    let query = `SELECT ${selectParts.join(', ')} FROM ${conn.schema}.${conn.table}`;
+    if (src.filter) query += ` WHERE ${validateFilter(src.filter)}`;
+
+    const result = await pool.query(query);
+    const nodes: BulkNode[] = [];
+    const edges: BulkEdge[] = [];
+
+    for (const row of result.rows) {
+      const idColKey = colAliases.get(idCol.column) || idCol.column;
+      const id = String(row[idColKey] || '');
+      if (!id) continue;
+
+      const props: Record<string, any> = {};
+      for (const cm of src.columnMappings!) {
+        const key = colAliases.get(cm.column) || cm.column;
+        const val = row[key];
+        if (val !== null && val !== undefined) {
+          props[cm.smAttribute] = typeof val === 'object' && val instanceof Date ? val.toISOString() : val;
+        }
+      }
+
+      nodes.push({ label: profile.kgNodeLabel, id, props });
+
+      if (src.edges) {
+        for (const edge of src.edges) {
+          const fkValue = row[edge.fkColumn];
+          if (!fkValue) continue;
+          edges.push({
+            fromLabel: profile.kgNodeLabel, fromId: id,
+            edgeLabel: edge.type,
+            toLabel: edge.targetLabel === 'auto' ? 'Node' : edge.targetLabel,
+            toId: String(fkValue),
+          });
+        }
+      }
+    }
+
+    return { nodes, edges };
+  } finally {
+    await pool.end();
+  }
+}
+
 export async function buildInstancesFromPostgres(
   sources: SourceSchema[],
   profiles: SMProfile[],
@@ -291,110 +368,52 @@ export async function buildInstancesFromPostgres(
   let totalNodes = 0;
   let totalEdges = 0;
 
-  // Two-pass approach: first all nodes, then all edges.
-  // This ensures target nodes exist before edges reference them.
-  const allEdgeQueries: string[] = [];
+  // Filter valid PG sources
+  const pgSources = sources.filter(s =>
+    s.sourceType === 'postgresql' && s.connection && s.columnMappings && profileMap.has(s.profileRef)
+  );
 
-  // ── Pass 1: Create all nodes ──────────────────────────────────
-  for (const src of sources) {
-    if (src.sourceType !== 'postgresql' || !src.connection || !src.columnMappings) continue;
+  // ── Pass 1: Load all sources in parallel (max 4 concurrent) ───
+  const allEdges: BulkEdge[] = [];
 
-    const profile = profileMap.get(src.profileRef);
-    if (!profile) {
-      logger.warn({ sourceId: src.sourceId, profileRef: src.profileRef }, '[SchemaBuild] Profile not found, skipping');
-      continue;
-    }
+  for (let i = 0; i < pgSources.length; i += MAX_CONCURRENT_SOURCES) {
+    const batch = pgSources.slice(i, i + MAX_CONCURRENT_SOURCES);
+    const results = await Promise.allSettled(
+      batch.map(async (src) => {
+        const profile = profileMap.get(src.profileRef)!;
+        const { nodes, edges } = await loadPgSource(src, profile);
 
-    const conn = src.connection;
-    const pool = new Pool({
-      host: conn.host, port: conn.port, database: conn.database,
-      user: process.env.PG_USER || 'admin',
-      password: process.env.PG_PASSWORD || config.db.password,
-      max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000,
-    });
-
-    try {
-      const idCol = src.columnMappings.find(c => c.isId);
-      if (!idCol) {
-        logger.warn({ sourceId: src.sourceId }, '[SchemaBuild] No isId column defined, skipping');
-        continue;
-      }
-
-      validateIdentifier(conn.schema, 'connection.schema');
-      validateIdentifier(conn.table, 'connection.table');
-
-      // Build SELECT with computed columns (e.g. "col_a || '-' || col_b" → aliased)
-      const isExpr = (col: string) => /[^a-zA-Z0-9_]/.test(col);
-      const colAliases = new Map<string, string>();
-      const selectParts: string[] = ['*'];
-      for (const cm of src.columnMappings) {
-        if (isExpr(cm.column)) {
-          const alias = `_expr_${cm.smAttribute}`;
-          selectParts.push(`(${cm.column}) AS ${alias}`);
-          colAliases.set(cm.column, alias);
-        }
-      }
-
-      let query = `SELECT ${selectParts.join(', ')} FROM ${conn.schema}.${conn.table}`;
-      // Filter is trusted from schema config, but validate against obvious injection
-      if (src.filter) query += ` WHERE ${validateFilter(src.filter)}`;
-
-      const result = await pool.query(query);
-      const nodeQueries: string[] = [];
-
-      for (const row of result.rows) {
-        const idColKey = colAliases.get(idCol.column) || idCol.column;
-        const id = String(row[idColKey] || '');
-        if (!id) continue;
-
-        const props: Record<string, any> = {};
-        for (const cm of src.columnMappings) {
-          const key = colAliases.get(cm.column) || cm.column;
-          const val = row[key];
-          if (val !== null && val !== undefined) {
-            props[cm.smAttribute] = val;
+        // Merge nodes via UNWIND
+        const nodeResult = await executeBulkNodes(nodes, (done, total) => {
+          if (done % 2000 === 0 || done === total) {
+            logger.info({ sourceId: src.sourceId, done, total }, '[SchemaBuild] Bulk merging nodes...');
           }
-        }
+        });
 
-        nodeQueries.push(vertexCypher(profile.kgNodeLabel, id, props));
+        logger.info({
+          sourceId: src.sourceId, table: src.connection!.table, nodes: nodeResult.success,
+        }, '[SchemaBuild] PostgreSQL nodes loaded');
 
-        // Collect edges for pass 2
-        if (src.edges) {
-          for (const edge of src.edges) {
-            const fkValue = row[edge.fkColumn];
-            if (!fkValue) continue;
-            const targetLabel = edge.targetLabel === 'auto' ? 'Node' : edge.targetLabel;
-            allEdgeQueries.push(
-              edgeCypher(profile.kgNodeLabel, id, edge.type, targetLabel, String(fkValue))
-            );
-          }
-        }
+        return { nodes: nodeResult.success, edges };
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        totalNodes += r.value.nodes;
+        allEdges.push(...r.value.edges);
+      } else {
+        logger.error({ err: r.reason?.message }, '[SchemaBuild] PostgreSQL source failed');
       }
-
-      const nodeResult = await executeBatched(nodeQueries, (done, total) => {
-        if (done % 1000 === 0 || done === total) {
-          logger.info({ sourceId: src.sourceId, done, total }, '[SchemaBuild] Batching nodes...');
-        }
-      });
-      totalNodes += nodeResult.success;
-
-      logger.info({
-        sourceId: src.sourceId, table: conn.table, nodes: nodeResult.success,
-      }, '[SchemaBuild] PostgreSQL nodes loaded');
-
-    } catch (err) {
-      logger.error({ sourceId: src.sourceId, err: (err as Error).message }, '[SchemaBuild] PostgreSQL source failed');
-    } finally {
-      await pool.end();
     }
   }
 
-  // ── Pass 2: Create all edges (all target nodes now exist) ─────
-  if (allEdgeQueries.length > 0) {
-    logger.info({ edgeCount: allEdgeQueries.length }, '[SchemaBuild] Creating edges (pass 2)...');
-    const edgeResult = await executeBatched(allEdgeQueries, (done, total) => {
-      if (done % 1000 === 0 || done === total) {
-        logger.info({ done, total }, '[SchemaBuild] Batching edges...');
+  // ── Pass 2: Create all edges via UNWIND (all nodes exist now) ──
+  if (allEdges.length > 0) {
+    logger.info({ edgeCount: allEdges.length }, '[SchemaBuild] Creating edges (pass 2, UNWIND)...');
+    const edgeResult = await executeBulkEdges(allEdges, (done, total) => {
+      if (done % 2000 === 0 || done === total) {
+        logger.info({ done, total }, '[SchemaBuild] Bulk merging edges...');
       }
     });
     totalEdges = edgeResult.success;

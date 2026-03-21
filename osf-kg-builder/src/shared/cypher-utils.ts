@@ -90,7 +90,112 @@ export function edgeCypher(
   return `MATCH (a:${fromLabel} {id: '${safeFromId}'}) MATCH (b:${toLabel} {id: '${safeToId}'}) MERGE (a)-[r:${edgeLabel}]->(b) ${properties ? `SET r = ${propsStr.trim()}` : ''} RETURN r`;
 }
 
-// ── Batch Execution (Neo4j) ───────────────────────────────────────
+// ── UNWIND Bulk Merge (fast path — 1 query per batch) ─────────────
+
+export interface BulkNode {
+  label: string;
+  id: string;
+  props: Record<string, any>;
+}
+
+export interface BulkEdge {
+  fromLabel: string;
+  fromId: string;
+  edgeLabel: string;
+  toLabel: string;
+  toId: string;
+}
+
+/**
+ * UNWIND-based bulk merge — groups by label, sends 1 Cypher per label per batch.
+ * ~10-50x faster than individual MERGE statements.
+ */
+export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: number; failed: number }> {
+  if (nodes.length === 0) return { success: 0, failed: 0 };
+
+  // Group by label
+  const byLabel = new Map<string, Array<{ id: string; props: Record<string, any> }>>();
+  for (const n of nodes) {
+    const group = byLabel.get(n.label) || [];
+    group.push({ id: n.id, props: { id: n.id, ...n.props } });
+    byLabel.set(n.label, group);
+  }
+
+  const session = getDriver().session({ database: config.neo4j.database });
+  let success = 0;
+  let failed = 0;
+
+  try {
+    for (const [label, items] of byLabel) {
+      validateLabel(label);
+      try {
+        await session.executeWrite(async (tx) => {
+          await tx.run(
+            `UNWIND $batch AS row MERGE (n:${label} {id: row.id}) SET n += row.props`,
+            { batch: items.map(i => ({ id: i.id, props: i.props })) },
+          );
+        });
+        success += items.length;
+      } catch (e: any) {
+        logger.warn({ label, count: items.length, err: e.message?.substring(0, 100) }, 'Bulk merge failed');
+        failed += items.length;
+      }
+    }
+  } finally {
+    await session.close();
+  }
+
+  return { success, failed };
+}
+
+/**
+ * UNWIND-based bulk edge merge — groups by (fromLabel, edgeLabel, toLabel).
+ */
+export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: number; failed: number }> {
+  if (edges.length === 0) return { success: 0, failed: 0 };
+
+  // Group by (fromLabel, edgeLabel, toLabel)
+  const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabel}`;
+  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabel: string; pairs: Array<{ fromId: string; toId: string }> }>();
+  for (const e of edges) {
+    const k = key(e);
+    if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabel: e.toLabel, pairs: [] });
+    byType.get(k)!.pairs.push({ fromId: e.fromId, toId: e.toId });
+  }
+
+  const session = getDriver().session({ database: config.neo4j.database });
+  let success = 0;
+  let failed = 0;
+
+  try {
+    for (const [, { fromLabel, edgeLabel, toLabel, pairs }] of byType) {
+      validateLabel(fromLabel);
+      validateLabel(edgeLabel);
+      validateLabel(toLabel);
+      try {
+        await session.executeWrite(async (tx) => {
+          await tx.run(
+            `UNWIND $batch AS row
+             MATCH (a:${fromLabel} {id: row.fromId})
+             MATCH (b:${toLabel} {id: row.toId})
+             MERGE (a)-[:${edgeLabel}]->(b)`,
+            { batch: pairs },
+          );
+        });
+        success += pairs.length;
+      } catch (e: any) {
+        logger.warn({ fromLabel, edgeLabel, toLabel, count: pairs.length, err: e.message?.substring(0, 100) }, 'Bulk edge merge failed');
+        failed += pairs.length;
+      }
+    }
+  } finally {
+    await session.close();
+  }
+
+  return { success, failed };
+}
+
+// ── Legacy Batch Execution (fallback for raw Cypher strings) ──────
 
 export async function batchCypher(queries: string[]): Promise<{ success: number; failed: number }> {
   if (queries.length === 0) return { success: 0, failed: 0 };
@@ -100,7 +205,6 @@ export async function batchCypher(queries: string[]): Promise<{ success: number;
   let failed = 0;
 
   try {
-    // Run all queries in a single write transaction (1 roundtrip instead of N)
     await session.executeWrite(async (tx) => {
       for (const cypher of queries) {
         try {
@@ -115,17 +219,11 @@ export async function batchCypher(queries: string[]): Promise<{ success: number;
       }
     });
   } catch (e: any) {
-    // Transaction-level failure — fall back to individual execution
     logger.warn({ err: e.message?.substring(0, 100), batchSize: queries.length }, 'Batch tx failed, falling back');
     success = 0;
     failed = 0;
     for (const cypher of queries) {
-      try {
-        await session.run(cypher);
-        success++;
-      } catch {
-        failed++;
-      }
+      try { await session.run(cypher); success++; } catch { failed++; }
     }
   } finally {
     await session.close();
@@ -149,6 +247,45 @@ export async function executeBatched(
     totalSuccess += result.success;
     totalFailed += result.failed;
     onProgress?.(Math.min(i + config.batchSize, queries.length), queries.length);
+  }
+
+  return { success: totalSuccess, failed: totalFailed };
+}
+
+/**
+ * Bulk merge with progress callback — uses UNWIND fast path.
+ */
+export async function executeBulkNodes(
+  nodes: BulkNode[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ success: number; failed: number }> {
+  let totalSuccess = 0;
+  let totalFailed = 0;
+
+  for (let i = 0; i < nodes.length; i += config.batchSize) {
+    const batch = nodes.slice(i, i + config.batchSize);
+    const result = await bulkMergeNodes(batch);
+    totalSuccess += result.success;
+    totalFailed += result.failed;
+    onProgress?.(Math.min(i + config.batchSize, nodes.length), nodes.length);
+  }
+
+  return { success: totalSuccess, failed: totalFailed };
+}
+
+export async function executeBulkEdges(
+  edges: BulkEdge[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ success: number; failed: number }> {
+  let totalSuccess = 0;
+  let totalFailed = 0;
+
+  for (let i = 0; i < edges.length; i += config.batchSize) {
+    const batch = edges.slice(i, i + config.batchSize);
+    const result = await bulkMergeEdges(batch);
+    totalSuccess += result.success;
+    totalFailed += result.failed;
+    onProgress?.(Math.min(i + config.batchSize, edges.length), edges.length);
   }
 
   return { success: totalSuccess, failed: totalFailed };
