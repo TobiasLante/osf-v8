@@ -139,7 +139,16 @@ export default function GroupAdminPage() {
   };
 
   if (loading || !user) return null;
-  if (!group) return <div className="min-h-screen bg-bg pt-24 flex items-center justify-center text-text-muted">Loading...</div>;
+  if (!group) return (
+    <div className="min-h-screen bg-bg pt-24 flex items-center justify-center">
+      <div className="text-center space-y-3">
+        <p className="text-text-muted">Du bist keiner Lerngruppe zugewiesen.</p>
+        {user.role === "admin" && (
+          <a href="/admin" className="text-accent hover:underline text-sm">Gruppen im Admin Panel verwalten →</a>
+        )}
+      </div>
+    </div>
+  );
 
   const isGroupAdmin = group.group_role === "group_admin" || user.role === "admin";
   if (!isGroupAdmin) { router.push("/dashboard"); return null; }
