@@ -117,12 +117,13 @@ export const DOMAIN_PRESETS: Record<string, DomainConfig> = {
   },
 };
 
+// "discrete" is an alias for "manufacturing" — same config, template file named discrete.json
+DOMAIN_PRESETS.discrete = DOMAIN_PRESETS.manufacturing;
+
 // ── Load Domain Config ─────────────────────────────────────────────
 
 // Domain aliases — map alternative names to canonical preset keys
-const DOMAIN_ALIASES: Record<string, string> = {
-  discrete: 'manufacturing',
-};
+const DOMAIN_ALIASES: Record<string, string> = {};
 
 export function loadDomainConfig(): DomainConfig {
   const rawDomain = process.env.DOMAIN || 'manufacturing';
