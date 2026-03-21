@@ -2552,12 +2552,16 @@
         </div>
         <!-- Scrollable body (KG + Specialists + Discussion + Log) -->
         <div class="progress-panel-body" id="progressPanelBody">
-        <!-- KG Impact Visualizer -->
+        <!-- KG 3D Visualizer -->
         <div class="kg-visualizer-container" id="kgVisualizerContainer">
+            <canvas id="kgCanvas" width="440" height="320" style="width:100%;height:320px;border-radius:12px 12px 0 0;cursor:grab;"></canvas>
             <div class="kg-stats-bar" id="kgStatsBar">
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#ef4444"></span> <span id="kgStatCenter">—</span></div>
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#f97316"></span> <span id="kgStatNodes">0</span> Nodes</div>
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#eab308"></span> <span id="kgStatEdges">0</span> Edges</div>
+            </div>
+            <!-- Schema Groups Badge Bar -->
+            <div class="kg-schema-bar" id="kgSchemaBar" style="display:none;padding:6px 12px;background:rgba(15,15,25,0.95);border-top:1px solid rgba(255,255,255,0.06);display:flex;flex-wrap:wrap;gap:4px;">
             </div>
         </div>
         <!-- Specialist Orchestration View (auto-activated on specialists_batch_start) -->
@@ -5076,145 +5080,192 @@ body { padding: 0; }
         // KG Visualizer Event Handler
         // ═══════════════════════════════════════════════════════
 
+        // ═══════════════════════════════════════════════════════
+        // KG Force-Graph Canvas Renderer (3D-like with glow)
+        // ═══════════════════════════════════════════════════════
+
+        const KG_TYPE_COLORS = {
+            Machine: '#ff9500', InjectionMoldingMachine: '#ff9500', CNC_Machine: '#ff9500',
+            Lathe: '#ff9500', MillingMachine: '#ff9500', GrindingMachine: '#ff9500',
+            FiveAxisMillingMachine: '#ff9500', AssemblyLine: '#ff9500', FFS_Cell: '#ff9500',
+            Article: '#3b82f6', Order: '#10b981', CustomerOrder: '#10b981',
+            ProductionOrder: '#10b981', PurchaseOrder: '#10b981',
+            Customer: '#06b6d4', Tool: '#eab308', Sensor: '#f59e0b',
+            Material: '#ec4899', StockItem: '#ec4899', MaterialLot: '#ec4899',
+            MaintenanceOrder: '#a855f7', MaintenanceNotification: '#a855f7',
+            QualityNotification: '#f43f5e', InspectionLot: '#f43f5e',
+            Pool: '#8b5cf6', Site: '#64748b', Area: '#64748b', ProductionLine: '#64748b',
+            DowntimeRecord: '#ef4444', KPIDef: '#22d3ee', Routing: '#14b8a6',
+            BOMEntry: '#3b82f6', Supplier: '#06b6d4',
+        };
+
+        const KG_SCHEMA_GROUPS = {
+            'ERP': { color: '#3b82f6', types: ['Article', 'CustomerOrder', 'ProductionOrder', 'PurchaseOrder', 'BOMEntry', 'Routing', 'Supplier', 'Customer', 'StockItem', 'Material', 'MaterialLot'] },
+            'Maschinen': { color: '#ff9500', types: ['Machine', 'InjectionMoldingMachine', 'CNC_Machine', 'Lathe', 'MillingMachine', 'GrindingMachine', 'FiveAxisMillingMachine', 'AssemblyLine', 'FFS_Cell', 'Pool', 'MachineType', 'Sensor', 'Tool'] },
+            'Qualität': { color: '#f43f5e', types: ['QualityNotification', 'InspectionLot', 'InspectionResult', 'CorrectiveAction', 'SPCAnalysis'] },
+            'Wartung': { color: '#a855f7', types: ['MaintenanceOrder', 'MaintenanceNotification', 'DowntimeRecord'] },
+            'Lager': { color: '#14b8a6', types: ['StorageLocation', 'Quant', 'TransportOrder', 'GoodsReceipt'] },
+            'Hierarchie': { color: '#64748b', types: ['Site', 'Area', 'ProductionLine'] },
+        };
+
+        let kgGraphNodes = [];
+        let kgGraphEdges = [];
+        let kgSimRunning = false;
+
         function handleKgEvent(event) {
             const container = document.getElementById('kgVisualizerContainer');
-            const frame = document.getElementById('kgVisualizerFrame');
 
             switch (event.type) {
-                case 'kg_traversal_start': {
+                case 'kg_traversal_start':
                     container.classList.add('active');
+                    kgGraphNodes = [];
+                    kgGraphEdges = [];
                     break;
-                }
-                case 'kg_nodes_discovered': {
-                    document.getElementById('kgStatNodes').textContent = event.nodes?.length || 0;
-                    document.getElementById('kgStatEdges').textContent = event.edges?.length || 0;
-                    if (event.centerEntity?.id) {
-                        document.getElementById('kgStatCenter').textContent = event.centerEntity.id;
+                case 'kg_nodes_discovered':
+                    if (event.nodes) {
+                        for (const n of event.nodes) {
+                            if (!kgGraphNodes.find(e => e.id === n.id)) {
+                                kgGraphNodes.push({ ...n, x: 220 + (Math.random()-0.5)*100, y: 160 + (Math.random()-0.5)*100, vx: 0, vy: 0 });
+                            }
+                        }
+                    }
+                    if (event.edges) kgGraphEdges.push(...event.edges);
+                    document.getElementById('kgStatNodes').textContent = kgGraphNodes.length;
+                    document.getElementById('kgStatEdges').textContent = kgGraphEdges.length;
+                    if (event.centerEntity?.id) document.getElementById('kgStatCenter').textContent = event.centerEntity.id;
+                    updateKgSchemaBar();
+                    if (!kgSimRunning) startKgSimulation();
+                    break;
+                case 'kg_traversal_end':
+                    document.getElementById('kgStatNodes').textContent = event.totalNodes || kgGraphNodes.length;
+                    document.getElementById('kgStatEdges').textContent = event.totalEdges || kgGraphEdges.length;
+                    break;
+                case 'kg_summary':
+                    if (event.nodes) {
+                        kgGraphNodes = [];
+                        kgGraphEdges = [];
+                        for (const n of event.nodes) {
+                            kgGraphNodes.push({ ...n, x: 220 + (Math.random()-0.5)*100, y: 160 + (Math.random()-0.5)*100, vx: 0, vy: 0 });
+                        }
+                        if (event.edges) kgGraphEdges = event.edges;
+                        updateKgSchemaBar();
+                        if (!kgSimRunning) startKgSimulation();
                     }
                     break;
-                }
-                case 'kg_traversal_end': {
-                    document.getElementById('kgStatNodes').textContent = event.totalNodes || 0;
-                    document.getElementById('kgStatEdges').textContent = event.totalEdges || 0;
-                    break;
-                }
-                case 'kg_highlight':
-                case 'kg_path_highlight':
-                    break;
-                case 'kg_summary': {
-                    renderKgSummaryDiagram(event);
-                    break;
-                }
             }
         }
 
-        function renderKgSummaryDiagram(event) {
-            const nodes = event.nodes || [];
-            const edges = event.edges || [];
-            const center = event.centerEntity || 'Entity';
-            const stats = event.stats || {};
-
-            if (nodes.length === 0) return;
-
-            // Dimensions
-            const W = 460, H = 340, CX = W / 2, CY = H / 2;
-            const ringColors = ['#ef4444', '#f97316', '#eab308', '#22c55e'];
-            const ringLabels = [t('kg.center'), t('kg.directlyAffected'), t('kg.indirect'), t('kg.alternatives')];
-            const ringRadii = [0, 80, 140, 195];
-
-            // Group nodes by ring
-            const rings = [[], [], [], []];
-            for (const n of nodes) {
-                const r = Math.min(n.ring || 0, 3);
-                rings[r].push(n);
-            }
-
-            // Calculate positions
-            const positions = {};
-            // Center node
-            if (rings[0].length > 0) {
-                positions[rings[0][0].id] = { x: CX, y: CY };
-            }
-            // Ring nodes — distribute evenly
-            for (let r = 1; r <= 3; r++) {
-                const count = rings[r].length;
-                if (count === 0) continue;
-                const radius = ringRadii[r];
-                for (let i = 0; i < count; i++) {
-                    const angle = (2 * Math.PI * i / count) - Math.PI / 2;
-                    positions[rings[r][i].id] = {
-                        x: CX + radius * Math.cos(angle),
-                        y: CY + radius * Math.sin(angle)
-                    };
-                }
-            }
-
-            // Build SVG
-            let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="background:rgba(0,0,0,0.3);border-radius:8px;max-height:340px;">`;
-
-            // Ring guide circles
-            for (let r = 1; r <= 3; r++) {
-                if (rings[r].length > 0) {
-                    svg += `<circle cx="${CX}" cy="${CY}" r="${ringRadii[r]}" fill="none" stroke="${ringColors[r]}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="4,4"/>`;
-                }
-            }
-
-            // Edges
-            for (const e of edges) {
-                const from = positions[e.from];
-                const to = positions[e.to];
-                if (!from || !to) continue;
-                svg += `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
-            }
-
-            // Nodes
-            for (const n of nodes) {
-                const pos = positions[n.id];
-                if (!pos) continue;
-                const r = Math.min(n.ring || 0, 3);
-                const color = ringColors[r];
-                const radius = r === 0 ? 18 : (r === 3 ? 8 : 10);
-                const label = (n.label || n.id).substring(0, 10);
-
-                svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${radius}" fill="${color}" fill-opacity="0.8" stroke="${color}" stroke-width="1.5"/>`;
-                svg += `<text x="${pos.x}" y="${pos.y + radius + 11}" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="8" font-family="monospace">${escapeHtml(label)}</text>`;
-            }
-
-            // Center label
-            if (rings[0].length > 0) {
-                const cl = (center || rings[0][0].id).substring(0, 8);
-                svg += `<text x="${CX}" y="${CY + 4}" text-anchor="middle" fill="white" font-size="9" font-weight="bold" font-family="monospace">${escapeHtml(cl)}</text>`;
-            }
-
-            svg += '</svg>';
-
-            // Stats line
-            const statsLine = `${nodes.length} ${t('kg.nodes')} · ${edges.length} ${t('kg.edges')}` +
-                (stats.affectedOrders ? ` · ${stats.affectedOrders} ${t('kg.affectedOrders')}` : '') +
-                (stats.alternatives ? ` · ${stats.alternatives} Alternativen` : '');
-
-            // Legend
-            const legendHtml = ringLabels.map((label, i) => {
-                if (i === 0 || rings[i].length === 0) return '';
-                return `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;"><span style="width:8px;height:8px;border-radius:50%;background:${ringColors[i]};display:inline-block;"></span><span style="font-size:10px;opacity:0.7;">${label} (${rings[i].length})</span></span>`;
+        function updateKgSchemaBar() {
+            const bar = document.getElementById('kgSchemaBar');
+            const usedTypes = new Set(kgGraphNodes.map(n => n.type));
+            const activeGroups = Object.entries(KG_SCHEMA_GROUPS).filter(([, g]) => g.types.some(t => usedTypes.has(t)));
+            if (activeGroups.length === 0) { bar.style.display = 'none'; return; }
+            bar.style.display = 'flex';
+            bar.innerHTML = activeGroups.map(([name, g]) => {
+                const count = g.types.filter(t => usedTypes.has(t)).length;
+                return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${g.color}20;color:${g.color};border:1px solid ${g.color}30;">`
+                    + `<span style="width:5px;height:5px;border-radius:50%;background:${g.color}"></span>${name} (${count})</span>`;
             }).join('');
-
-            // Insert into progress panel (before specialist overview)
-            const container = document.getElementById('kgVisualizerContainer');
-            // Create inline diagram container
-            let diagramEl = document.getElementById('kgInlineDiagram');
-            if (!diagramEl) {
-                diagramEl = document.createElement('div');
-                diagramEl.id = 'kgInlineDiagram';
-                diagramEl.style.cssText = 'padding:8px;margin:4px 0;';
-                container.parentNode.insertBefore(diagramEl, container.nextSibling);
-            }
-            diagramEl.innerHTML = `
-                <div style="text-align:center;">${svg}</div>
-                <div style="text-align:center;margin-top:6px;">${legendHtml}</div>
-                <div style="text-align:center;font-size:11px;opacity:0.6;margin-top:4px;">${escapeHtml(statsLine)}</div>
-            `;
         }
+
+        function startKgSimulation() {
+            kgSimRunning = true;
+            const canvas = document.getElementById('kgCanvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            const nodeMap = new Map();
+            let rotation = 0;
+
+            function simulate() {
+                if (!kgSimRunning) return;
+                kgGraphNodes.forEach(n => nodeMap.set(n.id, n));
+
+                // Simple force simulation
+                for (let i = 0; i < kgGraphNodes.length; i++) {
+                    const a = kgGraphNodes[i];
+                    // Center gravity
+                    a.vx += (W/2 - a.x) * 0.001;
+                    a.vy += (H/2 - a.y) * 0.001;
+                    // Repulsion
+                    for (let j = i+1; j < kgGraphNodes.length; j++) {
+                        const b = kgGraphNodes[j];
+                        const dx = a.x - b.x, dy = a.y - b.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+                        if (dist < 120) {
+                            const f = (120 - dist) * 0.02 / dist;
+                            a.vx += dx * f; a.vy += dy * f;
+                            b.vx -= dx * f; b.vy -= dy * f;
+                        }
+                    }
+                }
+                // Edge attraction
+                for (const e of kgGraphEdges) {
+                    const s = nodeMap.get(e.from), t = nodeMap.get(e.to);
+                    if (!s || !t) continue;
+                    const dx = t.x - s.x, dy = t.y - s.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+                    const f = (dist - 60) * 0.003;
+                    s.vx += dx * f; s.vy += dy * f;
+                    t.vx -= dx * f; t.vy -= dy * f;
+                }
+                // Apply velocity + damping
+                for (const n of kgGraphNodes) {
+                    n.vx *= 0.9; n.vy *= 0.9;
+                    n.x += n.vx; n.y += n.vy;
+                    n.x = Math.max(20, Math.min(W-20, n.x));
+                    n.y = Math.max(20, Math.min(H-20, n.y));
+                }
+                rotation += 0.002;
+
+                // Render
+                ctx.fillStyle = '#0a0a0f';
+                ctx.fillRect(0, 0, W, H);
+
+                // Edges
+                for (const e of kgGraphEdges) {
+                    const s = nodeMap.get(e.from), t = nodeMap.get(e.to);
+                    if (!s || !t) continue;
+                    ctx.beginPath();
+                    ctx.moveTo(s.x, s.y);
+                    ctx.lineTo(t.x, t.y);
+                    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // Nodes with glow
+                for (const n of kgGraphNodes) {
+                    const color = KG_TYPE_COLORS[n.type] || '#8b5cf6';
+                    const r = n.id === kgGraphNodes[0]?.id ? 8 : 5;
+
+                    // Outer glow
+                    const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
+                    grad.addColorStop(0, color + '30');
+                    grad.addColorStop(1, 'transparent');
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, r * 3, 0, Math.PI * 2);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+
+                    // Node
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+
+                    // Label
+                    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                    ctx.font = '9px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(n.label.substring(0, 12), n.x, n.y + r + 10);
+                }
+
+                requestAnimationFrame(simulate);
+            }
+            simulate();
+        }
+
+        // renderKgSummaryDiagram replaced by canvas force-graph above
 
         function toggleKgVisualizer() {
             // iframe removed — toggle is no-op
