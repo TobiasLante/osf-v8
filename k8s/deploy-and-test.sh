@@ -3,13 +3,15 @@
 # OSF v8 + Factory Sim v3 — Full Deploy & Test Pipeline
 # ════════════════════════════════════════════════════════════════════════════
 # Usage:
-#   ./deploy-and-test.sh all                  # Full pipeline (1→2→3→4)
+#   ./deploy-and-test.sh all                  # Full pipeline (1→2→3→5→4)
 #   ./deploy-and-test.sh factory-sim          # Section 1: Deploy + test factory sim
 #   ./deploy-and-test.sh test-factory-sim     # Test factory sim only (no deploy)
 #   ./deploy-and-test.sh osf                  # Section 2: Deploy + test OSF
 #   ./deploy-and-test.sh test-osf             # Test OSF only (no deploy)
 #   ./deploy-and-test.sh chat-ui              # Section 3: Deploy + test chat-ui
 #   ./deploy-and-test.sh test-chat-ui         # Test chat-ui only (no deploy)
+#   ./deploy-and-test.sh v9                   # Section 5: Deploy + test v9 KG platform
+#   ./deploy-and-test.sh test-v9              # Test v9 only (no deploy)
 #   ./deploy-and-test.sh security             # Section 4: Security audit
 #   ./deploy-and-test.sh inventory            # Feature inventory (deploy gate)
 #   ./deploy-and-test.sh smoke-chat           # Post-deploy smoke test
@@ -35,9 +37,13 @@ CHAT_UI_TAG="${OSF_CHAT_UI_VERSION:-8.2.1}"
 NODERED_TAG="${OSF_NODERED_VERSION:-latest}"
 FACTORY_SIM_TAG="${FACTORY_SIM_VERSION:-3.2.0}"
 BUGS_FILE="/home/tlante/non-critical-bugs.md"
-FACTORY_NODE="192.168.178.150"
-FACTORY_PORT="30888"
-GATEWAY_PORT="30880"
+FACTORY_NODE="${OSF_NODE:-192.168.178.150}"
+LLM_NODE="${LLM_NODE:-192.168.178.120}"
+FACTORY_PORT="${FACTORY_NODEPORT:-30888}"
+GATEWAY_PORT="${GATEWAY_NODEPORT:-30880}"
+V9_WEB_TAG="${OSF_V9_WEB_VERSION:-1.0.0}"
+KG_SERVER_TAG="${OSF_KG_SERVER_VERSION:-${OSF_BACKEND_VERSION:-8.8.0}}"
+KG_BUILDER_TAG="${OSF_KG_BUILDER_VERSION:-${OSF_BACKEND_VERSION:-8.8.0}}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Colors
@@ -108,6 +114,9 @@ stamp_versions() {
   sed -i "s|image: ${REGISTRY}/osf-chat-ui:.*|image: ${REGISTRY}/osf-chat-ui:${CHAT_UI_TAG}|" "$SCRIPT_DIR/osf-chat-ui.yaml"
   # chat.html version badge
   sed -i "s|<span class=\"version-badge\">v[0-9.]*</span>|<span class=\"version-badge\">v${CHAT_UI_TAG}</span>|" "$V8_ROOT/chat-ui/chat.html"
+  # v9 kg-server + kg-builder
+  sed -i "s|image: ${REGISTRY}/osf-kg-server:.*|image: ${REGISTRY}/osf-kg-server:${KG_SERVER_TAG}|" "$SCRIPT_DIR/v9/kg-server.yaml" 2>/dev/null || true
+  sed -i "s|image: ${REGISTRY}/osf-kg-builder:.*|image: ${REGISTRY}/osf-kg-builder:${KG_BUILDER_TAG}|" "$SCRIPT_DIR/v9/kg-builder-job.yaml" 2>/dev/null || true
 
   ok "K8s YAMLs + chat.html stamped with current versions"
 }
@@ -626,9 +635,9 @@ deploy_osf() {
   fi
 
   docker build --no-cache -t "$REGISTRY/osf-frontend:$FRONTEND_TAG" \
-    --build-arg NEXT_PUBLIC_API_URL=https://osf-api.zeroguess.ai \
-    --build-arg NEXT_PUBLIC_FACTORY_URL=http://${FACTORY_NODE}:${FACTORY_PORT} \
-    --build-arg NEXT_PUBLIC_MQTT_EXPLORER_URL=http://${FACTORY_NODE}:31884 \
+    --build-arg NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://osf-api.zeroguess.ai}" \
+    --build-arg NEXT_PUBLIC_FACTORY_URL="http://${FACTORY_NODE}:${FACTORY_PORT}" \
+    --build-arg NEXT_PUBLIC_MQTT_EXPLORER_URL="http://${FACTORY_NODE}:${MQTT_EXPLORER_NODEPORT:-31884}" \
     -f "$FRONTEND_DOCKERFILE" \
     "$V8_ROOT/osf-frontend" 2>&1 | tail -5
   ok "Frontend image built"
@@ -1502,6 +1511,131 @@ run_security_audit() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# SECTION 5: v9 KG Platform (KG Server + Web UI)
+# ════════════════════════════════════════════════════════════════════════════
+deploy_v9() {
+  section "SECTION 5: Deploy v9 KG Platform (KG Server + Web UI)"
+  init_bugs
+
+  local KG_API_URL="http://${FACTORY_NODE}:${KG_SERVER_NODEPORT:-30035}"
+
+  # 5.1 Build v9 Web UI
+  log "Building v9 Web UI..."
+  docker build --no-cache \
+    -t "$REGISTRY/osf-v9-web:$V9_WEB_TAG" \
+    --build-arg NEXT_PUBLIC_API_URL="$KG_API_URL" \
+    -f "$V8_ROOT/web/Dockerfile" \
+    "$V8_ROOT/web" 2>&1 | tail -5
+  ok "v9 Web image built"
+  docker push "$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>&1 | tail -3
+  ok "v9 Web pushed"
+
+  # 5.2 Build KG Server
+  log "Building KG Server..."
+  docker build --no-cache \
+    -t "$REGISTRY/osf-kg-server:$KG_SERVER_TAG" \
+    -f "$V8_ROOT/osf-kg-builder/Dockerfile.server" \
+    "$V8_ROOT/osf-kg-builder" 2>&1 | tail -5
+  ok "KG Server image built"
+  docker push "$REGISTRY/osf-kg-server:$KG_SERVER_TAG" 2>&1 | tail -3
+  ok "KG Server pushed"
+
+  # 5.3 Build KG Builder
+  log "Building KG Builder..."
+  docker build --no-cache \
+    -t "$REGISTRY/osf-kg-builder:$KG_BUILDER_TAG" \
+    -f "$V8_ROOT/osf-kg-builder/Dockerfile.builder" \
+    "$V8_ROOT/osf-kg-builder" 2>&1 | tail -5
+  ok "KG Builder image built"
+  docker push "$REGISTRY/osf-kg-builder:$KG_BUILDER_TAG" 2>&1 | tail -3
+  ok "KG Builder pushed"
+
+  # 5.4 Apply K8s manifests
+  log "Applying v9 K8s manifests..."
+  kubectl apply -f "$SCRIPT_DIR/v9/neo4j.yaml"
+  kubectl apply -f "$SCRIPT_DIR/v9/kg-server.yaml"
+  ok "v9 manifests applied"
+
+  # 5.5 Deploy v9 Web (create/update deployment)
+  log "Deploying v9 Web..."
+  kubectl -n osf set image deploy/osf-v9-web nginx="$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>/dev/null || \
+    kubectl -n osf create deployment osf-v9-web --image="$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>/dev/null || true
+  kubectl -n osf patch deploy osf-v9-web --type=json \
+    -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Always"}]' 2>/dev/null || true
+
+  # 5.6 Restart KG Server to pick up new image
+  log "Restarting KG Server..."
+  kubectl -n osf rollout restart deploy/osf-kg-server 2>/dev/null || true
+
+  # 5.7 Wait for rollouts
+  log "Waiting for KG Server rollout..."
+  kubectl -n osf rollout status deploy/osf-kg-server --timeout=180s || {
+    fail "KG Server rollout timed out"
+    kubectl -n osf logs -l app=osf-kg-server --tail=30
+    return 1
+  }
+  ok "KG Server ready"
+
+  log "Waiting for v9 Web rollout..."
+  kubectl -n osf rollout status deploy/osf-v9-web --timeout=120s || {
+    fail "v9 Web rollout timed out"
+    return 1
+  }
+  ok "v9 Web ready"
+
+  kubectl -n osf get pods -l 'app in (osf-kg-server,osf-v9-web,osf-neo4j)'
+
+  test_v9
+}
+
+test_v9() {
+  section "TESTING: v9 KG Platform"
+  init_bugs
+
+  local KG_URL="http://${FACTORY_NODE}:${KG_SERVER_NODEPORT:-30035}"
+  local WEB_URL="http://${FACTORY_NODE}:${V9_WEB_NODEPORT:-30909}"
+
+  # T1: KG Server health
+  assert_http "$KG_URL/health" 200 "KG Server health"
+  assert_json_field "$KG_URL/health" "graphAvailable" "KG Server graph"
+
+  # T2: KG Server MCP
+  log "Testing MCP tools/list..."
+  local mcp_resp
+  mcp_resp=$(curl -s --max-time 10 -X POST "$KG_URL/mcp" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' 2>/dev/null || echo "{}")
+  if echo "$mcp_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d.get('result',{}).get('tools',[])) > 0" 2>/dev/null; then
+    ok "MCP tools available"
+  else
+    fail "MCP tools/list returned no tools"
+    ((NON_CRITICAL++)) || true
+  fi
+
+  # T3: KG Server runs endpoint
+  assert_http "$KG_URL/api/kg/runs" 200 "KG runs endpoint"
+
+  # T4: KG Server build status
+  assert_http "$KG_URL/api/kg/build/status" 200 "KG build status"
+
+  # T5: v9 Web UI
+  assert_http "$WEB_URL" 200 "v9 Web UI"
+
+  # T6: Embedding server
+  local EMBED_URL="http://${LLM_NODE}:${EMBEDDING_PORT:-5003}"
+  log "Testing embedding server..."
+  local embed_resp
+  embed_resp=$(curl -s --max-time 10 "$EMBED_URL/health" 2>/dev/null || echo "{}")
+  if echo "$embed_resp" | grep -q '"ok"'; then
+    ok "Embedding server healthy ($EMBED_URL)"
+  else
+    bug "V9" "Embedding server not reachable at $EMBED_URL"
+  fi
+
+  ok "v9 KG Platform tests complete"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # Main
 # ════════════════════════════════════════════════════════════════════════════
 main() {
@@ -1529,6 +1663,12 @@ main() {
     test-chat-ui)
       test_chat_ui
       ;;
+    v9)
+      deploy_v9
+      ;;
+    test-v9)
+      test_v9
+      ;;
     security)
       run_security_audit
       ;;
@@ -1541,7 +1681,7 @@ main() {
       ;;
     all)
       section "FULL PIPELINE — Deploy & Test All"
-      echo "Order: Factory Sim → OSF → Chat-UI → Security Audit"
+      echo "Order: Factory Sim → OSF → Chat-UI → v9 → Security Audit"
       echo ""
 
       deploy_factory_sim || {
@@ -1557,6 +1697,10 @@ main() {
       deploy_chat_ui || {
         fail "Chat-UI failed — stopping pipeline"
         exit 1
+      }
+
+      deploy_v9 || {
+        warn "v9 deploy failed — continuing"
       }
 
       run_security_audit || {
@@ -1576,13 +1720,15 @@ main() {
       echo "Usage: $0 <command>"
       echo ""
       echo "Commands:"
-      echo "  all               Full pipeline (factory-sim → osf → chat-ui → security)"
+      echo "  all               Full pipeline (factory-sim → osf → chat-ui → v9 → security)"
       echo "  factory-sim       Section 1: Deploy + test factory simulator"
       echo "  test-factory-sim  Test factory sim only (no deploy)"
       echo "  osf               Section 2: Deploy + test OSF gateway + frontend"
       echo "  test-osf          Test OSF only (no deploy)"
       echo "  chat-ui           Section 3: Deploy + test chat-ui"
       echo "  test-chat-ui      Test chat-ui only (no deploy)"
+      echo "  v9                Section 5: Deploy + test v9 KG platform"
+      echo "  test-v9           Test v9 only (no deploy)"
       echo "  security          Section 4: Security audit"
       echo "  smoke-chat        Post-deploy smoke test (3 quick chat questions)"
       echo "  inventory         Feature inventory check (deploy gate)"
