@@ -92,7 +92,7 @@ describe('audit-export', () => {
       rows: [
         {
           id: 1,
-          created_at: '2026-03-01T10:00:00Z',
+          ts: '2026-03-01T10:00:00Z',
           user_id: 'u1',
           user_email: 'test@example.com',
           action: 'tool_call',
@@ -126,7 +126,7 @@ describe('audit-export', () => {
       expect(buf[2]).toBe(0xBF);
       const text = buf.toString('utf-8');
       // Header row
-      expect(text).toContain('id,created_at,user_id,user_email,action');
+      expect(text).toContain('id,ts,user_id,user_email,action');
       // Data row
       expect(text).toContain('test@example.com');
       expect(text).toContain('query_erp');
@@ -140,7 +140,7 @@ describe('audit-export', () => {
       rows: [
         {
           id: 1,
-          created_at: '2026-03-01T10:00:00Z',
+          ts: '2026-03-01T10:00:00Z',
           user_id: 'u1',
           user_email: 'test@example.com',
           action: 'tool_call',
