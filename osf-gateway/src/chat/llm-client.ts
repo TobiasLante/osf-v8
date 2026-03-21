@@ -276,6 +276,29 @@ export async function getLlmConfig(userId: string, tier: string): Promise<LlmCon
 
   const user = result.rows[0];
   if (!user.llm_provider || user.llm_provider === 'platform') {
+    // Check if user belongs to a learning group with a shared API key
+    const groupResult = await pool.query(`
+      SELECT g.llm_provider, g.llm_base_url, g.llm_model, g.llm_api_key_encrypted
+      FROM learning_groups g JOIN learning_group_members m ON m.group_id = g.id
+      WHERE m.user_id = $1 AND g.llm_api_key_encrypted IS NOT NULL LIMIT 1
+    `, [userId]);
+
+    if (groupResult.rows.length > 0) {
+      const group = groupResult.rows[0];
+      try {
+        const groupConfig: LlmConfig = {
+          baseUrl: group.llm_base_url || getPlatformConfig(tier).baseUrl,
+          model: group.llm_model || getPlatformConfig(tier).model,
+        };
+        if (group.llm_api_key_encrypted) {
+          groupConfig.apiKey = decryptApiKey(group.llm_api_key_encrypted);
+        }
+        return groupConfig;
+      } catch {
+        // Group key decryption failed — fall through to platform
+      }
+    }
+
     return getPlatformConfig(tier);
   }
 

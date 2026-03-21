@@ -18,6 +18,7 @@ import chainRoutes from './chains/routes';
 import flowRoutes from './flows/routes';
 import codeAgentRoutes from './code-agents/routes';
 import adminRoutes from './admin/routes';
+import groupRoutes from './admin/group-routes';
 import newsRoutes from './news/routes';
 import marketplaceRoutes from './marketplace/routes';
 import healthAgentRoutes from './health-agent/routes';
@@ -724,6 +725,19 @@ async function main() {
   app.use('/flows', flowRoutes);
   app.use('/code-agents', codeAgentRoutes);
   app.use('/admin', adminRoutes);
+  app.use('/admin/groups', groupRoutes);
+
+  // User's own group info
+  app.get('/api/me/group', requireAuth, async (req: any, res: any) => {
+    const result = await pool.query(`
+      SELECT g.id, g.name, g.description, m.role AS group_role,
+             g.llm_api_key_encrypted IS NOT NULL AS has_shared_key
+      FROM learning_groups g JOIN learning_group_members m ON m.group_id = g.id
+      WHERE m.user_id = $1 LIMIT 1
+    `, [req.user!.userId]);
+    res.json({ group: result.rows[0] || null });
+  });
+
   app.use('/news', newsRoutes);
   app.use('/marketplace', marketplaceRoutes);
   app.use('/health-agent', healthAgentRoutes);

@@ -761,6 +761,32 @@ export async function initSchema(): Promise<void> {
       ON CONFLICT (version) DO NOTHING;
     `);
 
+    // ─── Learning Groups ──────────────────────────────────────────────
+    await migrate('learning_groups', `
+      CREATE TABLE IF NOT EXISTS learning_groups (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        description TEXT,
+        llm_provider TEXT,
+        llm_base_url TEXT,
+        llm_model TEXT,
+        llm_api_key_encrypted TEXT,
+        max_members INT DEFAULT 30,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS learning_group_members (
+        group_id UUID REFERENCES learning_groups(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT DEFAULT 'member' CHECK (role IN ('member', 'group_admin')),
+        joined_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (group_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_lgm_user ON learning_group_members(user_id);
+      CREATE INDEX IF NOT EXISTS idx_lgm_group ON learning_group_members(group_id);
+    `);
+
     const versionResult = await client.query('SELECT MAX(version) AS v FROM schema_version');
     logger.info({ schemaVersion: versionResult.rows[0]?.v || 0 }, 'Schema version');
 
