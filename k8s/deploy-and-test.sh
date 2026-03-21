@@ -41,7 +41,7 @@ FACTORY_NODE="${OSF_NODE:-192.168.178.150}"
 LLM_NODE="${LLM_NODE:-192.168.178.120}"
 FACTORY_PORT="${FACTORY_NODEPORT:-30888}"
 GATEWAY_PORT="${GATEWAY_NODEPORT:-30880}"
-V9_WEB_TAG="${OSF_V9_WEB_VERSION:-1.0.0}"
+KG_WEB_TAG="${OSF_KG_WEB_VERSION:-${OSF_BACKEND_VERSION:-8.9.0}}"
 KG_SERVER_TAG="${OSF_KG_SERVER_VERSION:-${OSF_BACKEND_VERSION:-8.8.0}}"
 KG_BUILDER_TAG="${OSF_KG_BUILDER_VERSION:-${OSF_BACKEND_VERSION:-8.8.0}}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -1522,12 +1522,12 @@ deploy_v9() {
   # 5.1 Build v9 Web UI
   log "Building v9 Web UI..."
   docker build --no-cache \
-    -t "$REGISTRY/osf-v9-web:$V9_WEB_TAG" \
+    -t "$REGISTRY/osf-v9-web:$KG_WEB_TAG" \
     --build-arg NEXT_PUBLIC_API_URL="$KG_API_URL" \
     -f "$V8_ROOT/osf-kg-builder/web/Dockerfile" \
     "$V8_ROOT/osf-kg-builder/web" 2>&1 | tail -5
   ok "v9 Web image built"
-  docker push "$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>&1 | tail -3
+  docker push "$REGISTRY/osf-v9-web:$KG_WEB_TAG" 2>&1 | tail -3
   ok "v9 Web pushed"
 
   # 5.2 Build KG Server
@@ -1558,8 +1558,8 @@ deploy_v9() {
 
   # 5.5 Deploy v9 Web (create/update deployment)
   log "Deploying v9 Web..."
-  kubectl -n osf set image deploy/osf-v9-web nginx="$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>/dev/null || \
-    kubectl -n osf create deployment osf-v9-web --image="$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>/dev/null || true
+  kubectl -n osf set image deploy/osf-v9-web nginx="$REGISTRY/osf-v9-web:$KG_WEB_TAG" 2>/dev/null || \
+    kubectl -n osf create deployment osf-v9-web --image="$REGISTRY/osf-v9-web:$KG_WEB_TAG" 2>/dev/null || true
   kubectl -n osf patch deploy osf-v9-web --type=json \
     -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Always"}]' 2>/dev/null || true
 
@@ -1593,7 +1593,7 @@ test_v9() {
   init_bugs
 
   local KG_URL="http://${FACTORY_NODE}:${KG_SERVER_NODEPORT:-30035}"
-  local WEB_URL="http://${FACTORY_NODE}:${V9_WEB_NODEPORT:-30909}"
+  local WEB_URL="http://${FACTORY_NODE}:${KG_WEB_NODEPORT:-30909}"
 
   # T1: KG Server health
   assert_http "$KG_URL/health" 200 "KG Server health"
