@@ -70,6 +70,8 @@ spec:
                   key: FACTORY_DB_PASSWORD
             - name: DB_SCHEMA
               value: "llm_test_v3"
+            - name: MQTT_RAW_URL
+              value: "mqtt://192.168.178.150:31883"
             - name: BUILD_SCHEDULE_HOURS
               value: "9,19"
             - name: SCHEMA_POLL_INTERVAL_MS

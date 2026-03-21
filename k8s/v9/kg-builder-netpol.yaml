@@ -60,6 +60,20 @@ spec:
       to:
         - ipBlock:
             cidr: 192.168.178.120/32
+    # GitHub (schema repo sync)
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+    # MQTT broker (192.168.178.150:31883)
+    - ports:
+        - port: 31883
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.150/32
     # DNS
     - ports:
         - port: 53
