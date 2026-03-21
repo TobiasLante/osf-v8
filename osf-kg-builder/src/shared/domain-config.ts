@@ -235,6 +235,7 @@ export function templateToSpecs(template: SchemaTemplate): { nodeTypes: NodeType
     toType: et.toType,
     sourceTool: et.sourceTool,
     sourceMapping: `Template: FK ${et.fkProperty} on ${et.sourceTool}`,
+    fkProperty: et.fkProperty,
   }));
 
   return { nodeTypes, edgeTypes };

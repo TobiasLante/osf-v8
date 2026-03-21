@@ -15,6 +15,7 @@ export interface EdgeTypeSpec {
   properties?: Array<{ name: string; type: string }>;
   sourceTool: string;
   sourceMapping: string;
+  fkProperty?: string;
 }
 
 export interface ToolMapping {

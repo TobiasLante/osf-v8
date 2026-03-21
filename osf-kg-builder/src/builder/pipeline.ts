@@ -164,7 +164,7 @@ export async function runBuildPipeline(options: PipelineOptions): Promise<Pipeli
     // ── Phase 3: Relationship Building ────────────────────────────
     emit({ phase: 3, step: `Building ${proposal.edgeTypes.length} edge types...` });
 
-    await executeRelationshipBuilding(proposal.edgeTypes, options.authToken, (msg, detail) => {
+    await executeRelationshipBuilding(proposal.edgeTypes, proposal.nodeTypes, options.authToken, (msg, detail) => {
       emit({ phase: 3, step: msg, detail: detail?.edgeType });
       logger.info({ ...detail }, msg);
     });

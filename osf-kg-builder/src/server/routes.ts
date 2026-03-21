@@ -332,7 +332,7 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
           const edgeType = schema.edgeTypes.find((e: any) => e.label === safeLabel);
           if (!edgeType) { results.push({ correction: corr, result: `Edge ${safeLabel} not in schema` }); continue; }
           await cypherQuery(`MATCH ()-[r:${safeLabel}]->() DELETE r`);
-          const buildReport = await executeRelationshipBuilding([edgeType], undefined, (msg) => logger.info(msg));
+          const buildReport = await executeRelationshipBuilding([edgeType], schema.nodeTypes || [], undefined, (msg) => logger.info(msg));
           results.push({ correction: corr, result: `Re-built ${buildReport.totalSuccess} edges` });
         } else if (corr.type === 'delete_type') {
           await cypherQuery(`MATCH (n:${safeLabel}) DETACH DELETE n`);

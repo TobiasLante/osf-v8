@@ -1,8 +1,6 @@
-import { callLlmJson, ChatMessage } from '../shared/llm-client';
-import { EdgeTypeSpec } from '../shared/types';
+import { EdgeTypeSpec, NodeTypeSpec } from '../shared/types';
 import { edgeCypher, executeBatched, cypherQuery, validateLabel } from '../shared/cypher-utils';
 import { sampleMcpTool } from './tool-discovery';
-import { loadDomainConfig } from '../shared/domain-config';
 import { logger } from '../shared/logger';
 
 export interface ExtractedEdge {
@@ -29,48 +27,48 @@ async function getNodeIds(label: string): Promise<string[]> {
   }
 }
 
-async function extractEdgesFromData(
-  edgeType: EdgeTypeSpec,
-  data: string,
-  fromIds: string[],
-  toIds: string[],
-): Promise<ExtractedEdge[]> {
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `You are a data extraction specialist. Extract relationships between ${loadDomainConfig().systemPromptContext} entities. Output ONLY valid JSON.`,
-    },
-    {
-      role: 'user',
-      content: `Extract all "${edgeType.label}" relationships from this data.
+/**
+ * Deterministic FK-based edge extraction.
+ * Parses the tool output JSON, finds the fromId (via nodeType.idProperty)
+ * and the toId (via edgeType.fkProperty) in each row.
+ * No LLM involved — 100% schema-driven.
+ */
+function extractEdgesDeterministic(
+  rawData: string,
+  fromIdProp: string,
+  fkProperty: string,
+  fromIds: Set<string>,
+  toIds: Set<string>,
+): ExtractedEdge[] {
+  let rows: any[];
+  try {
+    const parsed = JSON.parse(rawData);
+    rows = Array.isArray(parsed) ? parsed : parsed.rows || parsed.data || parsed.result || [];
+    if (!Array.isArray(rows)) rows = [parsed];
+  } catch {
+    // Data might be wrapped in markdown code blocks or have prefix text
+    const jsonMatch = rawData.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+    try { rows = JSON.parse(jsonMatch[0]); } catch { return []; }
+  }
 
-Edge: ${edgeType.fromType} —[${edgeType.label}]→ ${edgeType.toType}
-${edgeType.properties?.length ? `Edge properties: ${edgeType.properties.map(p => p.name).join(', ')}` : ''}
+  const edges: ExtractedEdge[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const fromVal = String(row[fromIdProp] ?? '');
+    const toVal = String(row[fkProperty] ?? '');
+    if (!fromVal || !toVal) continue;
+    if (fromIds.has(fromVal) && toIds.has(toVal)) {
+      edges.push({ from: fromVal, to: toVal });
+    }
+  }
 
-Mapping hint: ${edgeType.sourceMapping}
-
-Known ${edgeType.fromType} IDs (first 50): ${fromIds.slice(0, 50).join(', ')}
-Known ${edgeType.toType} IDs (first 50): ${toIds.slice(0, 50).join(', ')}
-
-DATA:
-${data}
-
-RESPONSE FORMAT: Pure JSON.
-{"edges": [{"from": "source-id", "to": "target-id"${edgeType.properties?.length ? ', "props": {"key": "value"}' : ''}}]}
-
-Rules:
-- ONLY use IDs that exist in the known ID lists above
-- Do NOT invent or hallucinate relationships
-- Extract only relationships supported by the data`,
-    },
-  ];
-
-  const result = await callLlmJson<{ edges: ExtractedEdge[] }>(messages);
-  return (result.edges || []).filter(e => e.from && e.to);
+  return edges;
 }
 
 export async function executeRelationshipBuilding(
   edgeTypes: EdgeTypeSpec[],
+  nodeTypes: NodeTypeSpec[],
   authToken: string | undefined,
   onProgress: (msg: string, detail?: any) => void,
 ): Promise<BuildReport> {
@@ -81,8 +79,27 @@ export async function executeRelationshipBuilding(
     totalFailed: 0,
   };
 
+  // Build lookup: nodeLabel → idProperty
+  const nodeIdMap = new Map<string, string>();
+  for (const nt of nodeTypes) {
+    nodeIdMap.set(nt.label, nt.idProperty);
+  }
+
   for (const et of edgeTypes) {
     onProgress(`Building ${et.fromType} —[${et.label}]→ ${et.toType}...`);
+
+    if (!et.fkProperty) {
+      logger.warn({ edge: et.label }, 'Skipping edge — no fkProperty defined in schema');
+      report.edgeTypes[et.label] = { extracted: 0, cypherSuccess: 0, cypherFailed: 0 };
+      continue;
+    }
+
+    const fromIdProp = nodeIdMap.get(et.fromType);
+    if (!fromIdProp) {
+      logger.warn({ edge: et.label, fromType: et.fromType }, 'Skipping edge — fromType not found in nodeTypes');
+      report.edgeTypes[et.label] = { extracted: 0, cypherSuccess: 0, cypherFailed: 0 };
+      continue;
+    }
 
     const fromIds = await getNodeIds(et.fromType);
     const toIds = await getNodeIds(et.toType);
@@ -102,38 +119,28 @@ export async function executeRelationshipBuilding(
       continue;
     }
 
-    const dataStr = rawData.substring(0, 8000);
-    let edges: ExtractedEdge[];
-    try {
-      edges = await extractEdgesFromData(et, dataStr, fromIds, toIds);
-    } catch (e: any) {
-      logger.warn({ edge: et.label, err: e.message }, 'Edge extraction failed');
-      report.edgeTypes[et.label] = { extracted: 0, cypherSuccess: 0, cypherFailed: 0 };
-      continue;
-    }
-
     const fromSet = new Set(fromIds);
     const toSet = new Set(toIds);
-    const valid = edges.filter(e => fromSet.has(e.from) && toSet.has(e.to));
-    const dropped = edges.length - valid.length;
-    if (dropped > 0) {
-      logger.warn({ edge: et.label, dropped }, 'Dropped edges with unknown endpoints');
+    const edges = extractEdgesDeterministic(rawData, fromIdProp, et.fkProperty, fromSet, toSet);
+
+    if (edges.length === 0) {
+      logger.warn({ edge: et.label, fk: et.fkProperty, fromIdProp, dataLen: rawData.length }, 'No edges extracted — check FK property names in schema');
     }
 
-    const queries = valid.map(e => edgeCypher(et.fromType, e.from, et.label, et.toType, e.to, e.props));
+    const queries = edges.map(e => edgeCypher(et.fromType, e.from, et.label, et.toType, e.to, e.props));
     const result = await executeBatched(queries);
 
     report.edgeTypes[et.label] = {
-      extracted: valid.length,
+      extracted: edges.length,
       cypherSuccess: result.success,
       cypherFailed: result.failed,
     };
-    report.totalEdges += valid.length;
+    report.totalEdges += edges.length;
     report.totalSuccess += result.success;
     report.totalFailed += result.failed;
 
-    onProgress(`${et.label}: ${valid.length} edges, ${result.success} committed`, {
-      edgeType: et.label, current: valid.length, total: valid.length,
+    onProgress(`${et.label}: ${edges.length} edges, ${result.success} committed`, {
+      edgeType: et.label, current: edges.length, total: edges.length,
     });
   }
 
