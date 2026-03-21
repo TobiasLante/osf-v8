@@ -72,7 +72,7 @@ export const config = {
     url: str('SCHEMA_REPO_URL', 'https://github.com/TobiasLante/osf-schemas.git'),
     branch: str('SCHEMA_REPO_BRANCH', 'main'),
     localPath: str('SCHEMA_LOCAL_PATH', '/tmp/osf-schemas'),
-    pollIntervalMs: int('SCHEMA_POLL_INTERVAL_MS', 60_000),
+    pollIntervalMs: int('SCHEMA_POLL_INTERVAL_MS', 600_000),
     token: process.env.SCHEMA_REPO_TOKEN || '',
   },
 };
