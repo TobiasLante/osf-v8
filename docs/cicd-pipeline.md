@@ -2,44 +2,67 @@
 
 > Gesamtkonzept fuer eine einheitliche CI/CD Pipeline des osf-v8 Monorepos.
 > Versionierung: v8.x.x (Gateway bleibt Kern, v9 KG-Builder wird Modul).
-> Stand: 2026-03-19.
+> Stand: 2026-03-21.
 
 ---
 
 ## 1. Ist-Zustand
 
-### 1.1 Repo-Struktur (Monorepo)
+### 1.1 Repo-Struktur
 
 ```
-osf-v8/
-+-- osf-gateway/          v8.6.0   Express, Vitest, SWC
-+-- osf-kg-builder/       v9.3.1   KG Server + Builder + Web UI
-+-- osf-frontend/         v1.6.0   Next.js (Cloudflare Pages)
-+-- chat-ui/              v8.2.2   Standalone Chat (nginx)
-+-- k8s/                           Manifests + deploy-and-test.sh
-+-- .github/workflows/ci.yml      Nur Gateway (tsc + vitest)
-+-- .env                           Versionen fuer K8s Deploy
+osf-v8/                              Monorepo
++-- osf-gateway/          v8.12.0    Fastify, Vitest, SWC
++-- osf-kg-builder/       v9.1.0     KG Builder + Server + Web UI (ein Pod)
++-- osf-frontend/         v1.19.0    Next.js (Cloudflare Pages)
++-- chat-ui/                         Standalone Chat (nginx)
++-- k8s/                             Manifests + deploy-and-test.sh
++-- k8s/v9/                          Neo4j + KG Builder K8s YAMLs
++-- .github/workflows/ci.yml        Nur Gateway (tsc + vitest)
++-- .env                             Versionen fuer K8s Deploy
+
+osf-schemas/                         Eigenes Repo (GitHub)
++-- profiles/                        SM Profiles (JSON)
++-- sources/postgresql/              PG Source-Schemas (JSON, ${ENV_VAR})
++-- sources/opcua/                   OPC-UA Source-Schemas (JSON)
++-- sync/mqtt/                       MQTT Sync-Schemas (JSON)
++-- sync/polling/                    Polling Sync-Schemas (JSON)
 ```
 
 ### 1.2 Was existiert
 
 | Komponente | Build | Tests | Lint | CI | CD |
 |------------|-------|-------|------|----|----|
-| **osf-gateway** | SWC → dist/ | Vitest (9 Dateien) | — | ci.yml (tsc + test) | deploy-and-test.sh |
-| **osf-kg-builder** (backend) | SWC → dist/ | Keine | — | Keine | docker-compose |
-| **osf-kg-builder** (web) | Next.js → out/ | Keine | next lint | Keine | docker-compose |
-| **osf-frontend** | Next.js → out/ | Keine | — | Keine | deploy.sh → CF Pages |
+| **osf-gateway** | SWC -> dist/ | Vitest (9 Dateien) | — | ci.yml (tsc + test) | deploy-and-test.sh |
+| **osf-kg-builder** | SWC -> dist/ | Keine | — | Keine | docker build + push + k8s apply |
+| **osf-kg-builder/web** | Next.js -> out/ | Keine | next lint | Keine | Eigenes Docker Image (nginx) |
+| **osf-frontend** | Next.js -> out/ | Keine | — | Keine | deploy.sh -> CF Pages |
 | **chat-ui** | Statisch | Keine | — | Keine | deploy-and-test.sh |
+| **osf-schemas** | — | Keine | — | Keine | Git push, Builder pollt |
 | **K8s Deploy** | — | 33 Smoke-Tests | — | Manuell | deploy-and-test.sh |
 
-### 1.3 Probleme
+### 1.3 Architektur-Aenderungen seit v8.8
+
+- **KG Server = KG Builder**: Ein Pod, ein Image (`Dockerfile.server`), ein Deployment.
+  KG Server Service (`osf-kg-server`) zeigt via Selector auf Builder Pods.
+- **Apache AGE abgeloest**: Nur noch Neo4j (v5.26, eigene StatefulSet auf k8sserv4).
+- **Schema-Repo**: `osf-schemas` auf GitHub, Builder pollt alle 60 Min + bei Startup.
+- **Env-Var-Substitution**: Source-JSONs nutzen `${ERP_DB_HOST}` statt hardcoded IPs.
+  Schema-Loader ersetzt `"${VAR}"` mit `process.env[VAR]` (Strings bleiben Strings,
+  reine Zahlen werden zu Numbers fuer JSON-Kompatibilitaet).
+- **ClusterIP statt NodePort**: PG-Verbindungen intern via K8s Service-DNS
+  (postgress-erp-svc.default:5432 statt 192.168.178.150:30431).
+- **Neo4j Tuning**: 8G Heap, 4G Pagecache, 16 CPU Limit (Xeon E5-2690 v3, 24 Cores).
+- **Batch-Optimierung**: 10k Batch-Size, 3x parallele UNWIND MERGE.
+
+### 1.4 Probleme
 
 1. **Kein CI fuer v9** — KG-Builder Fehler werden erst bei Deploy bemerkt
 2. **Kein Lint** — Code-Qualitaet nicht erzwungen
 3. **Keine Docker-Build-Validierung** — Broken Dockerfiles fliegen erst beim Deploy auf
 4. **Kein automatisches Deployment** — Alles manuell via SSH + deploy-and-test.sh
-5. **Keine Versionskopplung** — Gateway v8.6.0 + KG-Builder v9.3.1 sind unabhaengig,
-   aber muessen zusammen funktionieren
+5. **Keine Schema-Validierung** — osf-schemas Repo hat keine CI
+6. **Keine Versionskopplung** — Gateway v8.12.0 + KG-Builder v9.1.0 sind unabhaengig
 
 ---
 
@@ -50,8 +73,8 @@ osf-v8/
 Gateway und KG-Builder werden unter einer gemeinsamen Version gefuehrt:
 
 ```
-v8.7.0   = Gateway 8.7.0 + KG-Builder als Modul
-v8.8.0   = naechstes Feature-Release
+v8.13.0  = Gateway 8.13.0 + KG-Builder als Modul
+v8.14.0  = naechstes Feature-Release
 ```
 
 Die v9-Bezeichnung bleibt intern fuer den KG-Builder, aber das Release-Tag
@@ -90,17 +113,21 @@ Push / PR
     |
     +---> [4] Docker Build Validation  (~90s)    nach [3]
     |         +-- osf-gateway
-    |         +-- osf-kg-builder
-    |         +-- osf-kg-server
+    |         +-- osf-kg-builder (Dockerfile.server)
     |         +-- osf-v9-web (nginx)
     |
-    +---> [5] Integration Tests        (~60s)    nach [4]
+    +---> [5] Schema Validation        (~10s)    parallel
+    |         +-- JSON Schema Check
+    |         +-- Cross-Ref Validation
+    |         +-- Env-Var Completeness
+    |
+    +---> [6] Integration Tests        (~60s)    nach [4]
     |         +-- Neo4j Service Container
     |         +-- Gateway Health Check
     |         +-- KG-Server Health Check
     |
-    +---> [6] Deploy (manuell/auto)    nach [5]
-              +-- Docker Push → Registry
+    +---> [7] Deploy (manuell/auto)    nach [6]
+              +-- Docker Push -> Registry
               +-- K8s Apply
               +-- Smoke Tests
 ```
@@ -157,19 +184,21 @@ test:
     - run: cd osf-gateway && npm ci
     - run: cd osf-gateway && npm test
 
-    # KG-Builder Tests (noch keine — Platzhalter)
+    # KG-Builder Tests
     # - run: cd osf-kg-builder && npm test
 ```
 
 **Aktuell:** Nur Gateway-Tests (9 Dateien, Vitest).
 
-**Empfehlung fuer KG-Builder Tests (spaeter hinzufuegen):**
+**Empfehlung fuer KG-Builder Tests:**
 
 | Prioritaet | Test | Was |
 |------------|------|-----|
 | P1 | config.test.ts | Env-Var Parsing, required() wirft bei fehlenden Passwords |
-| P1 | schema-loader.test.ts | loadAllProfiles/Sources/Syncs + validateSchemaRefs |
-| P2 | routes.test.ts | Health Endpoint, Semantic Search Input-Validation |
+| P1 | schema-loader.test.ts | loadAll*, validateSchemaRefs, **${ENV_VAR} Substitution** |
+| P1 | schema-loader.test.ts | Numerische Ports werden zu Numbers nach Substitution |
+| P2 | cypher-utils.test.ts | Parallel-Batch-Logik (3x concurrent UNWIND) |
+| P2 | routes.test.ts | Health Endpoint, Build-Trigger (`POST /api/kg/build`) |
 | P3 | mqtt-bridge.test.ts | topicMatches(), validateMessage(), deriveLabel() |
 | P3 | chart-engine.test.ts | Cypher-Generierung aus Frage |
 
@@ -222,19 +251,27 @@ docker:
     - name: Build Gateway Image
       run: docker build -f osf-gateway/Dockerfile -t osf-gateway:ci osf-gateway/
 
-    - name: Build KG-Builder Image
-      run: docker build -f osf-kg-builder/Dockerfile.builder -t osf-kg-builder:ci osf-kg-builder/
+    - name: Build KG-Builder Image (Server + Builder unified)
+      run: docker build -f osf-kg-builder/Dockerfile.server -t osf-kg-builder:ci osf-kg-builder/
 
-    - name: Build KG-Server Image
-      run: docker build -f osf-kg-builder/Dockerfile.server -t osf-kg-server:ci osf-kg-builder/
+    - name: Build KG Web UI Image
+      run: docker build -f osf-kg-builder/web/Dockerfile -t osf-v9-web:ci osf-kg-builder/web/
 
-    - name: Verify Health Endpoint (KG-Server)
+    - name: Verify Health Endpoint (KG-Builder)
       run: |
         docker run -d --name kg-test -p 8035:8035 \
           -e NEO4J_URL=bolt://localhost:7687 \
           -e NEO4J_PASSWORD=unused \
+          -e ERP_DB_HOST=localhost \
+          -e ERP_DB_PORT=5432 \
           -e ERP_DB_PASSWORD=unused \
-          osf-kg-server:ci || true
+          -e BIGDATA_DB_HOST=localhost \
+          -e BIGDATA_DB_PORT=5432 \
+          -e QMS_DB_HOST=localhost \
+          -e QMS_DB_PORT=5432 \
+          -e WMS_DB_HOST=localhost \
+          -e WMS_DB_PORT=5432 \
+          osf-kg-builder:ci || true
         sleep 3
         docker logs kg-test 2>&1 | head -20
         docker rm -f kg-test
@@ -242,7 +279,67 @@ docker:
 
 **Erwartete Laufzeit:** ~90 Sekunden (Docker Build dominiert).
 
-### 3.5 Job: integration
+### 3.5 Job: schema-validation
+
+Validiert die Schema-JSONs im osf-schemas Repo. Laeuft bei jedem Push.
+
+```yaml
+schema-validation:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: TobiasLante/osf-schemas
+        path: osf-schemas
+        token: ${{ secrets.SCHEMA_REPO_TOKEN }}
+
+    - uses: actions/setup-node@v4
+      with: { node-version: 20 }
+
+    - name: Validate Schema JSONs
+      run: |
+        cd osf-kg-builder && npm ci
+
+        # 1. All JSONs must parse
+        find ../osf-schemas -name '*.json' -exec python3 -c "
+        import json, sys
+        with open(sys.argv[1]) as f: json.load(f)
+        print(f'  OK: {sys.argv[1]}')
+        " {} \;
+
+        # 2. Cross-reference validation (profiles <-> sources <-> syncs)
+        ERP_DB_HOST=localhost ERP_DB_PORT=5432 \
+        BIGDATA_DB_HOST=localhost BIGDATA_DB_PORT=5432 \
+        QMS_DB_HOST=localhost QMS_DB_PORT=5432 \
+        WMS_DB_HOST=localhost WMS_DB_PORT=5432 \
+        npx tsx -e "
+        import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from './src/builder/schema-loader';
+        const p = loadAllProfiles('../osf-schemas');
+        const s = loadAllSources('../osf-schemas');
+        const y = loadAllSyncs('../osf-schemas');
+        const errors = validateSchemaRefs(p, s, y);
+        console.log(p.length + ' profiles, ' + s.length + ' sources, ' + y.length + ' syncs');
+        if (errors.length > 0) { console.error(errors); process.exit(1); }
+        console.log('All cross-references valid');
+        "
+
+        # 3. Check all ${ENV_VAR} references resolve to known vars
+        grep -roh '\${[A-Z_]*}' ../osf-schemas/sources/ | sort -u | while read var; do
+          name=$(echo "$var" | sed 's/[${}]//g')
+          echo "  Required env var: $name"
+        done
+```
+
+**Erwartete Laufzeit:** ~10 Sekunden.
+
+**Was es faengt:**
+- Kaputte JSON-Syntax
+- Verwaiste profileRef (Source zeigt auf nicht-existierendes Profil)
+- Fehlende sourceRef in Polling-Syncs
+- Unbekannte ${ENV_VAR} Referenzen
+
+### 3.6 Job: integration
 
 Laeuft nur auf `dev` und `main`. Neo4j als Service-Container.
 
@@ -250,7 +347,7 @@ Laeuft nur auf `dev` und `main`. Neo4j als Service-Container.
 integration:
   runs-on: ubuntu-latest
   if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'
-  needs: [lint-typecheck, test, build]
+  needs: [lint-typecheck, test, build, schema-validation]
   services:
     neo4j:
       image: neo4j:5.26-community
@@ -301,10 +398,16 @@ integration:
         NEO4J_URL=bolt://localhost:7687 \
         NEO4J_USER=neo4j \
         NEO4J_PASSWORD=testpassword \
-        ERP_DB_PASSWORD=testpassword \
         ERP_DB_HOST=localhost \
         ERP_DB_PORT=5432 \
+        ERP_DB_PASSWORD=testpassword \
         ERP_DB_NAME=testdb \
+        BIGDATA_DB_HOST=localhost \
+        BIGDATA_DB_PORT=5432 \
+        QMS_DB_HOST=localhost \
+        QMS_DB_PORT=5432 \
+        WMS_DB_HOST=localhost \
+        WMS_DB_PORT=5432 \
         npx tsx src/builder/dry-run.ts || true
 ```
 
@@ -318,8 +421,8 @@ integration:
 
 | Event | Aktion |
 |-------|--------|
-| PR merged → `dev` | CI laeuft. Deploy auf .110 optional (workflow_dispatch) |
-| PR merged → `main` | CI laeuft. Deploy auf .150 manuell getriggert |
+| PR merged -> `dev` | CI laeuft. Deploy auf .110 optional (workflow_dispatch) |
+| PR merged -> `main` | CI laeuft. Deploy auf .150 manuell getriggert |
 | Tag `v8.x.x` | Release: Docker Push + K8s Deploy + CF Pages Deploy |
 
 **Kein automatisches Deploy auf Produktion.** Immer manueller Trigger
@@ -331,7 +434,7 @@ integration:
 deploy:
   runs-on: ubuntu-latest
   if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-  needs: [lint-typecheck, test, build, docker, integration]
+  needs: [lint-typecheck, test, build, docker, schema-validation, integration]
   environment: production    # GitHub Environment mit Approval
   steps:
     # 1. Docker Build + Push to local registry
@@ -340,15 +443,15 @@ deploy:
         docker build -f osf-gateway/Dockerfile -t $REGISTRY/osf-gateway:$VERSION osf-gateway/
         docker push $REGISTRY/osf-gateway:$VERSION
 
-    - name: Build & Push KG-Builder
+    - name: Build & Push KG-Builder (unified Server + Builder)
       run: |
-        docker build -f osf-kg-builder/Dockerfile.builder -t $REGISTRY/osf-kg-builder:$VERSION osf-kg-builder/
+        docker build -f osf-kg-builder/Dockerfile.server -t $REGISTRY/osf-kg-builder:$VERSION osf-kg-builder/
         docker push $REGISTRY/osf-kg-builder:$VERSION
 
-    - name: Build & Push KG-Server
+    - name: Build & Push KG Web UI
       run: |
-        docker build -f osf-kg-builder/Dockerfile.server -t $REGISTRY/osf-kg-server:$VERSION osf-kg-builder/
-        docker push $REGISTRY/osf-kg-server:$VERSION
+        docker build -f osf-kg-builder/web/Dockerfile -t $REGISTRY/osf-v9-web:$VERSION osf-kg-builder/web/
+        docker push $REGISTRY/osf-v9-web:$VERSION
 
     # 2. K8s Deploy via SSH
     - name: Deploy to K8s
@@ -388,18 +491,18 @@ deploy:
 ### 4.3 Deploy Flow (visuell)
 
 ```
-Tag v8.7.0 erstellt
+Tag v8.13.0 erstellt
     |
     v
-CI: lint + test + build + docker + integration
+CI: lint + test + build + docker + schema-validation + integration
     |
     v  (alles gruen)
 CD: deploy (GitHub Environment: production, Approval noetig)
     |
-    +---> Docker Build + Push (4 Images → 192.168.178.150:32000)
-    +---> SSH → deploy-and-test.sh osf
+    +---> Docker Build + Push (3 Images -> 192.168.178.150:32000)
+    +---> SSH -> deploy-and-test.sh osf
     +---> CF Pages Deploy (openshopfloor.zeroguess.ai)
-    +---> SSH → smoke-test.sh (33 Checks)
+    +---> SSH -> smoke-test.sh (33 Checks)
     |
     v
 Release Notes (auto-generiert aus Commits)
@@ -415,13 +518,16 @@ Release Notes (auto-generiert aus Commits)
 192.168.178.150:32000    (K8s-internes Registry)
 ```
 
-| Image | Tag-Pattern | Beispiel |
-|-------|-------------|---------|
-| osf-gateway | `v{version}` | `osf-gateway:v8.7.0` |
-| osf-kg-builder | `v{version}` | `osf-kg-builder:v8.7.0` |
-| osf-kg-server | `v{version}` | `osf-kg-server:v8.7.0` |
-| osf-v9-web | `v{version}` | `osf-v9-web:v8.7.0` |
-| osf-nodered | `v{version}` | `osf-nodered:v8.7.0` |
+| Image | Dockerfile | Beschreibung |
+|-------|-----------|-------------|
+| osf-gateway | `osf-gateway/Dockerfile` | Fastify API Gateway |
+| osf-kg-builder | `osf-kg-builder/Dockerfile.server` | KG Builder + Server (unified) |
+| osf-v9-web | `osf-kg-builder/web/Dockerfile` | KG Web UI (nginx static) |
+| osf-nodered | `osf-gateway/Dockerfile.nodered` | Node-RED Flows |
+
+**Hinweis:** `Dockerfile.builder` ist veraltet. `Dockerfile.server` enthaelt
+Builder + Server in einem Image. KG Server Service (`osf-kg-server`) zeigt
+via Selector auf `app: osf-kg-builder`.
 
 ### 5.2 CI-Tags
 
@@ -429,7 +535,7 @@ Fuer CI Docker-Validierung (nicht gepusht):
 
 ```
 osf-gateway:ci-{sha}
-osf-kg-server:ci-{sha}
+osf-kg-builder:ci-{sha}
 ```
 
 ---
@@ -444,7 +550,7 @@ osf-kg-server:ci-{sha}
 | `CF_API_TOKEN` | Cloudflare Pages Deploy |
 | `CF_ACCOUNT_ID` | Cloudflare Account |
 | `REGISTRY_URL` | `192.168.178.150:32000` |
-| `KG_BUILDER_TOKEN` | Schema-Repo Checkout (fuer Dry-Run) |
+| `SCHEMA_REPO_TOKEN` | osf-schemas Repo Checkout (CI Schema-Validation) |
 
 ### 6.2 GitHub Environments
 
@@ -458,25 +564,6 @@ osf-kg-server:ci-{sha}
 ## 7. Monorepo Change Detection
 
 Nicht jeder Push betrifft alle Komponenten. Die Pipeline nutzt Path-Filter:
-
-```yaml
-on:
-  push:
-    branches: [dev, main]
-  pull_request:
-    branches: [dev, main]
-
-# In jedem Job:
-jobs:
-  gateway:
-    if: contains(github.event.head_commit.modified, 'osf-gateway/') || github.event_name == 'workflow_dispatch'
-  kg-builder:
-    if: contains(github.event.head_commit.modified, 'osf-kg-builder/') || github.event_name == 'workflow_dispatch'
-  frontend:
-    if: contains(github.event.head_commit.modified, 'osf-frontend/') || github.event_name == 'workflow_dispatch'
-```
-
-Besser: `dorny/paths-filter` Action:
 
 ```yaml
 changes:
@@ -557,7 +644,7 @@ CI/CD Pipeline
     +---> Ergebnis zurueck an GitHub (Exit Code)
 ```
 
-**Vorteil:** deploy-and-test.sh enthaelt 1542 Zeilen bewährte Logik
+**Vorteil:** deploy-and-test.sh enthaelt 1542 Zeilen bewaehrte Logik
 (Conflict Detection, Image Digest Verification, Health Probes, 33 Smoke-Tests).
 Diese zu duplizieren waere Fehlerquelle.
 
@@ -587,7 +674,37 @@ CI/CD nutzt `wrangler` direkt fuer reproduzierbare Deploys.
 
 ---
 
-## 11. Migration: Schrittweise Einfuehrung
+## 11. Schema-Repo CI (osf-schemas)
+
+Das osf-schemas Repo bekommt eine eigene Mini-Pipeline:
+
+```yaml
+# .github/workflows/validate.yml (im osf-schemas Repo)
+name: Validate Schemas
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: JSON Syntax Check
+        run: find . -name '*.json' -exec python3 -c "import json,sys; json.load(open(sys.argv[1]))" {} \;
+      - name: Check ${ENV_VAR} References
+        run: |
+          KNOWN_VARS="ERP_DB_HOST ERP_DB_PORT BIGDATA_DB_HOST BIGDATA_DB_PORT QMS_DB_HOST QMS_DB_PORT WMS_DB_HOST WMS_DB_PORT"
+          for var in $(grep -roh '\${[A-Z_]*}' sources/ | sort -u | sed 's/[${}]//g'); do
+            echo "$KNOWN_VARS" | grep -qw "$var" || { echo "UNKNOWN: \${$var}"; exit 1; }
+          done
+          echo "All env var references valid"
+```
+
+**Spaeter (mit i-flow Integration):**
+- Schema-Aenderung -> Webhook an i-flow -> Auto-Rekonfiguration
+- Oder: i-flow pollt das Repo direkt (wie der KG Builder)
+
+---
+
+## 12. Migration: Schrittweise Einfuehrung
 
 Die Pipeline wird inkrementell eingefuehrt, nicht Big-Bang.
 
@@ -602,15 +719,16 @@ Die Pipeline wird inkrementell eingefuehrt, nicht Big-Bang.
 
 **Aufwand:** ~30 Minuten. Kein neuer Workflow noetig, nur ci.yml erweitern.
 
-### Phase 2: Docker Build Validation (Woche 1)
+### Phase 2: Docker Build + Schema Validation (Woche 1)
 
 ```
 Neuer Job in ci.yml:
-  +-- docker build (alle 4 Images)
+  +-- docker build (3 Images: gateway, kg-builder, v9-web)
   +-- Kein Push, nur Build-Test
+  +-- Schema JSON Validation + Cross-Ref Check
 ```
 
-**Aufwand:** ~1 Stunde. Braucht keine Secrets.
+**Aufwand:** ~1 Stunde. Braucht SCHEMA_REPO_TOKEN Secret.
 
 ### Phase 3: Integration Tests (Woche 2)
 
@@ -618,7 +736,7 @@ Neuer Job in ci.yml:
 Neuer Job in ci.yml:
   +-- Neo4j + Postgres Service-Container
   +-- Gateway Health Check
-  +-- KG-Builder Dry-Run
+  +-- KG-Builder Dry-Run mit Schema-Repo
 ```
 
 **Aufwand:** ~2 Stunden. Braucht dry-run.ts Script.
@@ -628,24 +746,25 @@ Neuer Job in ci.yml:
 ```
 Neuer Workflow: deploy.yml
   +-- workflow_dispatch Trigger
-  +-- Docker Push → lokales Registry
-  +-- SSH → deploy-and-test.sh
-  +-- SSH → smoke-test.sh
+  +-- Docker Push -> lokales Registry
+  +-- SSH -> deploy-and-test.sh
+  +-- SSH -> smoke-test.sh
 ```
 
 **Aufwand:** ~3 Stunden. Braucht SSH_KEY + Registry-Zugang.
 
-### Phase 5: Branch-Strategie (Woche 4)
+### Phase 5: Branch-Strategie + Schema-Repo CI (Woche 4)
 
 ```
   +-- dev Branch anlegen
   +-- Protection Rules (require CI pass)
+  +-- osf-schemas: eigene validate.yml Pipeline
   +-- Optional: Auto-Deploy auf .110
 ```
 
 ---
 
-## 12. Kosten & Laufzeit
+## 13. Kosten & Laufzeit
 
 ### GitHub Actions (Free Tier)
 
@@ -663,6 +782,7 @@ Neuer Workflow: deploy.yml
 | test | ~30s | Jeder Push |
 | build | ~45s | Jeder Push |
 | docker | ~90s | Jeder Push |
+| schema-validation | ~10s | Jeder Push |
 | integration | ~60s | Nur dev/main |
 | deploy | ~5min | Manuell / Tag |
 | **Gesamt (CI)** | **~3 Min** | |
@@ -670,17 +790,19 @@ Neuer Workflow: deploy.yml
 
 ---
 
-## 13. Zusammenfassung
+## 14. Zusammenfassung
 
 | Aspekt | Entscheidung |
 |--------|-------------|
 | Versionierung | Monorepo `v8.x.x`, KG-Builder als Modul |
 | Branches | `feature/* -> dev -> main` |
 | CI Runner | GitHub-hosted `ubuntu-latest` |
-| CI Scope | Lint + TypeCheck + Tests + Docker Build + Integration |
+| CI Scope | Lint + TypeCheck + Tests + Docker Build + Schema Validation + Integration |
 | CD Trigger | Manuell (`workflow_dispatch`) oder Tag (`v8.x.x`) |
-| CD Ziel | SSH → deploy-and-test.sh (bewaehrt, 1542 Zeilen) |
+| CD Ziel | SSH -> deploy-and-test.sh (bewaehrt, 1542 Zeilen) |
 | Docker Registry | `192.168.178.150:32000` (lokal) |
+| Docker Images | 3 Images: gateway, kg-builder (unified), v9-web |
+| Schema-Repo | osf-schemas (GitHub), eigene CI, ${ENV_VAR} Substitution |
 | Smoke Tests | Bestehende 33 Checks via SSH |
 | Frontend | Cloudflare Pages via `wrangler` |
 | Path-Filter | `dorny/paths-filter` — nur betroffene Komponenten bauen |
@@ -691,7 +813,7 @@ Neuer Workflow: deploy.yml
 
 ---
 
-## 14. Abhaengigkeiten zwischen Komponenten
+## 15. Abhaengigkeiten zwischen Komponenten
 
 ```
 osf-gateway (v8)
@@ -700,18 +822,27 @@ osf-gateway (v8)
     +--- nutzt ---> Redis
     +--- nutzt ---> LLM Server (llama.cpp)
     +--- nutzt ---> MQTT Broker
-    +--- proxy ---> osf-mcp-proxy ---> osf-kg-server
-    +--- enthaelt -> KG Agent (MQTT → Apache AGE)
+    +--- proxy ---> osf-kg-server (Service -> KG Builder Pod)
     +--- enthaelt -> Governance (Rollen, Tool-Kategorien)
+    +--- enthaelt -> Learning Groups
     |
-osf-kg-builder (v9)
+osf-kg-builder (v9, unified Server + Builder)
     |
-    +--- nutzt ---> Neo4j (eigene Instanz)
-    +--- nutzt ---> PostgreSQL (Factory DB, read-only)
-    +--- nutzt ---> LLM Server (Embedding + Chat)
-    +--- nutzt ---> MQTT Broker (Live Sync)
+    +--- nutzt ---> Neo4j 5.26 (StatefulSet, k8sserv4)
+    +--- nutzt ---> PostgreSQL (ERP/QMS/WMS/BigData, via ClusterIP)
+    +--- nutzt ---> LLM Server (Embedding: nomic-embed-text on .120:5003)
+    +--- nutzt ---> MQTT Broker (Live Sync, 192.168.178.150:31883)
     +--- registriert sich bei ---> osf-gateway (MCP Server)
-    +--- pollt ---> osf-schemas (GitHub)
+    +--- pollt ---> osf-schemas (GitHub, alle 60 Min)
+    +--- Web UI ---> POST /api/kg/build (SSE Build-Trigger)
+    |
+osf-schemas (eigenes Repo)
+    |
+    +--- profiles/     SM Profiles (Ziel-Datenmodell)
+    +--- sources/      PG + OPC-UA Quellen (${ENV_VAR} Connections)
+    +--- sync/         MQTT + Polling Konfiguration
+    +--- gelesen von ---> KG Builder (Git Poll)
+    +--- gelesen von ---> i-flow (geplant, native JSON-Verarbeitung)
     |
 osf-frontend
     |
@@ -719,23 +850,27 @@ osf-frontend
     |
 osf-v9-web
     |
-    +--- ruft auf ---> osf-kg-server API (direkt)
+    +--- ruft auf ---> osf-kg-server:30035 (NodePort -> KG Builder Pod)
 ```
 
-**Kritische Abhaengigkeit:** Gateway → KG-Server (MCP Proxy).
+**Kritische Abhaengigkeit:** Gateway -> KG-Server (MCP Proxy).
 Wenn der KG-Server ein Breaking Change hat, muss der Gateway getestet werden.
 Der Integration-Test-Job deckt das ab.
 
 ---
 
-## 15. Offene Punkte (spaeter)
+## 16. Offene Punkte (spaeter)
 
 | # | Thema | Wann |
 |---|-------|------|
-| 1 | KG-Builder Unit Tests schreiben | Nach Phase 3 |
+| 1 | KG-Builder Unit Tests schreiben (schema-loader, cypher-utils) | Nach Phase 3 |
 | 2 | E2E Tests (Playwright/Cypress fuer Frontend) | Optional |
 | 3 | Dependabot / Renovate fuer Dependency-Updates | Nach Phase 5 |
 | 4 | Container Security Scanning (Trivy) | Nach Phase 4 |
-| 5 | Performance Tests (KG Build Benchmark) | Optional |
+| 5 | Performance Tests (KG Build Benchmark: Full-Build < 30 Min) | Optional |
 | 6 | Test-KG-Server auf .110 aufsetzen | Parallel zu Phase 5 |
 | 7 | Canary Deployments (2-Replica Gateway) | Optional |
+| 8 | i-flow Integration: Schema-Webhook oder Git-Poll | Nach i-flow Beta |
+| 9 | LLM Discovery Agent: Auto-Generierung von Source-JSONs | Nach i-flow |
+| 10 | docker-compose.yml fuer Standalone-Deployment (Produkt) | Roadmap |
+| 11 | Neo4j Tuning als Teil der Deploy-Config (Heap/Pagecache/CPU) | Done (9.1.0) |
