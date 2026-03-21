@@ -104,6 +104,7 @@ export interface BulkEdge {
   edgeLabel: string;
   toLabel: string;
   toId: string;
+  props?: Record<string, any>;
 }
 
 /**
@@ -156,11 +157,11 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
 
   // Group by (fromLabel, edgeLabel, toLabel)
   const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabel}`;
-  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabel: string; pairs: Array<{ fromId: string; toId: string }> }>();
+  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabel: string; pairs: Array<{ fromId: string; toId: string; props?: Record<string, any> }> }>();
   for (const e of edges) {
     const k = key(e);
     if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabel: e.toLabel, pairs: [] });
-    byType.get(k)!.pairs.push({ fromId: e.fromId, toId: e.toId });
+    byType.get(k)!.pairs.push({ fromId: e.fromId, toId: e.toId, ...(e.props ? { props: e.props } : {}) });
   }
 
   const session = getDriver().session({ database: config.neo4j.database });
@@ -173,13 +174,20 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
       validateLabel(edgeLabel);
       validateLabel(toLabel);
       try {
+        const hasProps = pairs.some(p => p.props);
         await session.executeWrite(async (tx) => {
           await tx.run(
-            `UNWIND $batch AS row
-             MATCH (a:${fromLabel} {id: row.fromId})
-             MATCH (b:${toLabel} {id: row.toId})
-             MERGE (a)-[:${edgeLabel}]->(b)`,
-            { batch: pairs },
+            hasProps
+              ? `UNWIND $batch AS row
+                 MATCH (a:${fromLabel} {id: row.fromId})
+                 MATCH (b:${toLabel} {id: row.toId})
+                 MERGE (a)-[r:${edgeLabel}]->(b)
+                 SET r += row.props`
+              : `UNWIND $batch AS row
+                 MATCH (a:${fromLabel} {id: row.fromId})
+                 MATCH (b:${toLabel} {id: row.toId})
+                 MERGE (a)-[:${edgeLabel}]->(b)`,
+            { batch: pairs.map(p => ({ fromId: p.fromId, toId: p.toId, props: p.props || {} })) },
           );
         });
         success += pairs.length;

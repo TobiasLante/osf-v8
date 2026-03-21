@@ -20,6 +20,7 @@ export function loadAllSources(basePath: string): SourceSchema[] {
       if (filePath.includes('/opcua/')) s.sourceType = 'opcua';
       else if (filePath.includes('/postgresql/')) s.sourceType = 'postgresql';
       else if (filePath.includes('/rest/')) s.sourceType = 'rest';
+      else if (filePath.includes('/mcp/')) s.sourceType = 'mcp';
     }
     // Accept mappingId as fallback for sourceId
     if (!s.sourceId && s.mappingId) s.sourceId = s.mappingId;

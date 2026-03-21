@@ -70,12 +70,47 @@ async function main() {
     }
   };
 
-  schemaSync.onUpdate = rebuildFromSchemas;
+  // Build mutex to prevent concurrent builds
+  let buildInProgress = false;
+  const safeBuild = async (reason: string) => {
+    if (buildInProgress) {
+      logger.info({ reason }, 'Build already in progress, skipping');
+      return;
+    }
+    buildInProgress = true;
+    try {
+      logger.info({ reason }, 'Starting KG build...');
+      await rebuildFromSchemas();
+    } finally {
+      buildInProgress = false;
+    }
+  };
+
+  schemaSync.onUpdate = () => safeBuild('schema-change');
   setSchemaSync(schemaSync);
 
   schemaSync.start()
-    .then(() => rebuildFromSchemas())
+    .then(() => safeBuild('initial'))
     .catch(e => logger.warn({ err: e.message }, 'Schema sync start failed (schemas not available)'));
+
+  // Scheduled builds (e.g., 09:00 + 19:00)
+  const scheduleHours = config.buildScheduleHours;
+  if (scheduleHours.length > 0) {
+    logger.info({ scheduleHours }, 'Build schedule configured');
+    let lastTriggeredHour = -1;
+    setInterval(() => {
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      if (scheduleHours.includes(hour) && minute === 0 && lastTriggeredHour !== hour) {
+        lastTriggeredHour = hour;
+        safeBuild(`scheduled-${hour}:00`);
+      }
+      if (!scheduleHours.includes(hour)) {
+        lastTriggeredHour = -1;
+      }
+    }, 30_000); // Check every 30s
+  }
 
   // Express app
   const app = express();

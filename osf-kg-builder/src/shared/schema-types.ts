@@ -36,7 +36,7 @@ export interface SMProfileRelationship {
 export interface SourceSchema {
   sourceId: string;
   version: string;
-  sourceType: 'opcua' | 'postgresql' | 'rest';
+  sourceType: 'opcua' | 'postgresql' | 'rest' | 'mcp';
   profileRef: string;
   // OPC-UA specific
   endpoint?: string;
@@ -50,6 +50,10 @@ export interface SourceSchema {
   columnMappings?: ColumnMapping[];
   filter?: string | null;
   edges?: EdgeMapping[];
+  // MCP specific
+  mcpTool?: string;
+  mcpEndpoint?: string;
+  idProperty?: string;
 }
 
 export interface PostgresConnection {
@@ -143,7 +147,7 @@ export interface UnsAttributeMapping {
 
 export interface SchemaBuildReport {
   profiles: number;
-  sources: { opcua: number; postgresql: number; rest: number };
+  sources: { opcua: number; postgresql: number; rest: number; mcp: number };
   syncs: { mqtt: number; polling: number };
   constraintsCreated: number;
   nodesMerged: number;

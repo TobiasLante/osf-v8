@@ -3,8 +3,13 @@ import { Pool } from 'pg';
 import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
 import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel, BulkNode, BulkEdge, executeBulkNodes, executeBulkEdges, cypherQuery } from '../shared/cypher-utils';
 import { generateEmbeddings, nodeToText } from '../shared/embedding-service';
+import { sampleMcpTool } from './tool-discovery';
 import { logger } from '../shared/logger';
 import { config } from '../shared/config';
+
+// ── Run timestamp for _lastSeen tracking ───────────────────────
+let currentRunTimestamp = '';
+const builtLabels = new Set<string>();
 
 // ── Validation helpers ───────────────────────────────────────────
 function isValidIdentifier(name: string): boolean {
@@ -339,7 +344,9 @@ async function loadPgSource(
         }
       }
 
+      if (currentRunTimestamp) props._lastSeen = currentRunTimestamp;
       nodes.push({ label: profile.kgNodeLabel, id, props });
+      builtLabels.add(profile.kgNodeLabel);
 
       if (src.edges) {
         for (const edge of src.edges) {
@@ -733,6 +740,135 @@ export async function startPgNotifySync(
 
 // ── Full Schema Build Pipeline ──────────────────────────────────
 
+// ── Phase 2c: Instance Nodes from MCP Tools ─────────────────────
+
+export async function buildInstancesFromMcp(
+  sources: SourceSchema[],
+  profiles: SMProfile[],
+  authToken?: string,
+): Promise<{ nodesMerged: number; edgesCreated: number }> {
+  const profileMap = new Map(profiles.map(p => [p.profileId, p]));
+  const mcpSources = sources.filter(s => s.sourceType === 'mcp' && s.mcpTool && profileMap.has(s.profileRef));
+
+  if (mcpSources.length === 0) return { nodesMerged: 0, edgesCreated: 0 };
+
+  let totalNodes = 0;
+  let totalEdges = 0;
+  const allEdges: BulkEdge[] = [];
+
+  for (const src of mcpSources) {
+    const profile = profileMap.get(src.profileRef)!;
+    const toolName = src.mcpTool!;
+    const idProp = src.idProperty || profile.kgIdProperty;
+
+    try {
+      const rawData = await sampleMcpTool(toolName, {}, authToken);
+      if (rawData.startsWith('ERROR:')) {
+        logger.warn({ tool: toolName, err: rawData }, '[SchemaBuild] MCP tool returned error');
+        continue;
+      }
+
+      let rows: any[];
+      try {
+        const parsed = JSON.parse(rawData);
+        rows = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        logger.warn({ tool: toolName }, '[SchemaBuild] MCP tool response not valid JSON');
+        continue;
+      }
+
+      const nodes: BulkNode[] = [];
+      const seen = new Set<string>();
+
+      for (const row of rows) {
+        const id = String(row[idProp] || '');
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+
+        const props: Record<string, any> = {};
+        if (src.columnMappings) {
+          for (const cm of src.columnMappings) {
+            const val = row[cm.column];
+            if (val !== null && val !== undefined) props[cm.smAttribute] = val;
+          }
+        } else {
+          // No column mappings — use all fields from the row
+          for (const [k, v] of Object.entries(row)) {
+            if (v !== null && v !== undefined) props[k] = v;
+          }
+        }
+
+        if (currentRunTimestamp) props._lastSeen = currentRunTimestamp;
+        nodes.push({ label: profile.kgNodeLabel, id, props });
+        builtLabels.add(profile.kgNodeLabel);
+
+        if (src.edges) {
+          for (const edge of src.edges) {
+            const fkValue = row[edge.fkColumn];
+            if (!fkValue) continue;
+            allEdges.push({
+              fromLabel: profile.kgNodeLabel, fromId: id,
+              edgeLabel: edge.type,
+              toLabel: edge.targetLabel,
+              toId: String(fkValue),
+              props: currentRunTimestamp ? { _lastSeen: currentRunTimestamp } : undefined,
+            });
+          }
+        }
+      }
+
+      const nodeResult = await executeBulkNodes(nodes, (done, total) => {
+        if (done % 2000 === 0 || done === total) {
+          logger.info({ sourceId: src.sourceId, done, total }, '[SchemaBuild] MCP bulk merging nodes...');
+        }
+      });
+
+      totalNodes += nodeResult.success;
+      logger.info({ sourceId: src.sourceId, tool: toolName, nodes: nodeResult.success }, '[SchemaBuild] MCP nodes loaded');
+    } catch (err) {
+      logger.error({ sourceId: src.sourceId, tool: toolName, err: (err as Error).message }, '[SchemaBuild] MCP source failed');
+    }
+  }
+
+  // Pass 2: Create edges
+  if (allEdges.length > 0) {
+    logger.info({ edgeCount: allEdges.length }, '[SchemaBuild] Creating MCP edges (UNWIND)...');
+    const edgeResult = await executeBulkEdges(allEdges);
+    totalEdges = edgeResult.success;
+    logger.info({ success: edgeResult.success, failed: edgeResult.failed }, '[SchemaBuild] MCP edges created');
+  }
+
+  return { nodesMerged: totalNodes, edgesCreated: totalEdges };
+}
+
+// ── Tombstone Sweep ─────────────────────────────────────────────
+
+async function tombstoneSweep(runTimestamp: string, labels: Set<string>): Promise<number> {
+  if (labels.size === 0) return 0;
+
+  let totalDeleted = 0;
+  for (const label of labels) {
+    try {
+      validateLabel(label);
+      const result = await cypherQuery(
+        `MATCH (n:${label}) WHERE n._lastSeen IS NOT NULL AND n._lastSeen < $ts DETACH DELETE n RETURN count(n) AS deleted`,
+        { ts: runTimestamp },
+      );
+      const deleted = result[0]?.deleted || 0;
+      if (deleted > 0) {
+        logger.info({ label, deleted }, '[SchemaBuild] Tombstone sweep — removed stale nodes');
+        totalDeleted += deleted;
+      }
+    } catch (err) {
+      logger.warn({ label, err: (err as Error).message }, '[SchemaBuild] Tombstone sweep failed for label');
+    }
+  }
+
+  return totalDeleted;
+}
+
+// ── Main Build Orchestrator ─────────────────────────────────────
+
 export async function buildFromSchemas(
   profiles: SMProfile[],
   sources: SourceSchema[],
@@ -741,8 +877,13 @@ export async function buildFromSchemas(
   const start = Date.now();
   const errors: string[] = [];
 
+  // Set run timestamp for _lastSeen tracking
+  currentRunTimestamp = new Date().toISOString();
+  builtLabels.clear();
+
   const opcuaSources = sources.filter(s => s.sourceType === 'opcua');
   const pgSources = sources.filter(s => s.sourceType === 'postgresql');
+  const mcpSources = sources.filter(s => s.sourceType === 'mcp');
   const mqttSyncs = syncs.filter(s => s.syncType === 'mqtt');
   const pollSyncs = syncs.filter(s => s.syncType === 'polling');
 
@@ -750,6 +891,7 @@ export async function buildFromSchemas(
     profiles: profiles.length,
     opcua: opcuaSources.length,
     postgresql: pgSources.length,
+    mcp: mcpSources.length,
     mqtt: mqttSyncs.length,
     polling: pollSyncs.length,
   }, '[SchemaBuild] Starting schema-driven KG build...');
@@ -782,6 +924,15 @@ export async function buildFromSchemas(
     errors.push(`Phase 2b (PG Instances): ${(err as Error).message}`);
   }
 
+  // Phase 2c: MCP Instance Nodes
+  try {
+    const result = await buildInstancesFromMcp(mcpSources, profiles, config.mcpAuthToken || undefined);
+    nodesMerged += result.nodesMerged;
+    edgesCreated += result.edgesCreated;
+  } catch (err) {
+    errors.push(`Phase 2c (MCP Instances): ${(err as Error).message}`);
+  }
+
   // Phase 3a: Live MQTT Subscriptions
   let mqttSubscriptions = 0;
   try {
@@ -807,18 +958,14 @@ export async function buildFromSchemas(
     errors.push(`Phase 3c (PG Notify): ${(err as Error).message}`);
   }
 
-  // Phase 4: Cleanup stale nodes (BDEEvent, ProcessData from old MQTT bridge)
+  // Phase 4: Tombstone sweep — remove nodes not touched in this run
   try {
-    const staleLabels = ['BDEEvent', 'ProcessData'];
-    for (const label of staleLabels) {
-      const result = await cypherQuery(`MATCH (n:${label}) DETACH DELETE n RETURN count(n) AS deleted`);
-      const deleted = result[0]?.deleted || 0;
-      if (deleted > 0) {
-        logger.info({ label, deleted }, '[SchemaBuild] Cleaned up stale nodes');
-      }
+    const swept = await tombstoneSweep(currentRunTimestamp, builtLabels);
+    if (swept > 0) {
+      logger.info({ swept, labels: [...builtLabels] }, '[SchemaBuild] Tombstone sweep complete');
     }
   } catch (err) {
-    errors.push(`Phase 4 (Cleanup): ${(err as Error).message}`);
+    errors.push(`Phase 4 (Tombstone): ${(err as Error).message}`);
   }
 
   // Phase 5: Generate embeddings for all nodes
@@ -885,7 +1032,7 @@ export async function buildFromSchemas(
 
   const report: SchemaBuildReport = {
     profiles: profiles.length,
-    sources: { opcua: opcuaSources.length, postgresql: pgSources.length, rest: 0 },
+    sources: { opcua: opcuaSources.length, postgresql: pgSources.length, rest: 0, mcp: mcpSources.length },
     syncs: { mqtt: mqttSubscriptions, polling: pollingJobs },
     constraintsCreated,
     nodesMerged,
