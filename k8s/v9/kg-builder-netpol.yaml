@@ -1,0 +1,68 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kg-builder-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-kg-builder
+  policyTypes:
+    - Egress
+  egress:
+    # Neo4j (cluster-internal)
+    - ports:
+        - port: 7687
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-neo4j
+    # Historian MCP (cluster-internal)
+    - ports:
+        - port: 8030
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: historian
+    # Factory MCP (factory namespace)
+    - ports:
+        - port: 8020
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+    # PostgreSQL NodePorts on k8sserv4 (192.168.178.150)
+    - ports:
+        - port: 30431
+          protocol: TCP
+        - port: 30432
+          protocol: TCP
+        - port: 30433
+          protocol: TCP
+        - port: 30435
+          protocol: TCP
+        - port: 30436
+          protocol: TCP
+        - port: 30437
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.150/32
+    # LLM + Embedding servers (192.168.178.120)
+    - ports:
+        - port: 5001
+          protocol: TCP
+        - port: 5003
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.120/32
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
