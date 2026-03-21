@@ -114,6 +114,27 @@ export const KG_TOOLS: KgToolDef[] = [
       required: ['label'],
     },
   },
+  {
+    name: 'kg_query',
+    description: 'Run a read-only Cypher query against the Knowledge Graph. Use for custom queries not covered by other tools.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cypher: { type: 'string', description: 'Cypher query (read-only, no CREATE/DELETE/SET/MERGE)' },
+        params: { type: 'object', description: 'Query parameters (optional)' },
+      },
+      required: ['cypher'],
+    },
+  },
+  {
+    name: 'kg_stats',
+    description: 'Quick summary of the Knowledge Graph: total nodes, edges, top labels, top relationship types',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // ── Domain-Specific Tools (loaded from template) ──────────────────
@@ -185,6 +206,10 @@ export async function executeTool(name: string, args: Record<string, any>): Prom
       return executeSubgraph(args.node_id, args.radius);
     case 'kg_filter':
       return executeFilter(args.label, args.conditions, args.limit);
+    case 'kg_query':
+      return executeQuery(args.cypher, args.params);
+    case 'kg_stats':
+      return executeStats();
     default:
       // Fallback: try domain-specific tools
       if (domainToolCyphers.has(name)) {
@@ -286,6 +311,29 @@ async function executeSubgraph(nodeId: string, radius?: number): Promise<any> {
 
   if (rows.length === 0) return { center: nodeId, nodes: [], edges: [] };
   return rows[0];
+}
+
+async function executeQuery(cypher: string, params?: Record<string, any>): Promise<any> {
+  // Block write operations
+  if (/\b(DELETE|REMOVE|CREATE|DROP|SET|MERGE|DETACH|FOREACH|CALL\s*\{)\b/i.test(cypher)) {
+    return { error: 'Write operations are not allowed. Use read-only Cypher.' };
+  }
+  const rows = await cypherQuery(cypher, params || {});
+  return { cypher, results: rows.slice(0, 100), count: rows.length };
+}
+
+async function executeStats(): Promise<any> {
+  const nodeCount = await cypherQuery('MATCH (n) RETURN count(n) AS total');
+  const edgeCount = await cypherQuery('MATCH ()-[r]->() RETURN count(r) AS total');
+  const topLabels = await cypherQuery('MATCH (n) RETURN labels(n)[0] AS label, count(*) AS cnt ORDER BY cnt DESC LIMIT 10');
+  const topRels = await cypherQuery('MATCH ()-[r]->() RETURN type(r) AS type, count(*) AS cnt ORDER BY cnt DESC LIMIT 10');
+
+  return {
+    totalNodes: nodeCount[0]?.total || 0,
+    totalEdges: edgeCount[0]?.total || 0,
+    topLabels,
+    topRelationships: topRels,
+  };
 }
 
 async function executeFilter(label: string, conditions?: Record<string, any>, limit?: number): Promise<any> {
