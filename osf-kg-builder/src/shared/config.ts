@@ -38,7 +38,7 @@ export const config = {
     password: required('NEO4J_PASSWORD'),
     database: str('NEO4J_DATABASE', 'neo4j'),
   },
-  batchSize: int('BATCH_SIZE', 200),
+  batchSize: int('BATCH_SIZE', 1000),
   chunkSize: int('CHUNK_SIZE', 500),
   smProfileUrl: process.env.SM_PROFILE_URL || '',
   domain: str('DOMAIN', 'manufacturing'),

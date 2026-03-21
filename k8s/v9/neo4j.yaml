@@ -18,6 +18,8 @@ spec:
         app: osf-neo4j
         version: "8.8"
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8sserv4
       initContainers:
         - name: set-auth
           image: busybox:1.36
@@ -49,9 +51,9 @@ spec:
             - name: NEO4J_PLUGINS
               value: '["apoc"]'
             - name: NEO4J_server_memory_heap_max__size
-              value: "1G"
+              value: "2G"
             - name: NEO4J_server_memory_pagecache_size
-              value: "512M"
+              value: "1G"
             - name: NEO4J_server_default__listen__address
               value: "0.0.0.0"
           volumeMounts:
@@ -62,11 +64,11 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 200m
-              memory: 1Gi
-            limits:
-              cpu: "2"
+              cpu: 500m
               memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
           livenessProbe:
             httpGet:
               path: /
@@ -88,14 +90,10 @@ spec:
                 path: NEO4J_PASSWORD
         - name: auth
           emptyDir: {}
-  volumeClaimTemplates:
-    - metadata:
-        name: neo4j-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 10Gi
+        - name: neo4j-data
+          hostPath:
+            path: /mnt/neo4j
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

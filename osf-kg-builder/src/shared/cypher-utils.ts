@@ -100,23 +100,31 @@ export async function batchCypher(queries: string[]): Promise<{ success: number;
   let failed = 0;
 
   try {
-    for (const cypher of queries) {
-      for (let attempt = 0; attempt < 3; attempt++) {
+    // Run all queries in a single write transaction (1 roundtrip instead of N)
+    await session.executeWrite(async (tx) => {
+      for (const cypher of queries) {
         try {
-          await session.run(cypher);
+          await tx.run(cypher);
           success++;
-          break;
         } catch (e: any) {
-          if (attempt < 2 && (e.code === 'Neo.TransientError.Transaction.DeadlockDetected' || e.message?.includes('concurrent'))) {
-            await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
-            continue;
-          }
           failed++;
           if (failed <= 5) {
             logger.warn({ err: e.message?.substring(0, 100) }, 'Cypher failed');
           }
-          break;
         }
+      }
+    });
+  } catch (e: any) {
+    // Transaction-level failure — fall back to individual execution
+    logger.warn({ err: e.message?.substring(0, 100), batchSize: queries.length }, 'Batch tx failed, falling back');
+    success = 0;
+    failed = 0;
+    for (const cypher of queries) {
+      try {
+        await session.run(cypher);
+        success++;
+      } catch {
+        failed++;
       }
     }
   } finally {
