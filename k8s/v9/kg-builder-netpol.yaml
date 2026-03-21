@@ -34,23 +34,19 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: factory
-    # PostgreSQL NodePorts on k8sserv4 (192.168.178.150)
+    # PostgreSQL ClusterIP services (cross-namespace)
     - ports:
-        - port: 30431
+        - port: 5432
           protocol: TCP
-        - port: 30432
-          protocol: TCP
-        - port: 30433
-          protocol: TCP
-        - port: 30435
-          protocol: TCP
-        - port: 30436
-          protocol: TCP
-        - port: 30437
+        - port: 5433
           protocol: TCP
       to:
-        - ipBlock:
-            cidr: 192.168.178.150/32
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bigdata
     # LLM + Embedding servers (192.168.178.120)
     - ports:
         - port: 5001
