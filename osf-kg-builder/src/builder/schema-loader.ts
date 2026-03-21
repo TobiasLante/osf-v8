@@ -12,7 +12,19 @@ export function loadAllProfiles(basePath: string): SMProfile[] {
 
 export function loadAllSources(basePath: string): SourceSchema[] {
   const sourceDir = join(basePath, 'sources');
-  return loadJsonDirRecursive<SourceSchema>(sourceDir);
+  const raw = loadJsonDirWithPaths(sourceDir);
+  return raw.map(({ data, filePath }) => {
+    const s = data as any;
+    // Infer sourceType from directory name if missing
+    if (!s.sourceType) {
+      if (filePath.includes('/opcua/')) s.sourceType = 'opcua';
+      else if (filePath.includes('/postgresql/')) s.sourceType = 'postgresql';
+      else if (filePath.includes('/rest/')) s.sourceType = 'rest';
+    }
+    // Accept mappingId as fallback for sourceId
+    if (!s.sourceId && s.mappingId) s.sourceId = s.mappingId;
+    return s as SourceSchema;
+  });
 }
 
 export function loadAllSyncs(basePath: string): SyncSchema[] {
@@ -33,7 +45,11 @@ export function loadAllUnsMappings(basePath: string): SyncSchema[] {
  * Recursively load all .json files from a directory and its subdirectories.
  */
 function loadJsonDirRecursive<T>(dirPath: string): T[] {
-  const results: T[] = [];
+  return loadJsonDirWithPaths(dirPath).map(({ data }) => data as T);
+}
+
+function loadJsonDirWithPaths(dirPath: string): Array<{ data: unknown; filePath: string }> {
+  const results: Array<{ data: unknown; filePath: string }> = [];
   if (!existsSync(dirPath)) {
     logger.warn({ dirPath }, '[SchemaLoader] Directory not found');
     return results;
@@ -43,11 +59,11 @@ function loadJsonDirRecursive<T>(dirPath: string): T[] {
   for (const entry of entries) {
     const fullPath = join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      results.push(...loadJsonDirRecursive<T>(fullPath));
+      results.push(...loadJsonDirWithPaths(fullPath));
     } else if (entry.name.endsWith('.json')) {
       try {
         const raw = readFileSync(fullPath, 'utf-8');
-        results.push(JSON.parse(raw) as T);
+        results.push({ data: JSON.parse(raw), filePath: fullPath });
       } catch (err) {
         logger.warn({ file: fullPath, err: (err as Error).message }, '[SchemaLoader] Failed to parse JSON');
       }
