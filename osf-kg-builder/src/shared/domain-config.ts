@@ -8,8 +8,8 @@ import { NodeTypeSpec, EdgeTypeSpec } from './types';
 // ── Built-in Presets ───────────────────────────────────────────────
 
 export const DOMAIN_PRESETS: Record<string, DomainConfig> = {
-  manufacturing: {
-    domain: 'manufacturing',
+  discrete: {
+    domain: 'discrete',
     displayName: 'Discrete Manufacturing',
     systemPromptContext: 'discrete manufacturing (ISA-95, CESMII Smart Manufacturing Profiles)',
     ontologyHint: 'ISA-95 equipment hierarchy (Enterprise → Site → Area → WorkCenter → WorkUnit)',
@@ -117,20 +117,13 @@ export const DOMAIN_PRESETS: Record<string, DomainConfig> = {
   },
 };
 
-// "discrete" is an alias for "manufacturing" — same config, template file named discrete.json
-DOMAIN_PRESETS.discrete = DOMAIN_PRESETS.manufacturing;
-
 // ── Load Domain Config ─────────────────────────────────────────────
 
-// Domain aliases — map alternative names to canonical preset keys
-const DOMAIN_ALIASES: Record<string, string> = {};
-
 export function loadDomainConfig(): DomainConfig {
-  const rawDomain = process.env.DOMAIN || 'manufacturing';
-  const domain = DOMAIN_ALIASES[rawDomain] || rawDomain;
+  const domain = process.env.DOMAIN || 'discrete';
 
   if (DOMAIN_PRESETS[domain]) {
-    logger.info({ domain, rawDomain }, 'Loaded domain preset');
+    logger.info({ domain }, 'Loaded domain preset');
     return DOMAIN_PRESETS[domain];
   }
 
@@ -147,8 +140,8 @@ export function loadDomainConfig(): DomainConfig {
     }
   }
 
-  logger.warn({ domain: rawDomain }, 'Unknown domain preset and no DOMAIN_CONFIG_PATH — falling back to manufacturing');
-  return DOMAIN_PRESETS.manufacturing;
+  logger.warn({ domain }, 'Unknown domain preset and no DOMAIN_CONFIG_PATH — falling back to discrete');
+  return DOMAIN_PRESETS.discrete;
 }
 
 // ── Domain → Schema Hint ───────────────────────────────────────────
@@ -187,14 +180,9 @@ export function domainToSchemaHint(domain: DomainConfig): string {
 const TEMPLATES_DIR = join(__dirname, '../../templates');
 
 export function loadSchemaTemplate(domain: string): SchemaTemplate | null {
-  // Resolve aliases so both "discrete" and "manufacturing" find the same template
-  const resolved = DOMAIN_ALIASES[domain] || domain;
-
   // Search order: schema repo (synced from GitHub) → bundled templates
   const candidates = [
-    join(appConfig.schemaRepo.localPath, 'templates', `${resolved}.json`),
     join(appConfig.schemaRepo.localPath, 'templates', `${domain}.json`),
-    join(TEMPLATES_DIR, `${resolved}.json`),
     join(TEMPLATES_DIR, `${domain}.json`),
   ];
 
@@ -210,7 +198,7 @@ export function loadSchemaTemplate(domain: string): SchemaTemplate | null {
     }
   }
 
-  logger.info({ domain, resolved, candidates }, 'No schema template found in any location');
+  logger.info({ domain, candidates }, 'No schema template found in any location');
   return null;
 }
 
