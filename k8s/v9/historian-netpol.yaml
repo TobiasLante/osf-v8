@@ -1,4 +1,7 @@
-## Historian — Network Policies (egress to PG + MQTT, ingress from Gateway)
+# Historian — Network Policies
+# Egress: PG (bigdata) + MQTT (demo)
+# Ingress: Gateway + KG Builder
+# Last updated: 2026-03-21
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -12,25 +15,24 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # PG Factory (bigdata namespace)
-    - to:
+    # PG BigData (bigdata namespace, port 5433)
+    - ports:
+        - port: 5433
+          protocol: TCP
+      to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: bigdata
-      ports:
-        - port: 5433
+    # MQTT Broker (demo namespace, port 1883)
+    - ports:
+        - port: 1883
           protocol: TCP
-    # MQTT Broker (demo namespace)
-    - to:
+      to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: demo
-      ports:
-        - port: 1883
-          protocol: TCP
     # DNS
-    - to: []
-      ports:
+    - ports:
         - port: 53
           protocol: UDP
         - port: 53
@@ -48,14 +50,13 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Gateway + KG Server can reach Historian MCP
     - from:
         - podSelector:
             matchLabels:
               app: osf-gateway
         - podSelector:
             matchLabels:
-              app: osf-kg-server
+              app: osf-kg-builder
       ports:
         - port: 8030
           protocol: TCP

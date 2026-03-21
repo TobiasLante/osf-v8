@@ -1,95 +1,258 @@
-# OSF v8 — Network Policies
-# Restrict inter-pod and egress traffic to minimum required
+# OSF v8 — Network Policies (osf namespace)
+# Authoritative source — apply with: kubectl apply -f k8s/osf-network-policies.yaml
+# Last updated: 2026-03-21
+#
+# Naming convention: {app}-{ingress|egress}
+# All pods denied by default (default-deny-all), explicit allow required.
+# DNS allowed globally (allow-dns).
+
 ---
-# Default deny all ingress in osf namespace
+# ══════════════════════════════════════════════════════════════════
+# BASE: Default deny + DNS
+# ══════════════════════════════════════════════════════════════════
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: default-deny-ingress
+  name: default-deny-all
   namespace: osf
 spec:
   podSelector: {}
   policyTypes:
-  - Ingress
+    - Ingress
+    - Egress
 
 ---
-# Gateway: allow ingress from cloudflared tunnel and frontend pods
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-gateway-ingress
+  name: allow-dns
+  namespace: osf
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# ══════════════════════════════════════════════════════════════════
+# GATEWAY (app: osf-gateway, port 8012)
+# ══════════════════════════════════════════════════════════════════
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-gateway-ingress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
       app: osf-gateway
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - ports:
-    - port: 8012
-      protocol: TCP
+    # Open on port 8012 (Cloudflare tunnel, frontend, NodePort)
+    - ports:
+        - port: 8012
+          protocol: TCP
 
 ---
-# Redis: only allow ingress from gateway
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-redis-from-gateway
+  name: osf-gateway-egress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
-      app: osf-redis
+      app: osf-gateway
   policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: osf-gateway
-    ports:
-    - port: 6379
-      protocol: TCP
+    - Egress
+  egress:
+    # OSF PostgreSQL (osf DB)
+    - ports:
+        - port: 5432
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-postgres-new
+    # Redis
+    - ports:
+        - port: 6379
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-redis
+    # Node-RED
+    - ports:
+        - port: 1880
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-nodered
+    # Chat-UI (reverse proxy)
+    - ports:
+        - port: 8080
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-chat-ui
+    # KG Builder / MCP Server (kg_* tools)
+    - ports:
+        - port: 8035
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-kg-builder
+    # Historian MCP
+    - ports:
+        - port: 8030
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: historian
+    # Factory MCP (factory namespace, ports 8020 + 8888-8891)
+    - ports:
+        - port: 8020
+          protocol: TCP
+        - port: 8888
+          protocol: TCP
+        - port: 8889
+          protocol: TCP
+        - port: 8890
+          protocol: TCP
+        - port: 8891
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+    # Demo namespace MCP servers (8020-8024, k8s-sentinel 8888, MQTT 1883)
+    - ports:
+        - port: 8020
+          protocol: TCP
+        - port: 8021
+          protocol: TCP
+        - port: 8022
+          protocol: TCP
+        - port: 8023
+          protocol: TCP
+        - port: 8024
+          protocol: TCP
+        - port: 8888
+          protocol: TCP
+        - port: 1883
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: demo
+    # Demo namespace Dify + misc (3000, 8080)
+    - ports:
+        - port: 3000
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: demo
+    # LLM servers on .120 (Qwen2.5-32B:5001, Qwen2.5-14B:5002)
+    - ports:
+        - port: 5001
+          protocol: TCP
+        - port: 5002
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.120/32
+    # K8s API (ClusterIP)
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 10.152.183.1/32
+    # K8s API (NodePort, for service discovery)
+    - ports:
+        - port: 16443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.0/24
+    # External HTTPS (Cloudflare, GitHub, etc.)
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+    # Cloudflare IPs (for tunnel)
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 104.16.0.0/12
+        - ipBlock:
+            cidr: 172.64.0.0/13
+        - ipBlock:
+            cidr: 1.1.1.1/32
+        - ipBlock:
+            cidr: 160.79.104.0/24
+    # Cross-namespace PG (ERP, QMS, WMS, OEE in default; BigData in bigdata)
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 5433
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bigdata
 
 ---
-# Frontend: allow ingress on port 3000
+# ══════════════════════════════════════════════════════════════════
+# FRONTEND (app: osf-frontend, port 80/3000)
+# ══════════════════════════════════════════════════════════════════
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-frontend-ingress
+  name: osf-frontend-ingress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
       app: osf-frontend
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - ports:
-    - port: 3000
-      protocol: TCP
+    - ports:
+        - port: 80
+          protocol: TCP
+        - port: 3000
+          protocol: TCP
 
 ---
-# Chat-UI: allow ingress on port 8080
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-chat-ui-ingress
-  namespace: osf
-spec:
-  podSelector:
-    matchLabels:
-      app: osf-chat-ui
-  policyTypes:
-  - Ingress
-  ingress:
-  - ports:
-    - port: 8080
-      protocol: TCP
-
----
-# Frontend egress: DNS + gateway + chat-ui
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -100,127 +263,181 @@ spec:
     matchLabels:
       app: osf-frontend
   policyTypes:
-  - Egress
+    - Egress
   egress:
-  - ports:
-    - port: 53
-      protocol: UDP
-    - port: 53
-      protocol: TCP
-  - to:
-    - podSelector:
-        matchLabels:
-          app: osf-gateway
-    ports:
-    - port: 8012
-      protocol: TCP
-  - to:
-    - podSelector:
-        matchLabels:
-          app: osf-chat-ui
-    ports:
-    - port: 8080
-      protocol: TCP
+    - ports:
+        - port: 8012
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+    - ports:
+        - port: 8080
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-chat-ui
 
 ---
-# NR pods: only allow ingress from gateway
+# ══════════════════════════════════════════════════════════════════
+# CHAT-UI (app: osf-chat-ui, port 8080)
+# ══════════════════════════════════════════════════════════════════
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-nr-from-gateway
+  name: osf-chat-ui-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-chat-ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-chat-ui-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-chat-ui
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 8012
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+
+---
+# ══════════════════════════════════════════════════════════════════
+# NODE-RED (app: osf-nodered, port 1880)
+# ══════════════════════════════════════════════════════════════════
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-nodered-ingress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
       app: osf-nodered
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: osf-gateway
-    ports:
-    - port: 1880
-      protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+      ports:
+        - port: 1880
+          protocol: TCP
 
 ---
-# Historian: allow ingress from gateway, kg-agent, uns-stream, kg-builder, mcp-proxy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-historian-ingress
+  name: osf-nodered-egress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
-      app: historian
+      app: osf-nodered
   policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: osf-gateway
-    - podSelector:
-        matchLabels:
-          app: osf-kg-agent
-    - podSelector:
-        matchLabels:
-          app: osf-uns-stream
-    - podSelector:
-        matchLabels:
-          app: osf-kg-builder
-    - podSelector:
-        matchLabels:
-          app: osf-mcp-proxy
-    ports:
-    - port: 8030
-      protocol: TCP
+    - Egress
+  egress:
+    - ports:
+        - port: 8012
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
 
 ---
-# Governance Agent: allow ingress from gateway, mcp-proxy
+# ══════════════════════════════════════════════════════════════════
+# REDIS (app: osf-redis, port 6379)
+# ══════════════════════════════════════════════════════════════════
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-governance-agent-ingress
+  name: osf-redis-ingress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
-      app: governance-agent
+      app: osf-redis
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: osf-gateway
-    - podSelector:
-        matchLabels:
-          app: osf-mcp-proxy
-    ports:
-    - port: 8031
-      protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+      ports:
+        - port: 6379
+          protocol: TCP
 
 ---
-# KG Builder: allow ingress from gateway
+# ══════════════════════════════════════════════════════════════════
+# POSTGRESQL (app: osf-postgres-new, port 5432)
+# ══════════════════════════════════════════════════════════════════
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-kg-builder-ingress
+  name: osf-postgres-ingress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
-      app: osf-kg-builder
+      app: osf-postgres-new
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: osf-gateway
-    ports:
-    - port: 8032
-      protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+        - podSelector:
+            matchLabels:
+              app: osf-kg-builder
+      ports:
+        - port: 5432
+          protocol: TCP
+
+---
+# ══════════════════════════════════════════════════════════════════
+# FOMI VIDEO (app: fomi-video, port 80)
+# ══════════════════════════════════════════════════════════════════
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fomi-video-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: fomi-video
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 80
+          protocol: TCP

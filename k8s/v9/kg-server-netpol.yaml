@@ -1,37 +1,34 @@
-## KG Server — Network Policies
-## Note: osf namespace has default-deny-all, so explicit allow is required.
+# KG Builder + Neo4j + v9-Web — Network Policies
+# Note: KG Server = KG Builder (unified pod, app: osf-kg-builder)
+# The service osf-kg-server points to osf-kg-builder pods via selector.
+# Last updated: 2026-03-21
 ---
+# KG Builder: allow ingress (NodePort 30035 from external + gateway MCP calls + v9-web)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: kg-server-egress
+  name: osf-kg-builder-ingress
   namespace: osf
 spec:
   podSelector:
     matchLabels:
-      app: osf-kg-server
-  policyTypes:
-    - Egress
-  egress:
-    # Allow all egress (KG Server needs: Neo4j, PG, MQTT, LLM, GitHub, Gateway)
-    - {}
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: kg-server-ingress
-  namespace: osf
-spec:
-  podSelector:
-    matchLabels:
-      app: osf-kg-server
+      app: osf-kg-builder
   policyTypes:
     - Ingress
   ingress:
-    # Allow all ingress (NodePort from external + gateway + UI)
-    - {}
+    - from:
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
+      ports:
+        - port: 8035
+          protocol: TCP
+    # NodePort access (v9-web browser, external tools)
+    - ports:
+        - port: 8035
+          protocol: TCP
 ---
-## Neo4j — allow ingress from KG Server + KG Builder
+# Neo4j: allow ingress from KG Builder only
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -47,9 +44,6 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: osf-kg-server
-        - podSelector:
-            matchLabels:
               app: osf-kg-builder
       ports:
         - port: 7687
@@ -57,7 +51,7 @@ spec:
         - port: 7474
           protocol: TCP
 ---
-## v9 Web — allow ingress (NodePort)
+# v9 Web UI: allow ingress (NodePort 30909, static site)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -70,4 +64,6 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    - {}
+    - ports:
+        - port: 80
+          protocol: TCP
