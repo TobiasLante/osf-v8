@@ -30,6 +30,7 @@ const userLinks: { href: string; label: string; roles?: string[] }[] = [
 
 export function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isGroupAdmin, setIsGroupAdmin] = useState(false);
   const { user, logout, loading } = useAuth();
   const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -38,6 +39,18 @@ export function Header() {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+
+  // Check if user is group admin
+  useEffect(() => {
+    if (!user) { setIsGroupAdmin(false); return; }
+    if (user.role === "admin") { setIsGroupAdmin(true); return; }
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai"}/api/me/group`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("osf_token") || ""}` },
+    })
+      .then(r => r.json())
+      .then(d => setIsGroupAdmin(d.group?.group_role === "group_admin"))
+      .catch(() => setIsGroupAdmin(false));
+  }, [user]);
 
   // Close menu on click outside
   useEffect(() => {
@@ -51,13 +64,8 @@ export function Header() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [menuOpen]);
 
-<<<<<<< HEAD
   // Hide header on full-screen pages
-  if (pathname === "/fomi" || pathname === "/flows/editor") return null;
-=======
-  // Hide header on full-screen pages like the flow editor
-  if (pathname === "/flows/editor") return null;
->>>>>>> feat/v9-embeddings-charts-mqtt
+  if (pathname === "/fomi/live" || pathname === "/flows/editor") return null;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-bg/80 backdrop-blur-xl">
@@ -190,6 +198,18 @@ export function Header() {
                     }`}
                   >
                     Admin
+                  </Link>
+                )}
+                {isGroupAdmin && (
+                  <Link
+                    href="/group-admin"
+                    className={`block py-1.5 text-sm transition-colors ${
+                      pathname === "/group-admin"
+                        ? "text-accent"
+                        : "text-text-muted hover:text-accent"
+                    }`}
+                  >
+                    Gruppen
                   </Link>
                 )}
                 <button

@@ -39,11 +39,7 @@ interface BannerState {
   active: boolean;
 }
 
-<<<<<<< HEAD
-type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods";
-=======
-type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods" | "agents" | "roles" | "categories" | "mcp" | "classifications" | "audit" | "dashboard" | "profiles";
->>>>>>> feat/v9-embeddings-charts-mqtt
+type Tab = "health" | "users" | "stats" | "activity" | "news" | "banner" | "infra" | "nrpods" | "groups" | "agents" | "roles" | "categories" | "mcp" | "classifications" | "audit" | "dashboard" | "profiles";
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
@@ -79,7 +75,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-border">
-        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods", "agents", "roles", "categories", "mcp", "classifications", "audit", "dashboard", "profiles"] as Tab[]).map((t) => (
+        {(["health", "users", "stats", "activity", "news", "banner", "infra", "nrpods", "groups", "agents", "roles", "categories", "mcp", "classifications", "audit", "dashboard", "profiles"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -89,7 +85,7 @@ export default function AdminPage() {
                 : "text-text-muted hover:text-text"
             }`}
           >
-            {{ health: "Health", users: "Users", stats: "Stats", activity: "Activity", news: "News", banner: "Banner", infra: "Infrastructure", nrpods: "NR Pods", agents: "Agents", roles: "Roles", categories: "Categories", mcp: "MCP Servers", classifications: "Classifications", audit: "Audit", dashboard: "Dashboard", profiles: "Profiles" }[t]}
+            {{ health: "Health", users: "Users", stats: "Stats", activity: "Activity", news: "News", banner: "Banner", infra: "Infrastructure", nrpods: "NR Pods", groups: "Groups", agents: "Agents", roles: "Roles", categories: "Categories", mcp: "MCP Servers", classifications: "Classifications", audit: "Audit", dashboard: "Dashboard", profiles: "Profiles" }[t]}
           </button>
         ))}
       </div>
@@ -102,8 +98,7 @@ export default function AdminPage() {
       {tab === "banner" && <ErrorBoundary name="banner"><BannerTab /></ErrorBoundary>}
       {tab === "infra" && <ErrorBoundary name="infra"><InfraTab /></ErrorBoundary>}
       {tab === "nrpods" && <ErrorBoundary name="nrpods"><NrPodsTab /></ErrorBoundary>}
-<<<<<<< HEAD
-=======
+      {tab === "groups" && <ErrorBoundary name="groups"><GroupsTab /></ErrorBoundary>}
       {tab === "roles" && <ErrorBoundary name="roles"><RolesTab /></ErrorBoundary>}
       {tab === "categories" && <ErrorBoundary name="categories"><CategoriesTab /></ErrorBoundary>}
       {tab === "mcp" && <ErrorBoundary name="mcp"><McpServersTab /></ErrorBoundary>}
@@ -112,7 +107,6 @@ export default function AdminPage() {
       {tab === "classifications" && <ErrorBoundary name="classifications"><ClassificationsTab /></ErrorBoundary>}
       {tab === "dashboard" && <ErrorBoundary name="dashboard"><DashboardTab /></ErrorBoundary>}
       {tab === "profiles" && <ErrorBoundary name="profiles"><TopicProfilesTab /></ErrorBoundary>}
->>>>>>> feat/v9-embeddings-charts-mqtt
     </main>
   );
 }
@@ -2043,6 +2037,212 @@ interface FactoryRole {
   user_count: string;
   categories: string[];
   created_at: string;
+}
+
+// ─── Learning Groups Tab ──────────────────────────────────────────────────
+
+interface LearningGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  max_members: number;
+  member_count: number;
+  has_key: boolean;
+  llm_provider: string | null;
+  created_by_email: string | null;
+  created_at: string;
+}
+
+interface GroupMember {
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  joined_at: string;
+}
+
+function GroupsTab() {
+  const [groups, setGroups] = useState<LearningGroup[]>([]);
+  const [error, setError] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [allUsers, setAllUsers] = useState<{ id: string; email: string; name: string }[]>([]);
+  const [addUserId, setAddUserId] = useState("");
+
+  const loadGroups = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ groups: LearningGroup[] }>("/admin/groups");
+      setGroups(data.groups);
+    } catch (err: any) { setError(err.message); }
+  }, []);
+
+  const loadMembers = useCallback(async (groupId: string) => {
+    try {
+      const data = await apiFetch<{ members: GroupMember[] }>(`/admin/groups/${groupId}/members`);
+      setMembers(data.members);
+    } catch (err: any) { setError(err.message); }
+  }, []);
+
+  useEffect(() => { loadGroups(); }, [loadGroups]);
+
+  useEffect(() => {
+    if (selectedGroup) {
+      loadMembers(selectedGroup);
+      // Load all users for the add-member dropdown
+      apiFetch<{ users: any[] }>("/admin/users?limit=500").then(d => setAllUsers(d.users)).catch(() => {});
+    }
+  }, [selectedGroup, loadMembers]);
+
+  const createGroup = async (name: string, description: string, maxMembers: number) => {
+    try {
+      await apiFetch("/admin/groups", { method: "POST", body: JSON.stringify({ name, description, max_members: maxMembers }) });
+      setShowCreate(false);
+      loadGroups();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const deleteGroup = async (id: string, name: string) => {
+    if (!confirm(`Delete group "${name}"? This removes all members.`)) return;
+    try {
+      await apiFetch(`/admin/groups/${id}`, { method: "DELETE" });
+      if (selectedGroup === id) setSelectedGroup(null);
+      loadGroups();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const addMember = async () => {
+    if (!addUserId || !selectedGroup) return;
+    try {
+      await apiFetch(`/admin/groups/${selectedGroup}/members`, { method: "POST", body: JSON.stringify({ user_id: addUserId }) });
+      setAddUserId("");
+      loadMembers(selectedGroup);
+      loadGroups();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const removeMember = async (userId: string) => {
+    if (!selectedGroup) return;
+    try {
+      await apiFetch(`/admin/groups/${selectedGroup}/members/${userId}`, { method: "DELETE" });
+      loadMembers(selectedGroup);
+      loadGroups();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const toggleRole = async (userId: string, currentRole: string) => {
+    if (!selectedGroup) return;
+    const newRole = currentRole === "group_admin" ? "member" : "group_admin";
+    try {
+      await apiFetch(`/admin/groups/${selectedGroup}/members`, { method: "POST", body: JSON.stringify({ user_id: userId, role: newRole }) });
+      loadMembers(selectedGroup);
+    } catch (err: any) { setError(err.message); }
+  };
+
+  return (
+    <div className="space-y-4">
+      {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">{error}</div>}
+
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">{groups.length} Learning Groups</h3>
+        <button onClick={() => setShowCreate(true)} className="px-3 py-1.5 bg-accent text-bg rounded text-sm font-medium hover:bg-accent-hover">+ Create Group</button>
+      </div>
+
+      {showCreate && (
+        <CreateGroupModal onClose={() => setShowCreate(false)} onCreate={createGroup} />
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-text-muted border-b border-border">
+            <th className="py-2 pr-4">Name</th><th className="py-2 pr-4">Members</th><th className="py-2 pr-4">API Key</th><th className="py-2 pr-4">Provider</th><th className="py-2 pr-4">Created</th><th className="py-2">Actions</th>
+          </tr></thead>
+          <tbody>
+            {groups.map(g => (
+              <tr key={g.id} className={`border-b border-border/50 ${selectedGroup === g.id ? "bg-accent/5" : ""}`}>
+                <td className="py-2 pr-4">
+                  <button onClick={() => setSelectedGroup(selectedGroup === g.id ? null : g.id)} className="font-medium text-accent hover:underline">{g.name}</button>
+                  {g.description && <div className="text-xs text-text-muted">{g.description}</div>}
+                </td>
+                <td className="py-2 pr-4">{g.member_count}/{g.max_members}</td>
+                <td className="py-2 pr-4">{g.has_key ? <span className="text-green-400">Set</span> : <span className="text-text-muted">—</span>}</td>
+                <td className="py-2 pr-4 text-text-muted">{g.llm_provider || "—"}</td>
+                <td className="py-2 pr-4 text-text-muted">{new Date(g.created_at).toLocaleDateString("de-DE")}</td>
+                <td className="py-2">
+                  <button onClick={() => deleteGroup(g.id, g.name)} className="text-red-400 hover:text-red-300 text-xs">Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedGroup && (
+        <div className="border border-border rounded-lg p-4 space-y-3">
+          <h4 className="font-semibold text-sm">Members — {groups.find(g => g.id === selectedGroup)?.name}</h4>
+
+          <div className="flex gap-2 items-center">
+            <select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="bg-bg-surface border border-border rounded px-2 py-1 text-sm flex-1">
+              <option value="">Add user...</option>
+              {allUsers.filter(u => !members.some(m => m.user_id === u.id)).map(u => (
+                <option key={u.id} value={u.id}>{u.email}{u.name ? ` (${u.name})` : ""}</option>
+              ))}
+            </select>
+            <button onClick={addMember} disabled={!addUserId} className="px-3 py-1 bg-accent text-bg rounded text-sm disabled:opacity-50">Add</button>
+          </div>
+
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-text-muted border-b border-border">
+              <th className="py-1 pr-4">Email</th><th className="py-1 pr-4">Name</th><th className="py-1 pr-4">Role</th><th className="py-1 pr-4">Joined</th><th className="py-1">Actions</th>
+            </tr></thead>
+            <tbody>
+              {members.map(m => (
+                <tr key={m.user_id} className="border-b border-border/50">
+                  <td className="py-1 pr-4">{m.email}</td>
+                  <td className="py-1 pr-4 text-text-muted">{m.name || "—"}</td>
+                  <td className="py-1 pr-4">
+                    <button onClick={() => toggleRole(m.user_id, m.role)} className={`text-xs px-2 py-0.5 rounded ${m.role === "group_admin" ? "bg-accent/20 text-accent" : "bg-bg-surface text-text-muted"}`}>
+                      {m.role === "group_admin" ? "Group Admin" : "Member"}
+                    </button>
+                  </td>
+                  <td className="py-1 pr-4 text-text-muted">{new Date(m.joined_at).toLocaleDateString("de-DE")}</td>
+                  <td className="py-1">
+                    <button onClick={() => removeMember(m.user_id)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateGroupModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, desc: string, max: number) => void }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [maxMembers, setMaxMembers] = useState(30);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold mb-4">Create Learning Group</h3>
+        <div className="space-y-3">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Group name" className="w-full bg-bg border border-border rounded px-3 py-2 text-sm" />
+          <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Description (optional)" className="w-full bg-bg border border-border rounded px-3 py-2 text-sm" />
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-text-muted">Max members:</label>
+            <input type="number" value={maxMembers} onChange={e => setMaxMembers(parseInt(e.target.value) || 30)} min={1} max={100} className="w-20 bg-bg border border-border rounded px-2 py-1 text-sm" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-text-muted hover:text-text">Cancel</button>
+          <button onClick={() => onCreate(name, description, maxMembers)} disabled={!name} className="px-3 py-1.5 bg-accent text-bg rounded text-sm font-medium disabled:opacity-50">Create</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function RolesTab() {

@@ -165,4 +165,23 @@ router.get('/:id/token-status', requireAuth, requireGroupAdmin, async (req: Requ
   res.json(result.rows[0]);
 });
 
+// POST /admin/groups/:id/heat-up — scale warm pods for group session
+router.post('/:id/heat-up', requireAuth, requireGroupAdmin, async (req: Request, res: Response) => {
+  // Count group members + 1 (for the admin)
+  const countResult = await pool.query(
+    'SELECT COUNT(*)::int AS cnt FROM learning_group_members WHERE group_id = $1',
+    [req.params.id],
+  );
+  const memberCount = countResult.rows[0]?.cnt || 0;
+  const targetSize = Math.min(memberCount + 1, 20); // cap at 20
+
+  const pm = (req.app as any).nrPodManager;
+  if (!pm) { res.status(503).json({ error: 'Pod manager not initialized' }); return; }
+
+  pm.setPoolSize(targetSize);
+  const stats = await pm.getPoolStats();
+  logger.info({ groupId: req.params.id, memberCount, targetSize, setBy: req.user!.userId }, 'Group heat-up triggered');
+  res.json({ ok: true, targetSize, memberCount, poolStats: stats });
+});
+
 export default router;

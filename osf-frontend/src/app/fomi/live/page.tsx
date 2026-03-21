@@ -1,0 +1,1303 @@
+"use client";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { streamSSE, SSEEvent } from "@/lib/api";
+import { KGNode, KGEdge } from "@/components/chat/KGCascadeInline";
+import { KG3D } from "@/components/chat/KG3D";
+import { V7Event } from "@/components/chat/v7/types";
+import { useV7Events } from "@/components/chat/v7/useV7Events";
+import { SpecialistCard } from "@/components/chat/v7/SpecialistCard";
+import { DiscussionThread } from "@/components/chat/v7/DiscussionThread";
+import { SynthesisCard } from "@/components/chat/v7/SynthesisCard";
+import { safeMarkdown } from "@/lib/markdown";
+import { mdClasses } from "@/components/chat/v7/types";
+// LS_TOKEN used by streamSSE internally via api.ts
+import { useAuth } from "@/lib/auth-context";
+
+/* ═══════════════════════════════════════════════════════════════════════
+   i3X DATA SOURCE & SM PROFILE MAPPING
+   ═══════════════════════════════════════════════════════════════════════ */
+
+interface DataSource {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+}
+
+const DATA_SOURCES: DataSource[] = [
+  { id: "uns", label: "UNS / MQTT", icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z", color: "#06b6d4" },
+  { id: "erp", label: "ERP", icon: "M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z", color: "#3b82f6" },
+  { id: "bde", label: "BDE", icon: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H5V5h7v12zm7 0h-5V5h5v12z", color: "#f59e0b" },
+  { id: "mrp", label: "MRP", icon: "M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z", color: "#10b981" },
+];
+
+interface KGTypeEntry {
+  id: string;
+  label: string;
+  color: string;
+}
+
+const KG_TYPES: KGTypeEntry[] = [
+  { id: "machine", label: "Machine", color: "#d03a8c" },
+  { id: "sensor", label: "Sensor", color: "#f59e0b" },
+  { id: "order", label: "Order", color: "#10b981" },
+  { id: "article", label: "Article", color: "#3b82f6" },
+  { id: "customer", label: "Customer", color: "#06b6d4" },
+  { id: "material", label: "Material", color: "#ec4899" },
+  { id: "tool", label: "Tool", color: "#eab308" },
+  { id: "process", label: "Process", color: "#a855f7" },
+  { id: "alternative", label: "Alternative", color: "#22c55e" },
+];
+
+function matchToolToSources(toolName: string): string[] {
+  const t = toolName.toLowerCase();
+  const sources: string[] = [];
+  if (/oee|availability|machine|maschine|sensor|status/.test(t)) { sources.push("uns", "bde"); }
+  if (/order|auftrag|schedule|kapazit|capacity/.test(t)) { sources.push("erp"); }
+  if (/material|stock|bom|bestand|lager/.test(t)) { sources.push("erp", "mrp"); }
+  if (/customer|kunde|delivery|liefertermin/.test(t)) { sources.push("erp"); }
+  if (/quality|spc|scrap|ausschuss|qualit/.test(t)) { sources.push("bde"); }
+  // KG tools touch multiple sources — light them all up for demo effect
+  if (/kg_|graph|traversal|what_if|dependency|bottleneck|critical_path|energy_hotpath/.test(t)) {
+    sources.push("uns", "erp", "bde", "mrp");
+  }
+  if (/factory_get|factory_/.test(t)) { sources.push("erp", "bde"); }
+  if (sources.length === 0) sources.push("erp"); // default
+  return Array.from(new Set(sources));
+}
+
+function matchToolToKgTypes(toolName: string): string[] {
+  const t = toolName.toLowerCase();
+  const types: string[] = [];
+  if (/machine|maschine|asset|anlage|status/.test(t)) types.push("machine");
+  if (/sensor/.test(t)) types.push("sensor");
+  if (/oee|availability|performance/.test(t)) types.push("machine", "sensor");
+  if (/order|auftrag|work.?order|fertigung|schedule/.test(t)) types.push("order");
+  if (/customer|kunde|delivery|liefertermin/.test(t)) types.push("customer");
+  if (/quality|spc|scrap|ausschuss|qualit/.test(t)) types.push("process");
+  if (/material|stock|bom|bestand|lager/.test(t)) types.push("material");
+  if (/energy|energie|strom|power|hotpath/.test(t)) types.push("machine", "process");
+  if (/article|artikel|teil|part/.test(t)) types.push("article");
+  if (/tool|werkzeug/.test(t)) types.push("tool");
+  if (/alternative|replace|ersatz/.test(t)) types.push("alternative");
+  // KG tools activate multiple types
+  if (/kg_what_if.*machine|kg_dependency/.test(t)) types.push("machine", "order", "article");
+  if (/kg_bottleneck|kg_critical_path/.test(t)) types.push("order", "machine", "process");
+  if (/kg_energy/.test(t)) types.push("machine", "process");
+  if (/factory_get_machine/.test(t)) types.push("machine");
+  if (/factory_get_order|factory_get_customer/.test(t)) types.push("order", "customer");
+  return Array.from(new Set(types));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FALLBACK DATA — Pre-recorded demo events for SGM-004 failure
+   Triple-click logo to activate. Plays if live stream fails or on demand.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+interface FallbackEvent extends SSEEvent {
+  _delay: number; // ms before this event fires
+}
+
+const FALLBACK_CHAT_EVENTS: FallbackEvent[] = [
+  { _delay: 800, type: "tool_start", name: "factory_get_machine_status", arguments: { machineId: "SGM-004" } },
+  { _delay: 1600, type: "tool_result", name: "factory_get_machine_status", result: '{"id":"SGM-004","name":"Schleifmaschine 004","status":"running","oee":0.82,"currentOrder":"FA-4021"}' },
+  { _delay: 2200, type: "tool_start", name: "factory_get_orders_for_machine", arguments: { machineId: "SGM-004" } },
+  { _delay: 3400, type: "tool_result", name: "factory_get_orders_for_machine", result: '{"orders":["FA-4021","FA-4035","FA-4042","FA-4058"]}' },
+  { _delay: 3800, type: "tool_start", name: "factory_get_customer_deliveries", arguments: { orderIds: ["FA-4021","FA-4035","FA-4042"] } },
+  { _delay: 5000, type: "tool_result", name: "factory_get_customer_deliveries", result: '{"deliveries":[{"order":"FA-4021","customer":"KD-112","due":"2026-03-19"},{"order":"FA-4035","customer":"KD-108","due":"2026-03-20"},{"order":"FA-4042","customer":"KD-115","due":"2026-03-21"}]}' },
+  { _delay: 5400, type: "tool_start", name: "kg_what_if_machine_down", arguments: { machineId: "SGM-004" } },
+  { _delay: 5500, type: "kg_traversal_start", centerEntityId: "SGM-004" },
+  { _delay: 6200, type: "kg_nodes_discovered", nodes: [
+    { id: "SGM-004", label: "SGM-004", type: "Machine" },
+    { id: "FA-4021", label: "FA-4021", type: "Order" },
+    { id: "FA-4035", label: "FA-4035", type: "Order" },
+    { id: "FA-4042", label: "FA-4042", type: "Order" },
+    { id: "KD-112", label: "KD-112", type: "Customer" },
+    { id: "KD-108", label: "KD-108", type: "Customer" },
+    { id: "ART-2200", label: "ART-2200", type: "Article" },
+    { id: "ART-3100", label: "ART-3100", type: "Article" },
+  ], edges: [
+    { from: "SGM-004", to: "FA-4021", label: "PRODUCES" },
+    { from: "SGM-004", to: "FA-4035", label: "PRODUCES" },
+    { from: "SGM-004", to: "FA-4042", label: "PRODUCES" },
+    { from: "FA-4021", to: "KD-112", label: "ORDERED_BY" },
+    { from: "FA-4035", to: "KD-108", label: "ORDERED_BY" },
+    { from: "FA-4021", to: "ART-2200", label: "CONTAINS" },
+    { from: "FA-4035", to: "ART-3100", label: "CONTAINS" },
+  ]},
+  { _delay: 7500, type: "kg_nodes_discovered", nodes: [
+    { id: "SGM-007", label: "SGM-007", type: "Machine" },
+    { id: "KD-115", label: "KD-115", type: "Customer" },
+    { id: "FA-4058", label: "FA-4058", type: "Order" },
+    { id: "WKZ-440", label: "WKZ-440", type: "Tool" },
+  ], edges: [
+    { from: "SGM-007", to: "SGM-004", label: "ALTERNATIVE" },
+    { from: "FA-4042", to: "KD-115", label: "ORDERED_BY" },
+    { from: "FA-4058", to: "SGM-004", label: "SCHEDULED_ON" },
+    { from: "SGM-004", to: "WKZ-440", label: "USES_TOOL" },
+  ]},
+  { _delay: 8500, type: "kg_traversal_end" },
+  { _delay: 8600, type: "tool_result", name: "kg_what_if_machine_down", result: '{"impact":"4 orders affected, 3 customers at risk"}' },
+  { _delay: 9000, type: "content", text: "## Impact Analysis: SGM-004 Failure\n\n" },
+  { _delay: 9400, type: "content", text: "If **SGM-004** (Schleifmaschine 004) goes down right now, the following impact occurs:\n\n" },
+  { _delay: 9900, type: "content", text: "### Orders at Risk\n- **FA-4021** — ART-2200, due 2026-03-19 for KD-112\n- **FA-4035** — ART-3100, due 2026-03-20 for KD-108\n" },
+  { _delay: 10400, type: "content", text: "- **FA-4042** — due 2026-03-21 for KD-115\n- **FA-4058** — scheduled but not yet started\n\n" },
+  { _delay: 10900, type: "content", text: "### Customers Affected\n- **KD-112** — delivery tomorrow, **highest risk**\n- **KD-108** — delivery in 2 days\n- **KD-115** — delivery in 3 days\n\n" },
+  { _delay: 11500, type: "content", text: "### Downtime Cost\nEstimated **850 €/h** based on current production value and machine utilization.\n\n" },
+  { _delay: 12000, type: "content", text: "### Alternative\nThe Knowledge Graph shows **SGM-007** as a potential alternative machine. It currently has 15% free capacity and uses compatible tooling (WKZ-440).\n\n" },
+  { _delay: 12500, type: "content", text: "**Recommendation:** Reroute FA-4021 (highest urgency) to SGM-007 immediately. FA-4035 and FA-4042 can tolerate a 24h delay if SGM-004 is repaired within that window." },
+  { _delay: 13000, type: "done" },
+];
+
+const FALLBACK_DISCUSSION_EVENTS: FallbackEvent[] = [
+  { _delay: 500, type: "init", message: "Starting multi-agent impact analysis..." },
+  { _delay: 1000, type: "specialists_batch_start", message: "Launching 4 specialist agents in parallel" },
+  { _delay: 1200, type: "specialist_start", data: { name: "oee-impact", displayName: "OEE Impact Analyst" }, title: "oee-impact" },
+  { _delay: 1400, type: "specialist_start", data: { name: "otd-impact", displayName: "OTD Impact Analyst" }, title: "otd-impact" },
+  { _delay: 1600, type: "specialist_start", data: { name: "cost-impact", displayName: "Cost Impact Analyst" }, title: "cost-impact" },
+  { _delay: 1800, type: "specialist_start", data: { name: "quality-impact", displayName: "Quality Impact Analyst" }, title: "quality-impact" },
+  { _delay: 5000, type: "specialist_complete", data: { name: "oee-impact", displayName: "OEE Impact Analyst", durationMs: 3800, report: {
+    zahlenDatenFakten: "SGM-004 OEE drops from 82% to 0%. Line OEE drops from 78% to 61%. 4 orders blocked.",
+    kritischeFindings: [
+      { finding: "SGM-004 is the only precision grinder for ART-2200 tolerances", severity: "hoch" },
+      { finding: "SGM-007 can handle 60% of SGM-004 workload with retooling", severity: "mittel" },
+    ],
+    empfehlungen: [
+      { maßnahme: "Reroute FA-4021 to SGM-007", priorität: "sofort", erwarteteWirkung: "Saves KD-112 delivery" },
+      { maßnahme: "Schedule maintenance window for SGM-004", priorität: "heute", erwarteteWirkung: "Minimize total downtime" },
+    ],
+    crossDomainHinweise: ["Quality team must verify SGM-007 can hold ART-2200 surface finish specs"],
+  }}, title: "oee-impact" },
+  { _delay: 6500, type: "specialist_complete", data: { name: "otd-impact", displayName: "OTD Impact Analyst", durationMs: 5100, report: {
+    zahlenDatenFakten: "3 customers affected. KD-112 delivery at risk (tomorrow). OTD drops from 94% to 87%.",
+    kritischeFindings: [
+      { finding: "KD-112 has contractual penalty clause for late delivery (2% per day)", severity: "hoch" },
+      { finding: "KD-108 and KD-115 have buffer in delivery window", severity: "niedrig" },
+    ],
+    empfehlungen: [
+      { maßnahme: "Call KD-112 proactively to manage expectations", priorität: "sofort", erwarteteWirkung: "Relationship preservation" },
+      { maßnahme: "Prioritize FA-4021 on alternative machine", priorität: "sofort", erwarteteWirkung: "Meet delivery deadline" },
+    ],
+    crossDomainHinweise: ["Cost team should calculate penalty exposure for KD-112"],
+  }}, title: "otd-impact" },
+  { _delay: 7500, type: "specialist_complete", data: { name: "cost-impact", displayName: "Cost Impact Analyst", durationMs: 5900, report: {
+    zahlenDatenFakten: "Direct downtime cost: 850 €/h. Penalty risk KD-112: up to 4,200 €/day. Rerouting cost to SGM-007: ~320 € (retooling).",
+    kritischeFindings: [
+      { finding: "Total 24h exposure: 20,400 € (downtime) + 4,200 € (penalty) = 24,600 €", severity: "hoch" },
+      { finding: "Rerouting FA-4021 to SGM-007 costs 320 € but saves 4,200 € penalty", severity: "mittel" },
+    ],
+    empfehlungen: [
+      { maßnahme: "Approve emergency rerouting budget (320 €)", priorität: "sofort", erwarteteWirkung: "Net saving of 3,880 €" },
+      { maßnahme: "File insurance claim if downtime exceeds 8h", priorität: "heute", erwarteteWirkung: "Recover up to 60% of costs" },
+    ],
+    crossDomainHinweise: ["OEE team confirms SGM-007 retooling takes ~45 minutes"],
+  }}, title: "cost-impact" },
+  { _delay: 8500, type: "specialist_complete", data: { name: "quality-impact", displayName: "Quality Impact Analyst", durationMs: 6700, report: {
+    zahlenDatenFakten: "ART-2200 requires Ra 0.4 surface finish. SGM-007 certified for Ra 0.6. Deviation waiver needed.",
+    kritischeFindings: [
+      { finding: "SGM-007 last calibration 12 days ago — within spec but approaching limit", severity: "mittel" },
+      { finding: "ART-3100 has no special surface requirements — safe to reroute", severity: "niedrig" },
+    ],
+    empfehlungen: [
+      { maßnahme: "Run calibration check on SGM-007 before ART-2200 production", priorität: "sofort", erwarteteWirkung: "Ensure quality compliance" },
+      { maßnahme: "Request customer waiver for Ra 0.5 on first batch if needed", priorität: "heute", erwarteteWirkung: "Avoid scrap risk" },
+    ],
+    crossDomainHinweise: ["OTD team: calibration check adds ~20 min to rerouting timeline"],
+  }}, title: "quality-impact" },
+  { _delay: 9000, type: "specialists_batch_complete", message: "All 4 specialists completed" },
+  { _delay: 9500, type: "discussion_round_start", discussionRound: 1 },
+  { _delay: 10000, type: "discussion_question", targetSpecialist: "OEE Impact Analyst", moderatorQuestion: "You suggest rerouting to SGM-007, but Quality flags a surface finish gap. How confident are you that SGM-007 can handle ART-2200?" },
+  { _delay: 12000, type: "discussion_answer", targetSpecialist: "OEE Impact Analyst", discussionAnswer: "SGM-007 achieved Ra 0.45 on similar parts last month. With fresh calibration, I'm 85% confident it meets Ra 0.4. The risk is manageable given the alternative is a guaranteed missed delivery." },
+  { _delay: 13000, type: "discussion_question", targetSpecialist: "Cost Impact Analyst", moderatorQuestion: "What's the break-even point? How many hours of SGM-004 downtime before rerouting becomes the cheaper option?" },
+  { _delay: 15000, type: "discussion_answer", targetSpecialist: "Cost Impact Analyst", discussionAnswer: "Break-even is at 2.3 hours. After that, every hour of delay costs more than the 320 € rerouting investment. Given KD-112's penalty clause, rerouting is NPV-positive from hour 1." },
+  { _delay: 16000, type: "discussion_round_complete", discussionRound: 1 },
+  { _delay: 17000, type: "debate_start" },
+  { _delay: 18000, type: "debate_draft", debateDraftSummary: "**Recommendation:** Immediately reroute FA-4021 to SGM-007 after a 20-minute calibration check. Proactively contact KD-112. Hold FA-4035 and FA-4042 for 24h pending SGM-004 repair assessment.\n\n**Expected outcome:** KD-112 delivery met, total cost limited to 320 € retooling vs. potential 24,600 € exposure." },
+  { _delay: 20000, type: "debate_critique", debateCritiqueFrom: "Quality Impact Analyst", debateCritiqueItems: [
+    { type: "concern", text: "Draft doesn't mention the calibration check as a hard gate. If SGM-007 fails calibration, we need a Plan B." },
+    { type: "addition", text: "Add fallback: if calibration fails, negotiate 24h extension with KD-112 before attempting production." },
+  ], debateCritiqueAssessment: "Strong recommendation overall. Adding the calibration gate makes it robust." },
+  { _delay: 22000, type: "debate_final", debateFinalSummary: "**Final Recommendation:**\n1. **Immediately** run calibration check on SGM-007 (20 min)\n2. **If pass:** Reroute FA-4021 to SGM-007, start production within 1 hour\n3. **If fail:** Contact KD-112 for 24h extension, assess SGM-004 repair timeline\n4. **Parallel:** Proactively inform KD-112 sales rep, file maintenance ticket for SGM-004\n5. **Hold** FA-4035/FA-4042 for 24h — these customers have delivery buffer\n\n**Cost:** 320 € (rerouting) vs. 24,600 € (inaction). **ROI: 77x.**" },
+  { _delay: 23000, type: "intermediate_result", title: "Executive Summary", data: {
+    executiveSummary: "SGM-004 failure impacts 4 orders and 3 customers. Immediate rerouting of the highest-priority order (FA-4021) to SGM-007 is recommended after a calibration verification. This limits financial exposure from 24,600 € to 320 €, a 77x ROI. KD-112 delivery can be preserved if action is taken within 1 hour.",
+    crossDomainCorrelations: [
+      "OEE-Quality link: SGM-007 capacity exists but quality gate (calibration) must pass first",
+      "Cost-OTD link: KD-112 penalty clause makes time-to-action the dominant cost driver",
+      "Quality-Cost trade-off: 20min calibration delay saves potential 4,200 €/day penalty",
+    ],
+    actionPlan: [
+      { action: "Run SGM-007 calibration check", priority: "sofort", responsible: "Quality Team", deadline: "Within 20 min" },
+      { action: "Reroute FA-4021 to SGM-007", priority: "sofort", responsible: "Production Planning", deadline: "Within 1 hour" },
+      { action: "Contact KD-112 proactively", priority: "sofort", responsible: "Sales / Account Manager", deadline: "Immediately" },
+      { action: "Assess SGM-004 repair timeline", priority: "heute", responsible: "Maintenance", deadline: "Within 4 hours" },
+      { action: "Review penalty clause exposure", priority: "heute", responsible: "Finance", deadline: "By EOD" },
+    ],
+    riskAssessment: "Primary risk: SGM-007 calibration failure (15% probability). Mitigated by pre-negotiated 24h extension with KD-112. Secondary risk: SGM-004 repair exceeds 24h, requiring full rescheduling of FA-4035 and FA-4042. Overall risk level: MEDIUM — manageable with proposed action plan.",
+  }},
+  { _delay: 24000, type: "done", message: "Impact analysis complete", duration: 24000 },
+];
+
+const LS_FALLBACK_KEY = "fomi_recorded_fallback";
+
+/** Play fallback events with realistic timing */
+async function* playFallbackEvents(events: FallbackEvent[]): AsyncGenerator<SSEEvent> {
+  let lastDelay = 0;
+  for (const ev of events) {
+    const wait = ev._delay - lastDelay;
+    lastDelay = ev._delay;
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    const { _delay, ...event } = ev;
+    yield event;
+  }
+}
+
+/** Load recorded fallback from localStorage (overrides hardcoded if present) */
+function loadRecordedFallback(): { chat: FallbackEvent[]; discussion: FallbackEvent[] } | null {
+  try {
+    const raw = localStorage.getItem(LS_FALLBACK_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data.chatEvents?.length > 0 || data.discussionEvents?.length > 0) {
+      return { chat: data.chatEvents || [], discussion: data.discussionEvents || [] };
+    }
+  } catch {}
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SSE WITH AUTO-RECONNECT (Feature C)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+async function* streamSSEWithRetry(
+  path: string,
+  body: any,
+  maxRetries = 1
+): AsyncGenerator<SSEEvent> {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      for await (const event of streamSSE(path, body)) {
+        yield event;
+      }
+      return; // stream ended normally
+    } catch (err) {
+      attempt++;
+      if (attempt > maxRetries) throw err;
+      // Wait 1s before retry
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CHAT MESSAGE TYPE
+   ═══════════════════════════════════════════════════════════════════════ */
+
+interface ToolCall {
+  name: string;
+  arguments?: Record<string, any>;
+  result?: string;
+  status: "running" | "done" | "error";
+}
+
+interface SourceInfo {
+  name: string;
+  resultSize: number;
+  duration?: number;
+}
+
+interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+  toolCalls?: ToolCall[];
+  sources?: SourceInfo[];
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MAIN PAGE COMPONENT
+   ═══════════════════════════════════════════════════════════════════════ */
+
+export default function FomiPage() {
+  /* ── Auth (for admin-only record button) ───────────────────────────── */
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  /* ── Act switching ─────────────────────────────────────────────────── */
+  const [act, setAct] = useState<"impact" | "discussion">("impact");
+  const [splitPct, setSplitPct] = useState(50);
+  const [lightMode, setLightMode] = useState(false);
+  const bg = lightMode ? "#ffffff" : "#050507";
+  const bgCard = lightMode ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.02)";
+  const borderCard = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.06)";
+
+  /* ── Recording mode (admin only) ───────────────────────────────────── */
+  const [recording, setRecording] = useState(false);
+  const [hasRecordedFallback, setHasRecordedFallback] = useState(false);
+  const recordedChatEvents = useRef<Array<{ _delay: number } & Record<string, any>>>([]);
+  const recordedDiscussionEvents = useRef<Array<{ _delay: number } & Record<string, any>>>([]);
+  const recordingStart = useRef(0);
+  const liveFallbackChat = useRef<FallbackEvent[]>([]);
+  const liveFallbackDiscussion = useRef<FallbackEvent[]>([]);
+
+  // Load recorded fallback from localStorage on mount
+  useEffect(() => {
+    const saved = loadRecordedFallback();
+    if (saved) {
+      liveFallbackChat.current = saved.chat;
+      liveFallbackDiscussion.current = saved.discussion;
+      setHasRecordedFallback(true);
+    }
+  }, []);
+
+  const startRecording = useCallback(() => {
+    recordedChatEvents.current = [];
+    recordedDiscussionEvents.current = [];
+    recordingStart.current = Date.now();
+    setRecording(true);
+  }, []);
+
+  const recordEvent = useCallback((event: SSEEvent, target: "chat" | "discussion") => {
+    if (!recording) return;
+    const delay = Date.now() - recordingStart.current;
+    const buf = target === "chat" ? recordedChatEvents : recordedDiscussionEvents;
+    buf.current.push({ _delay: delay, ...event });
+  }, [recording]);
+
+  const stopRecording = useCallback(() => {
+    // Save to localStorage + set as active fallback — ready for triple-click
+    const data = {
+      recordedAt: new Date().toISOString(),
+      chatEvents: recordedChatEvents.current,
+      discussionEvents: recordedDiscussionEvents.current,
+    };
+    try {
+      localStorage.setItem(LS_FALLBACK_KEY, JSON.stringify(data));
+    } catch {}
+    liveFallbackChat.current = recordedChatEvents.current as FallbackEvent[];
+    liveFallbackDiscussion.current = recordedDiscussionEvents.current as FallbackEvent[];
+    setHasRecordedFallback(true);
+    setRecording(false);
+  }, []);
+
+  /* ── Fallback mode (Feature A) — triple-click logo ─────────────────── */
+  const [fallbackMode, setFallbackMode] = useState(false);
+  const logoClicks = useRef<number[]>([]);
+
+  const handleLogoClick = useCallback(() => {
+    const now = Date.now();
+    logoClicks.current.push(now);
+    // Keep only clicks within last 1 second
+    logoClicks.current = logoClicks.current.filter((t) => now - t < 1000);
+    if (logoClicks.current.length >= 3) {
+      setFallbackMode((prev) => !prev); // toggle
+      logoClicks.current = [];
+    }
+  }, []);
+
+  /* ── Act 1: Chat ───────────────────────────────────────────────────── */
+  const [question, setQuestion] = useState("");
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [streaming, setStreaming] = useState(false);
+  const [reportUrl, setReportUrl] = useState<string | null>(null);
+  const [chatSources, setChatSources] = useState<SourceInfo[]>([]);
+  const [chatDone, setChatDone] = useState(false);
+  const chatRef = useRef<HTMLDivElement>(null);
+
+  /* ── No-dead-air status (Feature D) ────────────────────────────────── */
+  const [activityHint, setActivityHint] = useState("");
+  const lastEventTime = useRef(0);
+  const deadAirTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const DEAD_AIR_HINTS = [
+    "Analyzing factory data...",
+    "Querying production database...",
+    "Traversing knowledge graph...",
+    "Evaluating order dependencies...",
+    "Calculating impact metrics...",
+    "Cross-referencing delivery schedules...",
+  ];
+
+  const startDeadAirWatch = useCallback(() => {
+    let hintIdx = 0;
+    const check = () => {
+      const elapsed = Date.now() - lastEventTime.current;
+      if (elapsed > 5000) {
+        setActivityHint(DEAD_AIR_HINTS[hintIdx % DEAD_AIR_HINTS.length]);
+        hintIdx++;
+      } else {
+        setActivityHint("");
+      }
+      deadAirTimer.current = setTimeout(check, 3000);
+    };
+    lastEventTime.current = Date.now();
+    deadAirTimer.current = setTimeout(check, 5000);
+  }, []);
+
+  const stopDeadAirWatch = useCallback(() => {
+    if (deadAirTimer.current) clearTimeout(deadAirTimer.current);
+    deadAirTimer.current = null;
+    setActivityHint("");
+  }, []);
+
+  const touchActivity = useCallback(() => {
+    lastEventTime.current = Date.now();
+    setActivityHint("");
+  }, []);
+
+  /* ── i3X Panel state ───────────────────────────────────────────────── */
+  const [activeSources, setActiveSources] = useState<Set<string>>(new Set());
+  const [activeKgTypes, setActiveKgTypes] = useState<Set<string>>(new Set());
+  const [kgNodes, setKgNodes] = useState<KGNode[]>([]);
+  const [kgEdges, setKgEdges] = useState<KGEdge[]>([]);
+  const [kgCenter, setKgCenter] = useState<string | undefined>();
+  const [kgStatus, setKgStatus] = useState<"traversing" | "done">("done");
+  const [kgToolsList, setKgToolsList] = useState<string[]>([]);
+  const [kgToolStatuses, setKgToolStatuses] = useState<Map<string, { status: string; attempt?: number }>>(new Map());
+  const [impactOrders, setImpactOrders] = useState<string[]>([]);
+  const [impactCustomers, setImpactCustomers] = useState<string[]>([]);
+  const [impactCost, setImpactCost] = useState("");
+  const sourceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const [kgPopup, setKgPopup] = useState(false);
+
+  // ESC closes KG popup
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setKgPopup(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* ── LLM provider toggle (click version badge) ──────────────────── */
+  const [llmProvider, setLlmProvider] = useState<"local" | "haiku">("local");
+
+  /* ── Specialist tracking (via useV7Events) ──────────────────────── */
+  const [expandedSpec, setExpandedSpec] = useState<string | null>(null);
+
+  /* ── Act 2: Discussion ─────────────────────────────────────────────── */
+  const [v7Events, setV7Events] = useState<V7Event[]>([]);
+  const [discussionRunning, setDiscussionRunning] = useState(false);
+  const discussionRef = useRef<HTMLDivElement>(null);
+
+  /* ── Derived V7 state ──────────────────────────────────────────────── */
+  const v7State = useV7Events(v7Events);
+
+  /* ── Auto-scroll ───────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages]);
+
+  useEffect(() => {
+    if (discussionRef.current) discussionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [v7Events]);
+
+  /* ── Activate a data source with glow timeout ──────────────────────── */
+  const activateSource = useCallback((sourceId: string) => {
+    setActiveSources((prev) => new Set(prev).add(sourceId));
+    const existing = sourceTimers.current.get(sourceId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      setActiveSources((prev) => {
+        const next = new Set(prev);
+        next.delete(sourceId);
+        return next;
+      });
+    }, 8000);
+    sourceTimers.current.set(sourceId, timer);
+  }, []);
+
+  /* ── Process a tool call for i3X ───────────────────────────────────── */
+  const processToolForI3X = useCallback((toolName: string) => {
+    const sources = matchToolToSources(toolName);
+    sources.forEach(activateSource);
+    const kgTypes = matchToolToKgTypes(toolName);
+    kgTypes.forEach((t) => setActiveKgTypes((prev) => new Set(prev).add(t)));
+  }, [activateSource]);
+
+  /* ── Extract impact stats from assistant content ───────────────────── */
+  const extractImpactStats = useCallback((content: string) => {
+    const orderMatches = content.match(/FA-\d{4,}/g);
+    if (orderMatches) setImpactOrders((prev) => Array.from(new Set([...prev, ...orderMatches])));
+    const custMatches = content.match(/KD-\d{3,}/g);
+    if (custMatches) setImpactCustomers((prev) => Array.from(new Set([...prev, ...custMatches])));
+    const costMatch = content.match(/(\d[\d.,]*)\s*€\s*\/?\s*h/i) || content.match(/€\s*(\d[\d.,]*)/);
+    if (costMatch) setImpactCost(costMatch[0]);
+  }, []);
+
+  /* ═════════════════════════════════════════════════════════════════════
+     PROCESS CHAT SSE EVENTS (shared between live and fallback)
+     ═════════════════════════════════════════════════════════════════════ */
+  const processChatStream = useCallback(async (eventSource: AsyncGenerator<SSEEvent>) => {
+    const pendingToolCalls: ToolCall[] = [];
+    const collectedSources: SourceInfo[] = [];
+    let assistantContent = "";
+    let hasDiscussion = false;
+
+    const upsert = (patch: Partial<ChatMsg>) => {
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last?.role === "assistant") {
+          updated[updated.length - 1] = { ...last, ...patch };
+        } else {
+          updated.push({ role: "assistant", content: patch.content ?? "", toolCalls: patch.toolCalls, sources: patch.sources });
+        }
+        return updated;
+      });
+    };
+
+    for await (const event of eventSource) {
+      touchActivity();
+      recordEvent(event, "chat");
+
+      switch (event.type) {
+        case "tool_start":
+          pendingToolCalls.push({ name: event.name, arguments: event.arguments, status: "running" });
+          upsert({ toolCalls: [...pendingToolCalls] });
+          processToolForI3X(event.name);
+          break;
+
+        case "tool_result": {
+          const tc = pendingToolCalls.find((t) => t.name === event.name && t.status === "running");
+          if (tc) { tc.result = event.result; tc.status = "done"; }
+          collectedSources.push({ name: event.name, resultSize: event.result ? JSON.stringify(event.result).length : 0, duration: event.duration });
+          setChatSources([...collectedSources]);
+          upsert({ toolCalls: [...pendingToolCalls], sources: [...collectedSources] });
+          break;
+        }
+
+        case "content":
+          // Skip content text if discussion ran — the final text is shown as its own bubble
+          if (hasDiscussion) break;
+          assistantContent += event.text;
+          upsert({ content: assistantContent, toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined, sources: collectedSources.length > 0 ? [...collectedSources] : undefined });
+          extractImpactStats(assistantContent);
+          break;
+
+        case "specialist_start":
+          hasDiscussion = true;
+          // falls through
+        case "specialist_complete":
+        case "specialist_error":
+        case "specialists_batch_start":
+        case "specialists_batch_complete":
+        case "specialists_planned":
+        case "discussion_round_start":
+        case "discussion_question":
+        case "discussion_answer":
+        case "discussion_recruit":
+        case "discussion_recruit_result":
+        case "discussion_round_complete":
+        case "discussion_synthesis_start":
+        case "debate_start":
+        case "debate_draft":
+        case "debate_critique":
+        case "debate_final":
+        case "intermediate_result":
+          console.log('[FoMI] Discussion event:', event.type, event);
+          setV7Events((prev) => [...prev, event as V7Event]);
+          break;
+
+        default:
+          if (event.type !== "done" && event.type !== "error" && event.type !== "session") {
+            console.log('[FoMI] Unhandled event:', event.type);
+          }
+          break;
+
+        case "heartbeat":
+          break;
+
+        case "report_ready":
+          if (event.reportUrl) {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('osf_token') : null;
+            const url = `${process.env.NEXT_PUBLIC_API_URL}${event.reportUrl}${token ? '?token=' + encodeURIComponent(token) : ''}`;
+            setReportUrl(url);
+          }
+          break;
+
+        case "kg_traversal_start":
+          setKgStatus("traversing");
+          setKgCenter(event.centerEntityId || event.entityId);
+          if (Array.isArray(event.kgTools)) {
+            setKgToolsList(event.kgTools);
+            setKgToolStatuses(new Map(event.kgTools.map((t: string) => [t, { status: 'running' }])));
+          }
+          // Light up ALL data sources — KG queries span the entire factory
+          ["uns", "erp", "bde", "mrp"].forEach(activateSource);
+          // Activate base KG types
+          setActiveKgTypes((prev) => { const n = new Set(prev); n.add("machine"); n.add("sensor"); return n; });
+          break;
+
+        case "kg_tool_status":
+          if (event.toolName) {
+            setKgToolStatuses((prev) => {
+              const next = new Map(prev);
+              next.set(event.toolName, { status: event.status, attempt: event.attempt });
+              return next;
+            });
+          }
+          break;
+
+        case "kg_nodes_discovered": {
+          const newN: KGNode[] = (event.nodes || []).map((n: any) => ({ id: n.id, label: n.label || n.id, type: n.type || "Entity" }));
+          const newE: KGEdge[] = (event.edges || []).map((e: any) => ({ from: e.from || e.source, to: e.to || e.target, label: e.label || e.type || "" }));
+          setKgNodes((prev) => { const ids = new Set(prev.map(n => n.id)); return [...prev, ...newN.filter(n => !ids.has(n.id))]; });
+          setKgEdges((prev) => { const keys = new Set(prev.map(e => `${e.from}→${e.to}`)); return [...prev, ...newE.filter(e => !keys.has(`${e.from}→${e.to}`))]; });
+          // Activate KG types based on discovered node types
+          const discoveredTypes = new Set(newN.map((n) => n.type.toLowerCase()));
+          discoveredTypes.forEach((dt) => setActiveKgTypes((prev) => new Set(prev).add(dt)));
+          // Re-pulse data sources on each batch
+          ["uns", "erp"].forEach(activateSource);
+          break;
+        }
+
+        case "kg_traversal_end":
+          setKgStatus("done");
+          break;
+
+        case "kg_summary": {
+          // Discussion runner sends this — extract nodes/edges if we don't have them yet
+          const sumNodes: KGNode[] = (event.nodes || []).map((n: any) => ({ id: n.id, label: n.label || n.id, type: n.type || "Entity" }));
+          const sumEdges: KGEdge[] = (event.edges || []).map((e: any) => ({ from: e.from || e.source, to: e.to || e.target, label: e.label || e.type || "" }));
+          if (sumNodes.length > 0) {
+            setKgNodes((prev) => prev.length === 0 ? sumNodes : prev);
+            setKgEdges((prev) => prev.length === 0 ? sumEdges : prev);
+          }
+          if (event.centerEntity) setKgCenter(typeof event.centerEntity === "string" ? event.centerEntity : event.centerEntity.id);
+          // Activate KG types based on stats
+          if (event.stats?.affectedOrders > 0) setActiveKgTypes((prev) => new Set(prev).add("order"));
+          if (event.stats?.affectedCustomers > 0) setActiveKgTypes((prev) => new Set(prev).add("customer"));
+          if (event.stats?.alternatives > 0) setActiveKgTypes((prev) => new Set(prev).add("alternative"));
+          break;
+        }
+
+        case "done":
+          break;
+
+        case "error":
+          upsert({ content: `Error: ${event.message}` });
+          break;
+      }
+    }
+  }, [touchActivity, processToolForI3X, extractImpactStats, activateSource]);
+
+  /* ═════════════════════════════════════════════════════════════════════
+     ACT 1: Send question
+     ═════════════════════════════════════════════════════════════════════ */
+  const handleSend = async () => {
+    const text = question.trim();
+    if (!text || streaming) return;
+
+    setQuestion("");
+    setStreaming(true);
+    setChatDone(false);
+    setReportUrl(null);
+    setChatSources([]);
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    startDeadAirWatch();
+
+    try {
+      if (fallbackMode) {
+        // Feature A: Play recorded events (live recording if available, else hardcoded)
+        const fbEvents = liveFallbackChat.current.length > 0 ? liveFallbackChat.current : FALLBACK_CHAT_EVENTS;
+        await processChatStream(playFallbackEvents(fbEvents));
+      } else {
+        // Live mode with auto-reconnect (Feature C)
+        await processChatStream(streamSSEWithRetry("/chat/completions", { message: text, language: "en", ...(llmProvider === "haiku" && { llmProvider: "haiku" }) }));
+      }
+    } catch (err: any) {
+      // If live failed, auto-fallback
+      if (!fallbackMode) {
+        console.warn("Live stream failed, switching to fallback:", err.message);
+        const fbEvents = liveFallbackChat.current.length > 0 ? liveFallbackChat.current : FALLBACK_CHAT_EVENTS;
+        await processChatStream(playFallbackEvents(fbEvents));
+      } else {
+        setMessages((prev) => [...prev, { role: "assistant", content: `Connection error: ${err.message}` }]);
+      }
+    }
+
+    stopDeadAirWatch();
+    setStreaming(false);
+    setChatDone(true);
+  };
+
+  /* ═════════════════════════════════════════════════════════════════════
+     ACT 2: Start agent discussion
+     ═════════════════════════════════════════════════════════════════════ */
+  const startDiscussion = async () => {
+    setAct("discussion");
+    setDiscussionRunning(true);
+    setV7Events([]);
+    startDeadAirWatch();
+
+    try {
+      const fbDisc = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
+      const source = fallbackMode
+        ? playFallbackEvents(fbDisc)
+        : streamSSEWithRetry("/agents/run/impact-analysis", {
+            question: messages[0]?.content || "What happens if SGM-004 goes down right now?",
+            ...(llmProvider === "haiku" && { llmProvider: "haiku" }),
+          });
+
+      for await (const event of source) {
+        touchActivity();
+        recordEvent(event, "discussion");
+        setV7Events((prev) => [...prev, event as V7Event]);
+        if (event.type === "done" || event.type === "error") break;
+      }
+    } catch (err: any) {
+      // Auto-fallback on failure
+      if (!fallbackMode) {
+        console.warn("Live discussion failed, switching to fallback:", err.message);
+        const fbDiscFallback = liveFallbackDiscussion.current.length > 0 ? liveFallbackDiscussion.current : FALLBACK_DISCUSSION_EVENTS;
+        setV7Events([]);
+        for await (const event of playFallbackEvents(fbDiscFallback)) {
+          touchActivity();
+          setV7Events((prev) => [...prev, event as V7Event]);
+          if (event.type === "done") break;
+        }
+      } else {
+        setV7Events((prev) => [...prev, { type: "error", message: err.message } as V7Event]);
+      }
+    }
+
+    stopDeadAirWatch();
+    setDiscussionRunning(false);
+  };
+
+  /* ═════════════════════════════════════════════════════════════════════
+     RENDER
+     ═════════════════════════════════════════════════════════════════════ */
+
+  return (
+    <div className={`fixed inset-0 ${lightMode ? "text-gray-900 fomi-light" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
+      {lightMode && (
+        <style>{`
+          .fomi-light .border-white\\/\\[0\\.06\\], .fomi-light .border-white\\/\\[0\\.08\\], .fomi-light .border-white\\/\\[0\\.04\\], .fomi-light .border-white\\/10, .fomi-light .border-white\\/15, .fomi-light .border-white\\/20 { border-color: rgba(208,58,140,0.2) !important; }
+          .fomi-light .bg-white\\/\\[0\\.02\\], .fomi-light .bg-white\\/\\[0\\.03\\], .fomi-light .bg-white\\/\\[0\\.04\\], .fomi-light .bg-white\\/\\[0\\.05\\] { background-color: rgba(208,58,140,0.04) !important; }
+          .fomi-light .text-white\\/90 { color: #1a1a1a !important; }
+          .fomi-light .text-white\\/80, .fomi-light .text-white\\/70, .fomi-light .text-white\\/60 { color: #2d2d2d !important; }
+          .fomi-light .text-white\\/50, .fomi-light .text-white\\/45, .fomi-light .text-white\\/40 { color: #444 !important; }
+          .fomi-light .text-white\\/30, .fomi-light .text-white\\/20, .fomi-light .text-white\\/15 { color: #666 !important; }
+          .fomi-light .text-white { color: #1a1a1a !important; }
+          .fomi-light .text-emerald-400 { color: #047857 !important; }
+          .fomi-light .text-emerald-400\\/80 { color: #059669 !important; }
+          .fomi-light .text-violet-400, .fomi-light .text-violet-300 { color: #6d28d9 !important; }
+          .fomi-light .text-blue-400 { color: #1d4ed8 !important; }
+          .fomi-light .text-amber-400, .fomi-light .text-amber-400\\/70 { color: #b45309 !important; }
+          .fomi-light .text-cyan-400, .fomi-light .text-cyan-400\\/70 { color: #0e7490 !important; }
+          .fomi-light .text-red-400, .fomi-light .text-red-400\\/70 { color: #b91c1c !important; }
+          .fomi-light .bg-emerald-500\\/\\[0\\.08\\], .fomi-light .bg-emerald-500\\/\\[0\\.02\\] { background-color: rgba(4,120,87,0.08) !important; }
+          .fomi-light .bg-violet-500\\/\\[0\\.1\\] { background-color: rgba(109,40,217,0.08) !important; }
+          .fomi-light .bg-blue-500\\/\\[0\\.1\\] { background-color: rgba(29,78,216,0.08) !important; }
+          .fomi-light .bg-amber-500\\/\\[0\\.1\\] { background-color: rgba(180,83,9,0.08) !important; }
+          .fomi-light .bg-cyan-500\\/10 { background-color: rgba(14,116,144,0.08) !important; }
+          .fomi-light input { background-color: rgba(208,58,140,0.05) !important; color: #1a1a1a !important; border-color: rgba(208,58,140,0.2) !important; }
+          .fomi-light input::placeholder { color: rgba(123,45,133,0.4) !important; }
+        `}</style>
+      )}
+      {/* ── Top Bar ──────────────────────────────────────────────────── */}
+      <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-white/[0.06]">
+        <div className="flex items-center gap-4">
+          {/* Logo — triple-click activates fallback (Feature A) */}
+          <div className="flex items-center gap-2 select-none" onClick={handleLogoClick}>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] grid place-items-center cursor-pointer">
+              <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+              </svg>
+            </div>
+            <span className="text-lg font-bold tracking-tight">OpenShopFloor</span>
+          </div>
+          <button
+            onClick={() => setLlmProvider(p => p === "local" ? "haiku" : "local")}
+            className="text-[10px] font-mono text-white/30 bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-0.5 hover:bg-white/[0.08] transition-colors cursor-pointer flex items-center gap-1"
+            title={`LLM: ${llmProvider}`}
+          >
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+            {llmProvider === "haiku" && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />}
+          </button>
+          <span className={`text-sm ${lightMode ? "text-gray-400" : "text-white/40"}`}>|</span>
+          <span className={`text-sm font-medium ${lightMode ? "text-gray-600" : "text-white/60"}`}>FoMI 2026 Live Demo</span>
+          <button
+            onClick={() => setLightMode(m => !m)}
+            className={`ml-2 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
+          >
+            {lightMode ? "Dark" : "Light"}
+          </button>
+          {/* Fallback indicator — subtle, only visible to presenter */}
+          {fallbackMode && (
+            <span className="text-[9px] text-white/20 ml-1">SAFE</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Record button — admin only */}
+          {isAdmin && (
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                recording
+                  ? "border-red-500/40 bg-red-500/10 text-red-400"
+                  : hasRecordedFallback
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    : "border-white/10 bg-white/[0.03] text-white/50 hover:text-white/80"
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${
+                recording ? "bg-red-500 animate-pulse" : hasRecordedFallback ? "bg-emerald-400" : "bg-white/30"
+              }`} />
+              {recording ? "Stop & Save" : hasRecordedFallback ? "Re-Record" : "Record"}
+            </button>
+          )}
+
+          {/* i3X badge */}
+          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03]">
+            <span className="text-[10px] font-bold text-[#d03a8c] tracking-wider">i3X</span>
+            <span className="text-[10px] text-white/30">|</span>
+            <span className="text-[10px] text-white/50">CESMII SM Profiles</span>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Content ──────────────────────────────────────────────────── */}
+      <div className="flex-1 min-h-0">
+          {/* ═══════════════════════════════════════════════════════════
+             IMPACT ANALYSIS + INLINE DISCUSSION
+             ═══════════════════════════════════════════════════════════ */}
+          <div className="h-full flex" style={{ position: 'relative' }}>
+            {/* LEFT: Chat */}
+            <div style={{ width: `${splitPct}%` }} className="flex flex-col border-r border-white/[0.06]">
+              {/* Chat messages */}
+              <div ref={chatRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                {messages.length === 0 && !streaming && (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <div className="relative w-24 h-24 mb-6">
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] opacity-20 animate-pulse" />
+                      <div className="absolute inset-2 rounded-full bg-[#050507]" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <svg className="w-10 h-10 text-[#d03a8c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                      </div>
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">What-If Analysis</h2>
+                    <p className="text-white/40 text-sm max-w-xs mb-6">
+                      Ask about machine failures, order impacts, or production bottlenecks
+                    </p>
+                    <button
+                      onClick={() => {
+                        setQuestion("What happens if SGM-004 goes down right now?");
+                        setTimeout(() => handleSend(), 100);
+                      }}
+                      className="px-5 py-3 rounded-lg bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-black font-semibold text-sm hover:opacity-90 transition-opacity"
+                    >
+                      &quot;What happens if SGM-004 goes down?&quot;
+                    </button>
+                  </div>
+                )}
+
+                {messages.map((msg, i) => (
+                  <div key={i} className={`${msg.role === "user" ? "flex justify-end" : ""}`}>
+                    {msg.role === "user" ? (
+                      <div className="max-w-[90%] rounded-xl px-4 py-3 bg-gradient-to-r from-[#d03a8c]/20 to-[#7b2d85]/10 border border-[#d03a8c]/20">
+                        <p className="text-base font-medium">{msg.content}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {msg.toolCalls && msg.toolCalls.length > 0 && (
+                          <div className="space-y-1">
+                            {msg.toolCalls.map((tc, j) => (
+                              <div key={j} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm">
+                                {tc.status === "running" ? (
+                                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                                ) : (
+                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                                )}
+                                <span className="font-mono text-amber-400/90">{tc.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {msg.content && (
+                          <div
+                            className={`text-sm leading-relaxed text-white/80 ${mdClasses}`}
+                            dangerouslySetInnerHTML={{ __html: safeMarkdown(msg.content) }}
+                          />
+                        )}
+                        {msg.sources && msg.sources.length > 0 && (
+                          <details className="mt-1.5 text-[11px]">
+                            <summary className="cursor-pointer text-white/40 hover:text-white/60 select-none py-0.5">
+                              {msg.sources.length} {msg.sources.length === 1 ? "Quelle" : "Quellen"}
+                            </summary>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {msg.sources.map((s, si) => (
+                                <span key={si} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.06] border border-white/[0.1] text-white/60">
+                                  <span className="text-[10px]">📄</span>
+                                  {s.name.replace(/_/g, " ")}
+                                  {s.resultSize > 0 && <span className="text-white/30">({s.resultSize > 1024 ? `${(s.resultSize / 1024).toFixed(1)}k` : `${s.resultSize}B`})</span>}
+                                </span>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* ── Specialist Cards (expandable) ──────────── */}
+                {v7State.specialists.size > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-white/50 uppercase tracking-widest">Specialists — {Array.from(v7State.specialists.values()).filter(s => s.status === "done").length}/{v7State.specialists.size}</div>
+                    {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
+                      <div key={key} className="rounded-lg bg-white/[0.04] border border-white/[0.08] overflow-hidden">
+                        <button
+                          onClick={() => setExpandedSpec(expandedSpec === key ? null : key)}
+                          className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors text-sm"
+                        >
+                          {spec.status === "running" && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />}
+                          {spec.status === "done" && <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />}
+                          {spec.status === "error" && <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />}
+                          <span className="text-white/80 flex-1">{spec.name}</span>
+                          {spec.duration && <span className="text-xs text-white/30">{(spec.duration / 1000).toFixed(0)}s</span>}
+                          {spec.report && (
+                            <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${expandedSpec === key ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          )}
+                        </button>
+                        {expandedSpec === key && spec.report && (
+                          <div className="px-3 pb-3 pt-1 border-t border-white/[0.04] text-xs text-white/60 space-y-2">
+                            {spec.report.zahlenDatenFakten && <p>{spec.report.zahlenDatenFakten}</p>}
+                            {Array.isArray(spec.report.kritischeFindings) && spec.report.kritischeFindings.slice(0, 3).map((f: any, fi: number) => (
+                              <div key={fi} className="flex items-start gap-1.5">
+                                <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                                  f.severity === "hoch" || f.severity === "critical" ? "bg-red-500/20 text-red-400" :
+                                  f.severity === "mittel" || f.severity === "high" ? "bg-amber-500/20 text-amber-400" :
+                                  "bg-blue-500/20 text-blue-400"
+                                }`}>{f.severity}</span>
+                                <span>{f.finding}</span>
+                              </div>
+                            ))}
+                            {Array.isArray(spec.report.empfehlungen) && spec.report.empfehlungen.slice(0, 2).map((r: any, ri: number) => (
+                              <p key={ri} className="text-emerald-400/80">
+                                <span className="text-white/40">{r.priorität === "sofort" ? "NOW" : r.priorität === "heute" ? "TODAY" : "WEEK"}: </span>
+                                {r.maßnahme}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Discussion Thread (inline in chat, without debate_final) ── */}
+                {v7State.discussionEvents.filter(ev => ev.type !== 'debate_final').length > 0 && (
+                  <div ref={discussionRef}>
+                    <DiscussionThread events={v7State.discussionEvents.filter(ev => ev.type !== 'debate_final')} />
+                  </div>
+                )}
+
+                {/* ── Final Recommendation (own prominent bubble) ── */}
+                {v7State.discussionEvents.filter(ev => ev.type === 'debate_final').map((ev, i) => (
+                  <div key={`final-${i}`} className="rounded-xl px-5 py-4 border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.08] to-emerald-500/[0.02]">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-3 h-3 rounded-full bg-emerald-400" />
+                      <span className="text-sm font-bold text-emerald-400 uppercase tracking-widest">Final Recommendation</span>
+                    </div>
+                    <div className="text-sm text-white/90 leading-relaxed whitespace-pre-line">{ev.debateFinalSummary || ''}</div>
+                  </div>
+                ))}
+
+                {/* ── Report Link ──────────────────────────────── */}
+                {reportUrl && (
+                  <a
+                    href={reportUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 px-5 py-3.5 rounded-xl border-2 border-[#d03a8c]/30 bg-[#d03a8c]/[0.06] hover:bg-[#d03a8c]/[0.12] transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-[#d03a8c] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="text-sm font-bold text-[#d03a8c]">Open Full Report</span>
+                    <svg className="w-4 h-4 text-[#d03a8c]/60 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                )}
+
+                {/* ── Synthesis ──────────────────────────────────── */}
+                {v7State.doneResult && <SynthesisCard data={v7State.doneResult} />}
+
+                {/* ── Source Attribution ────────────────────────── */}
+                {!streaming && chatSources.length > 0 && (
+                  <details className="mt-1 text-[11px]">
+                    <summary className="cursor-pointer text-white/40 hover:text-white/60 select-none py-0.5">
+                      {chatSources.length} {chatSources.length === 1 ? "Quelle" : "Quellen"}
+                    </summary>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {chatSources.map((s, si) => (
+                        <span key={si} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.06] border border-white/[0.1] text-white/60">
+                          <span className="text-[10px]">📄</span>
+                          {s.name.replace(/_/g, " ")}
+                          {s.resultSize > 0 && <span className="text-white/30">({s.resultSize > 1024 ? `${(s.resultSize / 1024).toFixed(1)}k` : `${s.resultSize}B`})</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {/* Streaming indicator */}
+                {streaming && (
+                  <div className="flex items-center gap-2 px-2 py-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#d03a8c] animate-bounce [animation-delay:0ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#d03a8c] animate-bounce [animation-delay:200ms]" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#d03a8c] animate-bounce [animation-delay:400ms]" />
+                  </div>
+                )}
+              </div>
+
+              {/* Input */}
+              <div className="p-4 border-t border-white/[0.06]">
+                {false && chatDone && !streaming ? (
+                  <div /> // Act 2 button removed — discussion runs inline in Act 1
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                      placeholder="What happens if SGM-004 goes down right now?"
+                      className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#d03a8c]/50 transition-colors placeholder:text-white/20"
+                    />
+                    <button
+                      onClick={handleSend}
+                      disabled={!question.trim() || streaming}
+                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
+                    >
+                      Ask
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Drag handle */}
+            <div
+              className="w-1.5 cursor-col-resize hover:bg-[#d03a8c]/30 active:bg-[#d03a8c]/50 transition-colors shrink-0"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startPct = splitPct;
+                const onMove = (me: MouseEvent) => {
+                  const dx = me.clientX - startX;
+                  const newPct = Math.min(70, Math.max(25, startPct + (dx / window.innerWidth) * 100));
+                  setSplitPct(newPct);
+                };
+                const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+              }}
+            />
+            {/* RIGHT: i3X Insight Panel */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4" style={{ height: 'calc(100vh - 56px)' }}>
+              {/* ── Data Sources ──────────────────────────────────────── */}
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Interoperability</span>
+                  <span className="text-xs text-white/40">— Data Sources</span>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  {DATA_SOURCES.map((src) => {
+                    const isActive = activeSources.has(src.id);
+                    return (
+                      <div
+                        key={src.id}
+                        className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-500 ${
+                          isActive
+                            ? "border-white/20 bg-white/[0.05]"
+                            : "border-white/[0.04] bg-white/[0.01]"
+                        }`}
+                      >
+                        {isActive && (
+                          <div
+                            className="absolute inset-0 rounded-xl opacity-20 animate-pulse"
+                            style={{ boxShadow: `inset 0 0 20px ${src.color}40, 0 0 30px ${src.color}20` }}
+                          />
+                        )}
+                        <svg
+                          className="w-8 h-8 transition-all duration-500"
+                          style={{ color: isActive ? src.color : lightMode ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.15)" }}
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                        >
+                          <path d={src.icon} />
+                        </svg>
+                        <span
+                          className="text-sm font-semibold transition-all duration-500"
+                          style={{ color: isActive ? src.color : lightMode ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.45)" }}
+                        >
+                          {src.label}
+                        </span>
+                        {isActive && (
+                          <span className="absolute top-2 right-2 w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: src.color }} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── KG Type System ────────────────────────────────────── */}
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Integration</span>
+                  <span className="text-xs text-white/40">— Knowledge Graph Types</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {KG_TYPES.map((t) => {
+                    const isActive = activeKgTypes.has(t.id);
+                    return (
+                      <div
+                        key={t.id}
+                        className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition-all duration-700 ${
+                          isActive
+                            ? "border-white/20 scale-100 opacity-100"
+                            : "border-white/[0.06] scale-95 opacity-50"
+                        }`}
+                        style={{
+                          color: isActive ? t.color : lightMode ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.45)",
+                          backgroundColor: isActive ? `${t.color}15` : "transparent",
+                          borderColor: isActive ? `${t.color}40` : "transparent",
+                        }}
+                      >
+                        {t.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── KG Tools ──────────────────────────────────────────── */}
+              {kgToolsList.length > 0 && (
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">KG Queries</span>
+                    <span className="text-xs text-white/40">— {kgToolsList.length} tools</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {kgToolsList.map((tool) => {
+                      const ts = kgToolStatuses.get(tool);
+                      const s = ts?.status || 'running';
+                      return (
+                        <span
+                          key={tool}
+                          className={`px-2 py-1 rounded text-[10px] font-mono border transition-all duration-500 flex items-center gap-1 ${
+                            s === 'ok' ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                            : s === 'retry' ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                            : s === 'failed' ? "border-red-500/30 bg-red-500/10 text-red-400"
+                            : "border-cyan-500/30 bg-cyan-500/10 text-cyan-400 animate-pulse"
+                          }`}
+                        >
+                          {tool.replace("kg_", "")}
+                          {s === 'retry' && ts?.attempt && <span className="text-[8px] font-bold bg-amber-500/30 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center">{ts.attempt}</span>}
+                          {s === 'ok' && <span className="text-[9px]">✓</span>}
+                          {s === 'failed' && <span className="text-[9px]">✗</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Knowledge Graph (3D) ─────────────────────────────── */}
+              {kgNodes.length > 0 && (
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Intelligence</span>
+                    <span className="text-xs text-white/40">— Knowledge Graph</span>
+                    <span className="ml-auto text-xs text-white/50 mr-2">{kgNodes.length} nodes, {kgEdges.length} edges</span>
+                    <button
+                      onClick={() => setKgPopup(true)}
+                      className="p-1 rounded hover:bg-white/10 transition-colors text-white/50 hover:text-white"
+                      title="Expand Knowledge Graph"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                      </svg>
+                    </button>
+                  </div>
+                  <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={380} bgColor={bg} />
+                </div>
+              )}
+
+              {/* ── Impact Summary Cards ───────────────────────────────── */}
+              {(impactOrders.length > 0 || impactCustomers.length > 0 || impactCost) && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-red-500/20 bg-red-500/[0.05] p-4">
+                    <div className="text-xs text-red-400/70 uppercase tracking-wider font-bold mb-2">Orders at Risk</div>
+                    <div className="text-4xl font-black text-red-400 mb-1">{impactOrders.length}</div>
+                    <div className="text-[10px] text-white/30 space-y-0.5">
+                      {impactOrders.slice(0, 4).map((o) => (
+                        <div key={o} className="font-mono">{o}</div>
+                      ))}
+                      {impactOrders.length > 4 && <div>+{impactOrders.length - 4} more</div>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-4">
+                    <div className="text-xs text-amber-400/70 uppercase tracking-wider font-bold mb-2">Customers Hit</div>
+                    <div className="text-4xl font-black text-amber-400 mb-1">{impactCustomers.length}</div>
+                    <div className="text-[10px] text-white/30 space-y-0.5">
+                      {impactCustomers.slice(0, 4).map((c) => (
+                        <div key={c} className="font-mono">{c}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[#d03a8c]/20 bg-[#d03a8c]/[0.05] p-4">
+                    <div className="text-xs text-[#d03a8c]/70 uppercase tracking-wider font-bold mb-2">Downtime Cost</div>
+                    <div className="text-3xl font-black text-[#d03a8c]">{impactCost || "\u2014"}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Placeholder when no data yet */}
+              {kgNodes.length === 0 && impactOrders.length === 0 && activeKgTypes.size === 0 && (
+                <div className="flex flex-col items-center justify-center h-[60%] text-center">
+                  <svg className="w-20 h-20 mb-4 text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
+                    <path d="M8 12l2 2 4-4" />
+                  </svg>
+                  <p className="text-base text-white/50">Ask a question to see i3X insights light up</p>
+                  <p className="text-sm mt-1 text-white/30">Data sources, SM profiles, and the knowledge graph will activate in real-time</p>
+                </div>
+              )}
+            </div>
+          </div>
+      </div>
+
+      {/* ── KG Window ──────────────────────────────────────────── */}
+      {kgPopup && kgNodes.length > 0 && (
+        <div className="fixed top-4 right-4 bottom-4 w-[55%] z-[100] bg-[#0a0a0f] border border-white/15 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-white/[0.02]">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Knowledge Graph</span>
+              <span className="text-xs text-white/50">{kgNodes.length} nodes, {kgEdges.length} edges</span>
+              {kgCenter && <span className="text-xs text-cyan-400 font-mono">Center: {kgCenter}</span>}
+            </div>
+            <button
+              onClick={() => setKgPopup(false)}
+              className="px-3 py-1.5 rounded-lg border border-white/20 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              Close (ESC)
+            </button>
+          </div>
+          <div className="flex-1">
+            <KG3D nodes={kgNodes} edges={kgEdges} centerEntityId={kgCenter} status={kgStatus} height={typeof window !== "undefined" ? window.innerHeight - 120 : 700} width={typeof window !== "undefined" ? Math.floor(window.innerWidth * 0.55) - 32 : 800} bgColor={bg} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
