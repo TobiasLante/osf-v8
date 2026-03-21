@@ -322,7 +322,20 @@ export async function buildInstancesFromPostgres(
 
       validateIdentifier(conn.schema, 'connection.schema');
       validateIdentifier(conn.table, 'connection.table');
-      let query = `SELECT * FROM ${conn.schema}.${conn.table}`;
+
+      // Build SELECT with computed columns (e.g. "col_a || '-' || col_b" → aliased)
+      const isExpr = (col: string) => /[^a-zA-Z0-9_]/.test(col);
+      const colAliases = new Map<string, string>();
+      const selectParts: string[] = ['*'];
+      for (const cm of src.columnMappings) {
+        if (isExpr(cm.column)) {
+          const alias = `_expr_${cm.smAttribute}`;
+          selectParts.push(`(${cm.column}) AS ${alias}`);
+          colAliases.set(cm.column, alias);
+        }
+      }
+
+      let query = `SELECT ${selectParts.join(', ')} FROM ${conn.schema}.${conn.table}`;
       // Filter is trusted from schema config, but validate against obvious injection
       if (src.filter) query += ` WHERE ${validateFilter(src.filter)}`;
 
@@ -330,12 +343,14 @@ export async function buildInstancesFromPostgres(
       const nodeQueries: string[] = [];
 
       for (const row of result.rows) {
-        const id = String(row[idCol.column] || '');
+        const idColKey = colAliases.get(idCol.column) || idCol.column;
+        const id = String(row[idColKey] || '');
         if (!id) continue;
 
         const props: Record<string, any> = {};
         for (const cm of src.columnMappings) {
-          const val = row[cm.column];
+          const key = colAliases.get(cm.column) || cm.column;
+          const val = row[key];
           if (val !== null && val !== undefined) {
             props[cm.smAttribute] = val;
           }
@@ -447,7 +462,20 @@ export async function startPollingSync(
 
           validateIdentifier(conn.schema, 'connection.schema');
           validateIdentifier(conn.table, 'connection.table');
-          let query = `SELECT * FROM ${conn.schema}.${conn.table}`;
+
+          // Computed column aliases (same logic as buildInstancesFromPostgres)
+          const isExprP = (col: string) => /[^a-zA-Z0-9_]/.test(col);
+          const colAliasesP = new Map<string, string>();
+          const selectPartsP: string[] = ['*'];
+          for (const cm of src.columnMappings) {
+            if (isExprP(cm.column)) {
+              const alias = `_expr_${cm.smAttribute}`;
+              selectPartsP.push(`(${cm.column}) AS ${alias}`);
+              colAliasesP.set(cm.column, alias);
+            }
+          }
+
+          let query = `SELECT ${selectPartsP.join(', ')} FROM ${conn.schema}.${conn.table}`;
           const conditions: string[] = [];
           const params: any[] = [];
           // Filter is trusted from schema config, but validate against obvious injection
@@ -476,11 +504,13 @@ export async function startPollingSync(
 
           const nodeQueries: string[] = [];
           for (const row of result.rows) {
-            const id = String(row[idCol.column] || '');
+            const idColKeyP = colAliasesP.get(idCol.column) || idCol.column;
+            const id = String(row[idColKeyP] || '');
             if (!id) continue;
             const props: Record<string, any> = {};
             for (const cm of src.columnMappings) {
-              const val = row[cm.column];
+              const keyP = colAliasesP.get(cm.column) || cm.column;
+              const val = row[keyP];
               if (val !== null && val !== undefined) props[cm.smAttribute] = val;
             }
             nodeQueries.push(vertexCypher(profile.kgNodeLabel, id, props));

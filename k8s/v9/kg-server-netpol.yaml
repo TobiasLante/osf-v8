@@ -61,19 +61,26 @@ spec:
           protocol: TCP
         - port: 5003
           protocol: TCP
-    # MQTT Broker (demo namespace ClusterIP + external NodePort)
+    # K8s Node (.150): MQTT, PostgreSQL NodePorts (ERP, QMS, Factory, WMS)
+    - to:
+        - ipBlock:
+            cidr: 192.168.178.150/32
+      ports:
+        - port: 30431
+          protocol: TCP
+        - port: 30432
+          protocol: TCP
+        - port: 30433
+          protocol: TCP
+        - port: 31883
+          protocol: TCP
+    # MQTT Broker (demo namespace ClusterIP)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: demo
       ports:
         - port: 1883
-          protocol: TCP
-    - to:
-        - ipBlock:
-            cidr: 192.168.178.150/32
-      ports:
-        - port: 31883
           protocol: TCP
     # GitHub (schema repo clone/pull via HTTPS)
     - to:
