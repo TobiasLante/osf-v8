@@ -3,8 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Domain } from './DomainSelector';
 import type { DataSourcesConfig } from './DataSources';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8035';
+import { API_URL, apiFetch } from '../lib/api';
 
 type PipelineState = 'idle' | 'running' | 'done' | 'error';
 
@@ -29,25 +28,23 @@ interface PipelineRunnerProps {
   onRunComplete?: (runId: string) => void;
 }
 
-/** Parse SSE text into event/data pairs. Handles multi-line data fields. */
-function parseSSE(chunk: string): Array<{ event: string; data: string }> {
-  const events: Array<{ event: string; data: string }> = [];
+/** Parse SSE text into parsed objects. Server sends `data: {json}\n\n`. */
+function parseSSE(chunk: string): Array<Record<string, unknown>> {
+  const results: Array<Record<string, unknown>> = [];
   const blocks = chunk.split('\n\n');
   for (const block of blocks) {
     if (!block.trim()) continue;
     const lines = block.split('\n');
-    let event = 'message';
     let data = '';
     for (const line of lines) {
-      if (line.startsWith('event: ')) event = line.slice(7).trim();
-      else if (line.startsWith('data: ')) data += line.slice(6);
+      if (line.startsWith('data: ')) data += line.slice(6);
       else if (line.startsWith('data:')) data += line.slice(5);
     }
     if (data) {
-      events.push({ event, data });
+      try { results.push(JSON.parse(data)); } catch { /* skip malformed */ }
     }
   }
-  return events;
+  return results;
 }
 
 export default function PipelineRunner({
@@ -62,12 +59,6 @@ export default function PipelineRunner({
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [recentRuns, setRecentRuns] = useState<RunInfo[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
-  const [schemaMarkdown, setSchemaMarkdown] = useState('');
-  const [validationMarkdown, setValidationMarkdown] = useState('');
-  const [validationAccuracy, setValidationAccuracy] = useState<number | null>(null);
-  const [correctionMarkdown, setCorrectionMarkdown] = useState('');
-  const [waitingPrompt, setWaitingPrompt] = useState('');
-  const [userInput, setUserInput] = useState('');
   const [doneSummary, setDoneSummary] = useState('');
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -78,10 +69,9 @@ export default function PipelineRunner({
 
   // Fetch recent runs on mount
   useEffect(() => {
-    fetch(`${API_URL}/api/kg-builder/runs`)
-      .then((r) => r.json())
+    apiFetch<RunInfo[]>('/api/kg/runs')
       .then((data) => {
-        const runs: RunInfo[] = Array.isArray(data) ? data : data.runs || [];
+        const runs: RunInfo[] = Array.isArray(data) ? data : [];
         setRecentRuns(runs.slice(0, 5));
       })
       .catch(() => {});
@@ -92,35 +82,10 @@ export default function PipelineRunner({
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  const sendMessage = useCallback(
-    async (message: string) => {
-      if (!runId) return;
-      try {
-        await fetch(`${API_URL}/api/kg-builder/message/${runId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message }),
-        });
-        addLog('user', message);
-        setUserInput('');
-        setWaitingPrompt('');
-        setSchemaMarkdown('');
-      } catch (err) {
-        addLog('error', `Failed to send message: ${err}`);
-      }
-    },
-    [runId, addLog],
-  );
-
   const startBuild = useCallback(async () => {
     setState('running');
     setLogs([]);
     setCurrentPhase(-1);
-    setSchemaMarkdown('');
-    setValidationMarkdown('');
-    setValidationAccuracy(null);
-    setCorrectionMarkdown('');
-    setWaitingPrompt('');
     setDoneSummary('');
     setErrorMessage('');
 
@@ -135,7 +100,7 @@ export default function PipelineRunner({
 
       addLog('system', `Starting KG build for domain: ${domain}`);
 
-      const response = await fetch(`${API_URL}/api/kg-builder/start`, {
+      const response = await fetch(`${API_URL}/api/kg/build`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -165,76 +130,28 @@ export default function PipelineRunner({
 
         for (const part of parts) {
           const events = parseSSE(part + '\n\n');
-          for (const { event, data } of events) {
-            if (event === 'heartbeat') continue;
+          for (const parsed of events) {
+            const type = parsed.type as string;
+            if (type === 'heartbeat') continue;
 
-            let parsed: Record<string, unknown> = {};
-            try {
-              parsed = JSON.parse(data);
-            } catch {
-              continue;
-            }
-
-            switch (event) {
-              case 'run_start':
-                setRunId(parsed.runId as string);
-                addLog('system', `Run started: ${parsed.runId}`);
-                break;
-
-              case 'phase': {
+            switch (type) {
+              case 'progress': {
                 const phase = parsed.phase as number;
-                const description = parsed.description as string;
+                const step = parsed.step as string;
                 setCurrentPhase(phase);
-                addLog('phase', `Phase ${phase}: ${description}`);
+                addLog('phase', `Phase ${phase}: ${step}`);
                 break;
               }
 
-              case 'schema_proposal':
-                setSchemaMarkdown(
-                  (parsed.markdown as string) || JSON.stringify(parsed.proposal, null, 2),
-                );
-                addLog('schema', 'Schema proposal received');
-                break;
-
-              case 'waiting_for_input':
-                setWaitingPrompt(parsed.prompt as string);
-                addLog('input', `Waiting: ${parsed.prompt}`);
-                break;
-
-              case 'extraction_progress': {
-                const msg = parsed.message as string;
-                const current = parsed.current as number | undefined;
-                const total = parsed.total as number | undefined;
-                const progress = current && total ? ` (${current}/${total})` : '';
-                addLog('progress', `${msg}${progress}`);
-                break;
-              }
-
-              case 'validation_report':
-                setValidationMarkdown(
-                  (parsed.markdown as string) || JSON.stringify(parsed.report, null, 2),
-                );
-                setValidationAccuracy(parsed.accuracy as number);
-                addLog('validation', `Validation complete -- accuracy: ${parsed.accuracy}%`);
-                break;
-
-              case 'correction_proposal':
-                setCorrectionMarkdown(
-                  (parsed.markdown as string) || JSON.stringify(parsed.corrections, null, 2),
-                );
-                addLog('correction', 'Correction proposal received');
-                break;
-
-              case 'answer':
-                addLog('answer', `Q: ${parsed.question}\nA: ${parsed.answer}`);
-                break;
-
-              case 'done':
-                setDoneSummary(parsed.summary as string);
-                addLog('done', `Build complete: ${parsed.summary}`);
+              case 'done': {
+                const summary = `${parsed.totalNodes} nodes, ${parsed.totalEdges} edges, ${parsed.accuracy}% accuracy`;
+                setRunId(parsed.runId as string);
+                setDoneSummary(summary);
+                addLog('done', `Build complete: ${summary}`);
                 setState('done');
                 onRunComplete?.(parsed.runId as string);
                 break;
+              }
 
               case 'error':
                 setErrorMessage(parsed.message as string);
@@ -243,7 +160,7 @@ export default function PipelineRunner({
                 break;
 
               default:
-                addLog('event', `${event}: ${data}`);
+                addLog('event', `${type}: ${JSON.stringify(parsed)}`);
             }
           }
         }
@@ -262,12 +179,6 @@ export default function PipelineRunner({
 
   const handleRetry = () => {
     startBuild();
-  };
-
-  const handleInputSubmit = () => {
-    if (userInput.trim()) {
-      sendMessage(userInput.trim());
-    }
   };
 
   /* ------------------------------------------------------------------ */
@@ -339,130 +250,6 @@ export default function PipelineRunner({
     </div>
   );
 
-  const renderInteractivePanels = () => (
-    <div className="space-y-3 mt-3">
-      {/* Schema Proposal */}
-      {schemaMarkdown && (
-        <div className="rounded-lg border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 p-4">
-          <h4 className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-2">
-            Schema Proposal
-          </h4>
-          <pre className="text-xs text-[var(--text)] whitespace-pre-wrap max-h-48 overflow-y-auto mb-3">
-            {schemaMarkdown}
-          </pre>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
-              placeholder="Corrections or press Confirm..."
-              className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            />
-            <button
-              onClick={() => sendMessage('ok')}
-              className="rounded-md bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 text-sm text-white font-medium transition-colors"
-            >
-              Confirm
-            </button>
-            <button
-              onClick={handleInputSubmit}
-              className="rounded-md border border-gray-200 dark:border-gray-700 px-4 py-1.5 text-sm text-[var(--text)] hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              Send Correction
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Waiting for Input */}
-      {waitingPrompt && !schemaMarkdown && (
-        <div className="rounded-lg border border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 p-4">
-          <h4 className="text-sm font-semibold text-yellow-700 dark:text-yellow-300 mb-2">
-            Input Required
-          </h4>
-          <p className="text-sm text-[var(--text)] mb-3">{waitingPrompt}</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
-              placeholder="Your response..."
-              className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            />
-            <button
-              onClick={handleInputSubmit}
-              className="rounded-md bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 text-sm text-white font-medium transition-colors"
-            >
-              Send
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Validation Report */}
-      {validationMarkdown && (
-        <div className="rounded-lg border border-cyan-300 dark:border-cyan-800 bg-cyan-50 dark:bg-cyan-900/20 p-4">
-          <div className="flex items-center gap-3 mb-2">
-            <h4 className="text-sm font-semibold text-cyan-700 dark:text-cyan-300">
-              Validation Report
-            </h4>
-            {validationAccuracy !== null && (
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                  validationAccuracy >= 80
-                    ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300'
-                    : validationAccuracy >= 50
-                    ? 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300'
-                    : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'
-                }`}
-              >
-                {validationAccuracy}% accuracy
-              </span>
-            )}
-          </div>
-          <pre className="text-xs text-[var(--text)] whitespace-pre-wrap max-h-48 overflow-y-auto">
-            {validationMarkdown}
-          </pre>
-        </div>
-      )}
-
-      {/* Correction Proposal */}
-      {correctionMarkdown && (
-        <div className="rounded-lg border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-4">
-          <h4 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-2">
-            Corrections
-          </h4>
-          <pre className="text-xs text-[var(--text)] whitespace-pre-wrap max-h-48 overflow-y-auto mb-3">
-            {correctionMarkdown}
-          </pre>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
-              placeholder="Additional corrections or confirm..."
-              className="flex-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            />
-            <button
-              onClick={() => sendMessage('ok')}
-              className="rounded-md bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 text-sm text-white font-medium transition-colors"
-            >
-              Accept
-            </button>
-            <button
-              onClick={handleInputSubmit}
-              className="rounded-md border border-gray-200 dark:border-gray-700 px-4 py-1.5 text-sm text-[var(--text)] hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              Send
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 
   /* ------------------------------------------------------------------ */
   /*  Main render                                                        */
@@ -523,7 +310,6 @@ export default function PipelineRunner({
         <div className="space-y-3">
           {renderPhases()}
           {renderLogs()}
-          {renderInteractivePanels()}
         </div>
       )}
 

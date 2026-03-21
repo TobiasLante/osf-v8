@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8035';
+import { API_URL } from '../lib/api';
 
 const SUGGESTIONS = [
   'Show all nodes',
@@ -32,10 +31,10 @@ export default function GraphExplorer({ runId, className }: GraphExplorerProps) 
       setQuery('');
 
       try {
-        const response = await fetch(`${API_URL}/api/kg-builder/message/${runId}`, {
+        const response = await fetch(`${API_URL}/api/kg/ask`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: question }),
+          body: JSON.stringify({ question }),
         });
 
         if (!response.ok) {
@@ -47,7 +46,9 @@ export default function GraphExplorer({ runId, className }: GraphExplorerProps) 
           ...prev,
           {
             question,
-            answer: data.answer || data.message || JSON.stringify(data),
+            answer: data.results
+              ? `${data.summary}\n\nCypher: ${data.cypher}\n\n${JSON.stringify(data.results, null, 2)}`
+              : data.answer || data.message || JSON.stringify(data),
           },
         ]);
       } catch (err) {

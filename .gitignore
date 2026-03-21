@@ -22,3 +22,5 @@ k8s/test-env/.env
 # OS
 .DS_Store
 Thumbs.db
+osf-frontend/.wrangler/
+osf-frontend/public/*.mp4
