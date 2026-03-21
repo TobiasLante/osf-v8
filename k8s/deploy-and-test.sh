@@ -1524,8 +1524,8 @@ deploy_v9() {
   docker build --no-cache \
     -t "$REGISTRY/osf-v9-web:$V9_WEB_TAG" \
     --build-arg NEXT_PUBLIC_API_URL="$KG_API_URL" \
-    -f "$V8_ROOT/web/Dockerfile" \
-    "$V8_ROOT/web" 2>&1 | tail -5
+    -f "$V8_ROOT/osf-kg-builder/web/Dockerfile" \
+    "$V8_ROOT/osf-kg-builder/web" 2>&1 | tail -5
   ok "v9 Web image built"
   docker push "$REGISTRY/osf-v9-web:$V9_WEB_TAG" 2>&1 | tail -3
   ok "v9 Web pushed"
