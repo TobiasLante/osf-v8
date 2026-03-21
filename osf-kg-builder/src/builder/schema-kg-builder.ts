@@ -1,7 +1,8 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { Pool } from 'pg';
 import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
-import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel, BulkNode, BulkEdge, executeBulkNodes, executeBulkEdges } from '../shared/cypher-utils';
+import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel, BulkNode, BulkEdge, executeBulkNodes, executeBulkEdges, cypherQuery } from '../shared/cypher-utils';
+import { generateEmbeddings, nodeToText } from '../shared/embedding-service';
 import { logger } from '../shared/logger';
 import { config } from '../shared/config';
 
@@ -804,6 +805,82 @@ export async function buildFromSchemas(
     pgNotifyChannels = await startPgNotifySync(pgNotifySyncs, sources, profiles);
   } catch (err) {
     errors.push(`Phase 3c (PG Notify): ${(err as Error).message}`);
+  }
+
+  // Phase 4: Cleanup stale nodes (BDEEvent, ProcessData from old MQTT bridge)
+  try {
+    const staleLabels = ['BDEEvent', 'ProcessData'];
+    for (const label of staleLabels) {
+      const result = await cypherQuery(`MATCH (n:${label}) DETACH DELETE n RETURN count(n) AS deleted`);
+      const deleted = result[0]?.deleted || 0;
+      if (deleted > 0) {
+        logger.info({ label, deleted }, '[SchemaBuild] Cleaned up stale nodes');
+      }
+    }
+  } catch (err) {
+    errors.push(`Phase 4 (Cleanup): ${(err as Error).message}`);
+  }
+
+  // Phase 5: Generate embeddings for all nodes
+  try {
+    const labels = profiles.map(p => p.kgNodeLabel);
+    let totalEmbedded = 0;
+
+    for (const label of labels) {
+      try { validateLabel(label); } catch { continue; }
+
+      // Get nodes without embeddings
+      const nodes = await cypherQuery(
+        `MATCH (n:${label}) WHERE n.embedding IS NULL RETURN n.id AS id, properties(n) AS props LIMIT 500`
+      );
+      if (nodes.length === 0) continue;
+
+      const texts = nodes.map((n: any) => nodeToText(n.id, label, n.props || {}));
+      const embedResults = await generateEmbeddings(texts, 50);
+
+      const session = getDriver().session({ database: config.neo4j.database });
+      try {
+        for (let i = 0; i < embedResults.length; i++) {
+          await session.run(
+            `MATCH (n:${label} {id: $id}) SET n.embedding = $embedding`,
+            { id: nodes[i].id, embedding: embedResults[i].embedding }
+          );
+        }
+        totalEmbedded += embedResults.length;
+      } finally {
+        await session.close();
+      }
+
+      logger.info({ label, count: embedResults.length }, '[SchemaBuild] Embeddings generated');
+    }
+
+    logger.info({ totalEmbedded }, '[SchemaBuild] Embedding phase complete');
+  } catch (err) {
+    errors.push(`Phase 5 (Embeddings): ${(err as Error).message}`);
+  }
+
+  // Phase 6: Create Sensor nodes from MQTT topic discovery
+  // Each Machine node with live MQTT data gets Sensor child nodes
+  try {
+    const sensorResult = await cypherQuery(`
+      MATCH (m) WHERE m.embedding IS NOT NULL AND any(l IN labels(m) WHERE l ENDS WITH 'Machine' OR l = 'InjectionMoldingMachine' OR l = 'AssemblyLine' OR l = 'FFS_Cell')
+      WITH m, [k IN keys(m) WHERE k ENDS WITH '_ts'] AS tsKeys
+      UNWIND tsKeys AS tsKey
+      WITH m, replace(tsKey, '_ts', '') AS varName
+      WHERE m[varName] IS NOT NULL
+      MERGE (s:Sensor {id: m.id + '/' + varName})
+      SET s.name = varName, s.machine = m.id, s.last_value = m[varName], s.last_seen = m[tsKey]
+      MERGE (m)-[:HAS_SENSOR]->(s)
+      RETURN count(s) AS sensors
+    `);
+    const sensorCount = sensorResult[0]?.sensors || 0;
+    if (sensorCount > 0) {
+      logger.info({ sensorCount }, '[SchemaBuild] Sensor nodes created from MQTT data');
+      nodesMerged += sensorCount;
+    }
+  } catch (err) {
+    // Non-fatal — sensors are optional
+    logger.warn({ err: (err as Error).message }, '[SchemaBuild] Sensor node creation skipped');
   }
 
   const report: SchemaBuildReport = {
