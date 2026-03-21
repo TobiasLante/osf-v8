@@ -269,13 +269,25 @@ export async function executeBulkNodes(
 ): Promise<{ success: number; failed: number }> {
   let totalSuccess = 0;
   let totalFailed = 0;
+  const PARALLEL = 3;
 
+  const batches: BulkNode[][] = [];
   for (let i = 0; i < nodes.length; i += config.batchSize) {
-    const batch = nodes.slice(i, i + config.batchSize);
-    const result = await bulkMergeNodes(batch);
-    totalSuccess += result.success;
-    totalFailed += result.failed;
-    onProgress?.(Math.min(i + config.batchSize, nodes.length), nodes.length);
+    batches.push(nodes.slice(i, i + config.batchSize));
+  }
+
+  for (let i = 0; i < batches.length; i += PARALLEL) {
+    const chunk = batches.slice(i, i + PARALLEL);
+    const results = await Promise.allSettled(chunk.map(b => bulkMergeNodes(b)));
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        totalSuccess += r.value.success;
+        totalFailed += r.value.failed;
+      } else {
+        totalFailed += config.batchSize;
+      }
+    }
+    onProgress?.(Math.min((i + PARALLEL) * config.batchSize, nodes.length), nodes.length);
   }
 
   return { success: totalSuccess, failed: totalFailed };
@@ -287,13 +299,25 @@ export async function executeBulkEdges(
 ): Promise<{ success: number; failed: number }> {
   let totalSuccess = 0;
   let totalFailed = 0;
+  const PARALLEL = 3;
 
+  const batches: BulkEdge[][] = [];
   for (let i = 0; i < edges.length; i += config.batchSize) {
-    const batch = edges.slice(i, i + config.batchSize);
-    const result = await bulkMergeEdges(batch);
-    totalSuccess += result.success;
-    totalFailed += result.failed;
-    onProgress?.(Math.min(i + config.batchSize, edges.length), edges.length);
+    batches.push(edges.slice(i, i + config.batchSize));
+  }
+
+  for (let i = 0; i < batches.length; i += PARALLEL) {
+    const chunk = batches.slice(i, i + PARALLEL);
+    const results = await Promise.allSettled(chunk.map(b => bulkMergeEdges(b)));
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        totalSuccess += r.value.success;
+        totalFailed += r.value.failed;
+      } else {
+        totalFailed += config.batchSize;
+      }
+    }
+    onProgress?.(Math.min((i + PARALLEL) * config.batchSize, edges.length), edges.length);
   }
 
   return { success: totalSuccess, failed: totalFailed };

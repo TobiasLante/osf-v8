@@ -5,7 +5,7 @@ metadata:
   namespace: osf
   labels:
     app: osf-kg-builder
-    version: "9.0.0"
+    version: "9.1.0"
 spec:
   replicas: 1
   selector:
@@ -15,11 +15,11 @@ spec:
     metadata:
       labels:
         app: osf-kg-builder
-        version: "9.0.0"
+        version: "9.1.0"
     spec:
       containers:
         - name: kg-builder
-          image: 192.168.178.150:32000/osf-kg-builder:9.0.0
+          image: 192.168.178.150:32000/osf-kg-builder:9.1.0
           imagePullPolicy: Always
           command: ["node", "dist/server/index.js"]
           ports:
@@ -56,9 +56,21 @@ spec:
             - name: HISTORIAN_URL
               value: "http://historian:8030"
             - name: ERP_DB_HOST
-              value: "192.168.178.150"
+              value: "postgress-erp-svc.default"
             - name: ERP_DB_PORT
-              value: "30431"
+              value: "5432"
+            - name: BIGDATA_DB_HOST
+              value: "postgress-big-svc.bigdata"
+            - name: BIGDATA_DB_PORT
+              value: "5433"
+            - name: QMS_DB_HOST
+              value: "qms-postgres.default"
+            - name: QMS_DB_PORT
+              value: "5432"
+            - name: WMS_DB_HOST
+              value: "wms-warehouse-postgres.default"
+            - name: WMS_DB_PORT
+              value: "5432"
             - name: ERP_DB_NAME
               value: "erpdb"
             - name: ERP_DB_USER
@@ -72,6 +84,8 @@ spec:
               value: "llm_test_v3"
             - name: MQTT_RAW_URL
               value: "mqtt://192.168.178.150:31883"
+            - name: BATCH_SIZE
+              value: "10000"
             - name: BUILD_SCHEDULE_HOURS
               value: "9,19"
             - name: SCHEMA_POLL_INTERVAL_MS

@@ -51,9 +51,11 @@ spec:
             - name: NEO4J_PLUGINS
               value: '["apoc"]'
             - name: NEO4J_server_memory_heap_max__size
-              value: "2G"
+              value: "8G"
+            - name: NEO4J_server_memory_heap_initial__size
+              value: "8G"
             - name: NEO4J_server_memory_pagecache_size
-              value: "1G"
+              value: "4G"
             - name: NEO4J_server_default__listen__address
               value: "0.0.0.0"
           volumeMounts:
@@ -64,11 +66,11 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 500m
-              memory: 2Gi
+              cpu: "2"
+              memory: 8Gi
             limits:
-              cpu: "4"
-              memory: 4Gi
+              cpu: "16"
+              memory: 14Gi
           livenessProbe:
             httpGet:
               path: /

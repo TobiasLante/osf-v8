@@ -64,7 +64,14 @@ function loadJsonDirWithPaths(dirPath: string): Array<{ data: unknown; filePath:
     } else if (entry.name.endsWith('.json')) {
       try {
         const raw = readFileSync(fullPath, 'utf-8');
-        results.push({ data: JSON.parse(raw), filePath: fullPath });
+        // Replace ${ENV_VAR} references with process.env values
+        // Handles both "host": "${X}" (string) and "port": "${X}" (unquoted → number)
+        const resolved = raw
+          .replace(/"\$\{(\w+)\}"/g, (_, key) => {
+            const val = process.env[key] ?? '';
+            return /^\d+$/.test(val) ? val : `"${val}"`;
+          });
+        results.push({ data: JSON.parse(resolved), filePath: fullPath });
       } catch (err) {
         logger.warn({ file: fullPath, err: (err as Error).message }, '[SchemaLoader] Failed to parse JSON');
       }
