@@ -724,8 +724,8 @@ async function main() {
   app.use('/chains', chainRoutes);
   app.use('/flows', flowRoutes);
   app.use('/code-agents', codeAgentRoutes);
-  app.use('/admin', adminRoutes);
   app.use('/admin/groups', groupRoutes);
+  app.use('/admin', adminRoutes);
 
   // User's own group info
   app.get('/api/me/group', requireAuth, async (req: any, res: any) => {
