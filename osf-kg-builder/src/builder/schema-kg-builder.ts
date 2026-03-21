@@ -371,7 +371,11 @@ export async function buildInstancesFromPostgres(
         }
       }
 
-      const nodeResult = await executeBatched(nodeQueries);
+      const nodeResult = await executeBatched(nodeQueries, (done, total) => {
+        if (done % 1000 === 0 || done === total) {
+          logger.info({ sourceId: src.sourceId, done, total }, '[SchemaBuild] Batching nodes...');
+        }
+      });
       totalNodes += nodeResult.success;
 
       logger.info({
@@ -388,7 +392,11 @@ export async function buildInstancesFromPostgres(
   // ── Pass 2: Create all edges (all target nodes now exist) ─────
   if (allEdgeQueries.length > 0) {
     logger.info({ edgeCount: allEdgeQueries.length }, '[SchemaBuild] Creating edges (pass 2)...');
-    const edgeResult = await executeBatched(allEdgeQueries);
+    const edgeResult = await executeBatched(allEdgeQueries, (done, total) => {
+      if (done % 1000 === 0 || done === total) {
+        logger.info({ done, total }, '[SchemaBuild] Batching edges...');
+      }
+    });
     totalEdges = edgeResult.success;
     logger.info({ success: edgeResult.success, failed: edgeResult.failed }, '[SchemaBuild] Edges created');
   }
