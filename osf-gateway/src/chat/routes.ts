@@ -332,12 +332,13 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
     await saveMessage(sessionId, 'user', message);
 
     // Load all tools (filtered by user governance permissions), history, and LLM configs in parallel
-    const freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
-    const [allTools, history, llmConfig] = await Promise.all([
+    let freeLlmConfig = await getLlmConfig(req.user!.userId, 'free');
+    const [allTools, history, llmConfigBase] = await Promise.all([
       getMcpToolsForUser(req.user!.userId),
       getSessionMessages(sessionId, req.user!.userId, 20),
       getLlmConfig(req.user!.userId, tier),
     ]);
+    let llmConfig = llmConfigBase;
 
     // Override ALL LLM calls with Anthropic Haiku when requested from frontend
     if (llmProvider === 'haiku' && config.llm.anthropicApiKey) {
