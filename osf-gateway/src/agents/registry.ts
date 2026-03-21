@@ -126,6 +126,23 @@ const BUILT_IN_AGENTS: AgentDef[] = [
     icon: '📦',
     featured: true,
   },
+  {
+    id: 'delivery-check',
+    name: 'Delivery Check',
+    type: 'strategic',
+    category: 'Delivery',
+    description: 'Lieferfaehigkeits-Check: Multi-Agent-Diskussion mit KG-Kontext, Risiko-, Material-, Kapazitaets-Spezialisten und Moderator-Synthese.',
+    systemPrompt: loadAgentPrompt('delivery-check'),
+    tools: [
+      'kg_stats', 'kg_filter', 'kg_query', 'kg_aggregate',
+      'factory_get_orders_at_risk', 'factory_get_md04', 'factory_get_md07',
+      'factory_get_cm01', 'factory_get_capacity_overview',
+      'factory_get_customer_otd', 'factory_check_material_readiness',
+    ],
+    difficulty: 'Intermediate',
+    icon: '📋',
+    featured: true,
+  },
 ];
 
 // Merge built-in + DB agents

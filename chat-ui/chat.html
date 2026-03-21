@@ -2471,6 +2471,16 @@
                     </div>
                 </div>
 
+                <!-- Delivery Check Pill -->
+                <div class="accord-section" data-domain="delivery">
+                    <div class="accord-header" data-section="delivery">
+                        <div class="accord-header-left">
+                            <span class="accord-icon">&#128203;</span>
+                            <span data-i18n="pill.delivery">Lieferf&auml;higkeit</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Expand Panel (appears below pills) -->
                 <div class="accord-expand-panel" id="accordExpandPanel">
                     <!-- Dynamically filled by JS -->
@@ -2685,6 +2695,8 @@
           'pill.machineDown': { de: 'Maschine fällt aus', en: 'Machine breakdown' },
           'pill.materialShortage': { de: 'Material-Engpass', en: 'Material shortage' },
           'pill.allScenarios': { de: 'Alle Szenarien...', en: 'All scenarios...' },
+          'pill.delivery': { de: 'Lieferfähigkeit', en: 'Delivery' },
+          'pill.deliveryCheck': { de: 'Check starten', en: 'Start Check' },
           'pill.notAvailable': { de: 'Nicht verfügbar', en: 'Not available' },
           'pill.internalOnly': { de: 'Nur intern umschaltbar', en: 'Internal only' },
 
@@ -3515,6 +3527,11 @@
                     { labelKey: 'pill.allScenarios', label: 'All scenarios...', dot: 'blue', action: 'impact', scenario: 'all' },
                 ]
             },
+            'delivery': {
+                buttons: [
+                    { labelKey: 'pill.deliveryCheck', label: 'Check starten', dot: 'green', action: 'agent', agent: 'delivery-check' },
+                ]
+            },
         };
 
         function fillExpandPanel(sectionName, panel) {
@@ -3577,7 +3594,7 @@
                         } else if (btn.action === 'skill') {
                             openMachineModal('skill', btn.skill);
                         } else if (btn.action === 'agent') {
-                            const noMachine = ['goodmorning', 'deep-morning', 'monthly-revenue', 'strategic-planner'];
+                            const noMachine = ['goodmorning', 'deep-morning', 'monthly-revenue', 'strategic-planner', 'delivery-check'];
                             if (noMachine.includes(btn.agent)) {
                                 executeAgent(btn.agent);
                             } else {
