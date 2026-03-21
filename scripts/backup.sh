@@ -5,7 +5,8 @@ set -euo pipefail
 # Usage: ./scripts/backup.sh
 # Env vars: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, BACKUP_DIR, BACKUP_RETAIN_DAYS
 #
-# Backs up all OSF databases: osf, bigdata_homelab, erpdb, qmsdb
+# Backs up all OSF databases: osf, bigdata_homelab, erpdb, qmsdb, historian_db
+# Also backs up Neo4j (Knowledge Graph) via neo4j-admin.
 # Creates timestamped pg_dump backups with rotation.
 # Designed for cron: 0 2 * * * /opt/osf-v8/scripts/backup.sh >> /var/log/osf-backup.log 2>&1
 
@@ -16,7 +17,11 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/osf}"
 BACKUP_RETAIN_DAYS="${BACKUP_RETAIN_DAYS:-30}"
 
 # All databases to back up
-DATABASES=("osf" "bigdata_homelab" "erpdb" "qmsdb")
+DATABASES=("osf" "bigdata_homelab" "erpdb" "qmsdb" "historian_db")
+
+# Neo4j config
+NEO4J_HOST="${NEO4J_HOST:-192.168.178.154}"
+NEO4J_CONTAINER="${NEO4J_CONTAINER:-neo4j}"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
@@ -63,9 +68,33 @@ for DB_NAME in "${DATABASES[@]}"; do
   fi
 done
 
+# ─── Neo4j Backup ────────────────────────────────────────────────────────────
+NEO4J_BACKUP_FILE="${BACKUP_DIR}/neo4j_${TIMESTAMP}.dump"
+echo "[$(date -Is)] Starting Neo4j backup on ${NEO4J_HOST}..."
+
+if ssh "${NEO4J_HOST}" "docker exec ${NEO4J_CONTAINER} neo4j-admin database dump neo4j --to-path=/tmp" 2>&1; then
+  if scp "${NEO4J_HOST}:/tmp/neo4j.dump" "${NEO4J_BACKUP_FILE}" 2>&1; then
+    ssh "${NEO4J_HOST}" "rm -f /tmp/neo4j.dump"
+    FILESIZE=$(stat -c%s "${NEO4J_BACKUP_FILE}" 2>/dev/null || echo "?")
+    echo "[$(date -Is)] Neo4j backup complete: ${NEO4J_BACKUP_FILE} (${FILESIZE} bytes)"
+
+    # Rotate old Neo4j backups
+    DELETED=$(find "${BACKUP_DIR}" -name "neo4j_*.dump" -mtime +"${BACKUP_RETAIN_DAYS}" -delete -print | wc -l)
+    if [ "${DELETED}" -gt 0 ]; then
+      echo "[$(date -Is)] Rotated ${DELETED} old Neo4j backups"
+    fi
+  else
+    echo "[$(date -Is)] ERROR: Failed to copy Neo4j dump from ${NEO4J_HOST}" >&2
+    ((TOTAL_FAIL++)) || true
+  fi
+else
+  echo "[$(date -Is)] ERROR: Neo4j dump failed on ${NEO4J_HOST}" >&2
+  ((TOTAL_FAIL++)) || true
+fi
+
 echo ""
 echo "[$(date -Is)] Done. All backups in ${BACKUP_DIR}:"
-ls -lht "${BACKUP_DIR}"/*_"${TIMESTAMP}".sql.gz 2>/dev/null
+ls -lht "${BACKUP_DIR}"/*_"${TIMESTAMP}".* 2>/dev/null
 
 if [ "${TOTAL_FAIL}" -gt 0 ]; then
   echo "[$(date -Is)] WARNING: ${TOTAL_FAIL} database(s) had errors!" >&2
