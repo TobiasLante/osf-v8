@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { logger } from './logger';
+import { config as appConfig } from './config';
 import { DomainConfig, DomainCheck, SchemaTemplate, TemplateNodeType, TemplateEdgeType } from './types';
 import { NodeTypeSpec, EdgeTypeSpec } from './types';
 
@@ -118,11 +119,17 @@ export const DOMAIN_PRESETS: Record<string, DomainConfig> = {
 
 // ── Load Domain Config ─────────────────────────────────────────────
 
+// Domain aliases — map alternative names to canonical preset keys
+const DOMAIN_ALIASES: Record<string, string> = {
+  discrete: 'manufacturing',
+};
+
 export function loadDomainConfig(): DomainConfig {
-  const domain = process.env.DOMAIN || 'manufacturing';
+  const rawDomain = process.env.DOMAIN || 'manufacturing';
+  const domain = DOMAIN_ALIASES[rawDomain] || rawDomain;
 
   if (DOMAIN_PRESETS[domain]) {
-    logger.info({ domain }, 'Loaded domain preset');
+    logger.info({ domain, rawDomain }, 'Loaded domain preset');
     return DOMAIN_PRESETS[domain];
   }
 
@@ -139,7 +146,7 @@ export function loadDomainConfig(): DomainConfig {
     }
   }
 
-  logger.warn({ domain }, 'Unknown domain preset and no DOMAIN_CONFIG_PATH — falling back to manufacturing');
+  logger.warn({ domain: rawDomain }, 'Unknown domain preset and no DOMAIN_CONFIG_PATH — falling back to manufacturing');
   return DOMAIN_PRESETS.manufacturing;
 }
 
@@ -179,21 +186,31 @@ export function domainToSchemaHint(domain: DomainConfig): string {
 const TEMPLATES_DIR = join(__dirname, '../../templates');
 
 export function loadSchemaTemplate(domain: string): SchemaTemplate | null {
-  const filePath = join(TEMPLATES_DIR, `${domain}.json`);
-  if (!existsSync(filePath)) {
-    logger.info({ domain, path: filePath }, 'No schema template found');
-    return null;
+  // Resolve aliases so both "discrete" and "manufacturing" find the same template
+  const resolved = DOMAIN_ALIASES[domain] || domain;
+
+  // Search order: schema repo (synced from GitHub) → bundled templates
+  const candidates = [
+    join(appConfig.schemaRepo.localPath, 'templates', `${resolved}.json`),
+    join(appConfig.schemaRepo.localPath, 'templates', `${domain}.json`),
+    join(TEMPLATES_DIR, `${resolved}.json`),
+    join(TEMPLATES_DIR, `${domain}.json`),
+  ];
+
+  for (const filePath of candidates) {
+    if (!existsSync(filePath)) continue;
+    try {
+      const raw = readFileSync(filePath, 'utf-8');
+      const template = JSON.parse(raw) as SchemaTemplate;
+      logger.info({ domain: template.domain, nodes: template.nodeTypes.length, edges: template.edgeTypes.length, path: filePath }, 'Loaded schema template');
+      return template;
+    } catch (e: any) {
+      logger.error({ err: e.message, path: filePath }, 'Failed to load schema template');
+    }
   }
 
-  try {
-    const raw = readFileSync(filePath, 'utf-8');
-    const template = JSON.parse(raw) as SchemaTemplate;
-    logger.info({ domain: template.domain, nodes: template.nodeTypes.length, edges: template.edgeTypes.length }, 'Loaded schema template');
-    return template;
-  } catch (e: any) {
-    logger.error({ err: e.message, path: filePath }, 'Failed to load schema template');
-    return null;
-  }
+  logger.info({ domain, resolved, candidates }, 'No schema template found in any location');
+  return null;
 }
 
 /**

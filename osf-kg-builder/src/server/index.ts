@@ -5,7 +5,7 @@ import { loadDomainConfig } from '../shared/domain-config';
 import { initializeGraph, closeGraph } from '../shared/cypher-utils';
 import { initVectorStore } from '../shared/vector-store';
 import { startMqttBridge, stopMqttBridge } from './mqtt-bridge';
-import { createRouter } from './routes';
+import { createRouter, setSchemaSync } from './routes';
 import { loadDomainTools } from './kg-tools';
 import { registerWithGateway, deregisterFromGateway } from './register-mcp';
 import { SchemaSync } from '../builder/schema-sync';
@@ -71,6 +71,7 @@ async function main() {
   };
 
   schemaSync.onUpdate = rebuildFromSchemas;
+  setSchemaSync(schemaSync);
 
   schemaSync.start()
     .then(() => rebuildFromSchemas())

@@ -14,9 +14,9 @@ import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
 import { runValidation, formatValidationReport } from '../builder/validator';
 import { saveSchemaRun } from '../builder/schema-planner';
-import { runBuildPipeline } from '../builder/pipeline';
 import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas } from '../builder/schema-kg-builder';
+import { SchemaSync } from '../builder/schema-sync';
 
 // ── SSE helpers ────────────────────────────────────────────────────
 
@@ -26,6 +26,13 @@ function emitSSE(res: Response, event: Record<string, any>): boolean {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
     return true;
   } catch { return false; }
+}
+
+let _schemaSync: SchemaSync | null = null;
+
+/** Called from index.ts to inject the SchemaSync instance. */
+export function setSchemaSync(sync: SchemaSync): void {
+  _schemaSync = sync;
 }
 
 export function createRouter(graphAvailable: boolean, vectorAvailable: boolean): Router {
@@ -348,32 +355,7 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
     }
   });
 
-  // ── Schema-Driven KG Build ─────────────────────────────────────
-  router.post('/api/kg/build-from-schemas', async (req: Request, res: Response) => {
-    try {
-      const basePath = config.schemaRepo.localPath;
-      const profiles = loadAllProfiles(basePath);
-      const sources = loadAllSources(basePath);
-      const syncs = loadAllSyncs(basePath);
-
-      if (profiles.length === 0) {
-        return res.status(400).json({ error: 'No profiles found. Is the schema repo cloned?', path: basePath });
-      }
-
-      const refErrors = validateSchemaRefs(profiles, sources, syncs);
-      if (refErrors.length > 0) {
-        return res.status(400).json({ error: 'Schema validation failed', errors: refErrors });
-      }
-
-      const report = await buildFromSchemas(profiles, sources, syncs);
-      res.json(report);
-    } catch (err) {
-      logger.error({ err: (err as Error).message }, '[Route] build-from-schemas failed');
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // ── Build KG (trigger from UI, SSE streaming) ────────────────
+  // ── Build KG from GitHub schemas (trigger from UI, SSE streaming) ──
   let buildRunning = false;
 
   router.post('/api/kg/build', async (req: Request, res: Response) => {
@@ -382,7 +364,6 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
       return;
     }
 
-    const { domain } = req.body || {};
     buildRunning = true;
 
     // SSE headers
@@ -395,15 +376,58 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
     const heartbeat = setInterval(() => emitSSE(res, { type: 'heartbeat' }), 15_000);
 
     try {
-      const result = await runBuildPipeline({
-        domain: domain || config.domain || 'discrete',
-        onProgress: (event) => {
-          emitSSE(res, { type: 'progress', ...event });
-        },
+      // Phase 0: Pull latest schemas from GitHub (ALWAYS fresh)
+      emitSSE(res, { type: 'progress', phase: 0, step: 'Pulling latest schemas from GitHub...' });
+
+      if (!_schemaSync) {
+        throw new Error('SchemaSync not initialized — server misconfigured');
+      }
+      await _schemaSync.start(); // re-clone or pull latest
+      const basePath = _schemaSync.getLocalPath();
+      const commit = _schemaSync.getLastCommit().substring(0, 7);
+      emitSSE(res, { type: 'progress', phase: 0, step: `Schemas loaded (commit ${commit})` });
+
+      // Phase 1: Load and validate schemas
+      emitSSE(res, { type: 'progress', phase: 1, step: 'Loading profiles, sources, syncs...' });
+      const profiles = loadAllProfiles(basePath);
+      const sources = loadAllSources(basePath);
+      const syncs = loadAllSyncs(basePath);
+
+      if (profiles.length === 0) {
+        throw new Error('No profiles found in schema repo. Check osf-schemas repository.');
+      }
+
+      const validationErrors = validateSchemaRefs(profiles, sources, syncs);
+      if (validationErrors.length > 0) {
+        emitSSE(res, { type: 'progress', phase: 1, step: `${validationErrors.length} validation warnings` });
+        for (const err of validationErrors) {
+          logger.warn({ err }, '[Build] Schema validation warning');
+        }
+      }
+
+      emitSSE(res, { type: 'progress', phase: 1, step: `${profiles.length} profiles, ${sources.length} sources, ${syncs.length} syncs` });
+
+      // Phase 2: Build type system + instances
+      emitSSE(res, { type: 'progress', phase: 2, step: 'Building type system and extracting instances...' });
+
+      const report = await buildFromSchemas(profiles, sources, syncs);
+
+      emitSSE(res, { type: 'progress', phase: 2, step: `${report.nodesMerged} nodes, ${report.edgesCreated} edges` });
+
+      // Phase 3: Syncs started (MQTT + polling)
+      emitSSE(res, { type: 'progress', phase: 3, step: `Live syncs: ${report.mqttSubscriptions} MQTT, ${report.pollingJobs} polling` });
+
+      // Phase 4: Done
+      emitSSE(res, {
+        type: 'done',
+        runId: commit,
+        totalNodes: report.nodesMerged,
+        totalEdges: report.edgesCreated,
+        accuracy: report.errors.length === 0 ? 100 : Math.round((1 - report.errors.length / (profiles.length + sources.length)) * 100),
+        summary: `${report.nodesMerged} nodes, ${report.edgesCreated} edges from ${profiles.length} profiles (${report.errors.length} errors)`,
       });
-      emitSSE(res, { type: 'done', ...result });
     } catch (e: any) {
-      logger.error({ err: e.message }, 'Build failed');
+      logger.error({ err: e.message }, 'Schema build failed');
       emitSSE(res, { type: 'error', message: e.message });
     } finally {
       buildRunning = false;
