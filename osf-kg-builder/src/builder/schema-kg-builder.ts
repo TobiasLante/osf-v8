@@ -50,14 +50,19 @@ export async function buildTypeSystem(profiles: SMProfile[]): Promise<number> {
       }
 
       try {
+        // Drop any existing UNIQUE constraint (causes parallel MERGE failures)
         await session.run(
-          `CREATE CONSTRAINT ${label.toLowerCase()}_id_unique IF NOT EXISTS FOR (n:${label}) REQUIRE n.${idProp} IS UNIQUE`
+          `DROP CONSTRAINT ${label.toLowerCase()}_id_unique IF EXISTS`
+        ).catch(() => {});
+        // Create range index for fast MERGE lookups (no uniqueness enforcement)
+        await session.run(
+          `CREATE INDEX ${label.toLowerCase()}_${idProp}_idx IF NOT EXISTS FOR (n:${label}) ON (n.${idProp})`
         );
         constraintsCreated++;
-        logger.info({ label, idProp }, `[SchemaBuild] Constraint created: ${label}.${idProp}`);
+        logger.info({ label, idProp }, `[SchemaBuild] Index created: ${label}.${idProp}`);
       } catch (err) {
-        // Constraint may already exist — that's fine
-        logger.debug({ label, err: (err as Error).message }, '[SchemaBuild] Constraint skipped');
+        // Index may already exist — that's fine
+        logger.debug({ label, err: (err as Error).message }, '[SchemaBuild] Index skipped');
       }
     }
   } finally {

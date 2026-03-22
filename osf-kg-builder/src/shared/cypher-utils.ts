@@ -147,26 +147,8 @@ export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: numb
         });
         success += items.length;
       } catch (e: any) {
-        // Constraint violation from parallel MERGE — retry items individually
-        if (e.message?.includes('already exists')) {
-          let retryOk = 0, retryFail = 0;
-          for (const item of items) {
-            try {
-              await session.executeWrite(async (tx) => {
-                await tx.run(
-                  `MERGE (n:${label} {${idProp}: $id}) SET n += $props`,
-                  { id: item.id, props: item.props },
-                );
-              });
-              retryOk++;
-            } catch { retryFail++; }
-          }
-          success += retryOk;
-          failed += retryFail;
-        } else {
-          logger.warn({ label, idProp, count: items.length, err: e.message?.substring(0, 100) }, 'Bulk merge failed');
-          failed += items.length;
-        }
+        logger.warn({ label, idProp, count: items.length, err: e.message?.substring(0, 100) }, 'Bulk merge failed');
+        failed += items.length;
       }
     }
   } finally {
