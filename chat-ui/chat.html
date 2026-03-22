@@ -2556,7 +2556,7 @@
         <div class="progress-panel-body" id="progressPanelBody">
         <!-- KG 3D Visualizer -->
         <div class="kg-visualizer-container" id="kgVisualizerContainer">
-            <div id="kgCanvas3D" style="width:100%;height:320px;border-radius:12px 12px 0 0;"></div>
+            <div id="kgCanvas3D" style="width:100%;height:380px;border-radius:12px 12px 0 0;"></div>
             <div class="kg-stats-bar" id="kgStatsBar">
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#ef4444"></span> <span id="kgStatCenter">—</span></div>
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#f97316"></span> <span id="kgStatNodes">0</span> Nodes</div>
@@ -5200,7 +5200,7 @@ body { padding: 0; }
             const el = document.getElementById('kgCanvas3D');
             if (!el || typeof ForceGraph3D === 'undefined') return;
 
-            // Build graph data
+            // Build graph data — identical to KG3D.tsx
             const nodeSet = new Set();
             const nodes = [];
             const centerEntity = kgGraphNodes[0]?.id;
@@ -5225,9 +5225,12 @@ body { padding: 0; }
                 }));
 
             if (!kgGraph3D) {
-                // Initialize 3D graph
-                kgGraph3D = ForceGraph3D()(el)
-                    .backgroundColor('#0a0a0f')
+                // Initialize — 1:1 from KG3D.tsx (fomi/live)
+                const graph = ForceGraph3D()(el);
+                kgGraph3D = graph;
+
+                graph
+                    .backgroundColor('#050507')
                     .nodeId('id')
                     .nodeVal('val')
                     .nodeColor('color')
@@ -5235,7 +5238,7 @@ body { padding: 0; }
                     .nodeLabel(n => `<div style="background:rgba(0,0,0,0.85);padding:4px 8px;border-radius:6px;border:1px solid ${n.color}40;font-size:11px;color:${n.color}"><b>${n.label}</b><br/><span style="color:rgba(255,255,255,0.5);font-size:9px">${n.type}</span></div>`)
                     .linkSource('source')
                     .linkTarget('target')
-                    .linkColor('color')
+                    .linkColor(l => l.color)
                     .linkWidth(1.5)
                     .linkOpacity(0.4)
                     .linkDirectionalParticles(2)
@@ -5250,47 +5253,48 @@ body { padding: 0; }
                     .d3AlphaDecay(0.02)
                     .d3VelocityDecay(0.3)
                     .width(el.clientWidth)
-                    .height(320);
+                    .height(380);
 
-                // Custom node: sphere + glow + label sprite (like KG3D.tsx)
-                // THREE loaded via CDN (three@0.160)
-                kgGraph3D.nodeThreeObject(node => {
-                    const group = new THREE.Group();
+                // Custom 3D nodes — sphere + glow + label sprite (1:1 from KG3D.tsx)
+                if (typeof THREE !== 'undefined') {
+                    graph.nodeThreeObject(node => {
+                        const group = new THREE.Group();
 
-                    // Main sphere
-                    const geo = new THREE.SphereGeometry(node.val, 16, 12);
-                    const mat = new THREE.MeshLambertMaterial({ color: node.color, transparent: true, opacity: 0.85 });
-                    group.add(new THREE.Mesh(geo, mat));
+                        // Glowing sphere
+                        const geo = new THREE.SphereGeometry(node.val, 16, 12);
+                        const mat = new THREE.MeshLambertMaterial({ color: node.color, transparent: true, opacity: 0.85 });
+                        group.add(new THREE.Mesh(geo, mat));
 
-                    // Glow sphere
-                    const glowGeo = new THREE.SphereGeometry(node.val * 1.4, 16, 12);
-                    const glowMat = new THREE.MeshBasicMaterial({ color: node.color, transparent: true, opacity: 0.12 });
-                    group.add(new THREE.Mesh(glowGeo, glowMat));
+                        // Outer glow
+                        const glowGeo = new THREE.SphereGeometry(node.val * 1.4, 16, 12);
+                        const glowMat = new THREE.MeshBasicMaterial({ color: node.color, transparent: true, opacity: 0.12 });
+                        group.add(new THREE.Mesh(glowGeo, glowMat));
 
-                    // Label sprite
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 256; canvas.height = 64;
-                    ctx.font = 'bold 28px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillStyle = node.color;
-                    ctx.fillText(node.label.substring(0, 16), 128, 28);
-                    ctx.font = '20px sans-serif';
-                    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-                    ctx.fillText(node.type, 128, 54);
-                    const texture = new THREE.CanvasTexture(canvas);
-                    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-                    const sprite = new THREE.Sprite(spriteMat);
-                    sprite.scale.set(24, 6, 1);
-                    sprite.position.set(0, node.val + 4, 0);
-                    group.add(sprite);
+                        // Label sprite
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = 256; canvas.height = 64;
+                        ctx.font = 'bold 28px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillStyle = node.color;
+                        ctx.fillText(node.label, 128, 28);
+                        ctx.font = '20px sans-serif';
+                        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                        ctx.fillText(node.type, 128, 54);
+                        const texture = new THREE.CanvasTexture(canvas);
+                        const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+                        const sprite = new THREE.Sprite(spriteMat);
+                        sprite.scale.set(24, 6, 1);
+                        sprite.position.set(0, node.val + 4, 0);
+                        group.add(sprite);
 
-                    return group;
-                });
-                kgGraph3D.nodeThreeObjectExtend(false);
+                        return group;
+                    });
+                    graph.nodeThreeObjectExtend(false);
+                }
 
-                // Auto-rotate
-                const controls = kgGraph3D.controls();
+                // Slow auto-rotation (beamer effect)
+                const controls = graph.controls();
                 if (controls) { controls.autoRotate = true; controls.autoRotateSpeed = 0.8; }
 
                 // Resize observer
@@ -5305,7 +5309,7 @@ body { padding: 0; }
             // Update data
             kgGraph3D.graphData({ nodes, links });
 
-            // Zoom to fit after settle
+            // Auto zoom-to-fit after simulation settles (1:1 from KG3D.tsx)
             setTimeout(() => { if (kgGraph3D) kgGraph3D.zoomToFit(600, 100); }, 800);
             setTimeout(() => { if (kgGraph3D) kgGraph3D.zoomToFit(400, 100); }, 2500);
         }
