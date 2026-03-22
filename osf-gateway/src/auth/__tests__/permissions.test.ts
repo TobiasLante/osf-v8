@@ -49,7 +49,11 @@ describe('permissions', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ category_id: 'production' }],
     });
-    // loadAllowedTools
+    // loadAllowedTools: COUNT check (governance active)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ c: '5' }],
+    });
+    // loadAllowedTools: SELECT tool_name
     mockQuery.mockResolvedValueOnce({
       rows: [{ tool_name: 'query_oee' }],
     });
@@ -115,6 +119,7 @@ describe('permissions', () => {
 
   it('filterToolsForUser filters to allowed tools only', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ category_id: 'prod' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ c: '5' }] }); // COUNT check
     mockQuery.mockResolvedValueOnce({ rows: [{ tool_name: 'tool_a' }] });
 
     const { filterToolsForUser } = await import('../permissions');
