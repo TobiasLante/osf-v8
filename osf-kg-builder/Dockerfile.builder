@@ -8,6 +8,7 @@ COPY templates/ templates/
 RUN npx swc src -d dist --copy-files --strip-leading-paths
 
 FROM node:20-alpine
+RUN apk add --no-cache git
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
