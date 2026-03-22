@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/v6-design.css">
-    <script src="https://cdn.jsdelivr.net/npm/three@0.170/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
     <style>
         /* === CHAT PAGE — V6 Variable Aliases === */
@@ -5253,7 +5253,7 @@ body { padding: 0; }
                     .height(320);
 
                 // Custom node: sphere + glow + label sprite (like KG3D.tsx)
-                // THREE loaded via CDN (global)
+                // THREE loaded via CDN (three@0.160)
                 kgGraph3D.nodeThreeObject(node => {
                     const group = new THREE.Group();
 
