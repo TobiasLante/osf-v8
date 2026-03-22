@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osf-ml-predictor
+  namespace: osf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osf-ml-predictor
+  template:
+    metadata:
+      labels:
+        app: osf-ml-predictor
+    spec:
+      containers:
+        - name: ml-predictor
+          image: 192.168.178.150:32000/osf-ml-predictor:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8040
+          env:
+            - name: MCP_URL
+              value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020/mcp"
+            - name: NEO4J_URL
+              value: "bolt://osf-neo4j.osf.svc.cluster.local:7687"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: "zeroguess2026"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8040
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8040
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osf-ml-predictor
+  namespace: osf
+spec:
+  selector:
+    app: osf-ml-predictor
+  ports:
+    - port: 8040
+      targetPort: 8040
