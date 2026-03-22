@@ -73,7 +73,8 @@ export interface ColumnMapping {
 export interface EdgeMapping {
   type: string;
   fkColumn: string;
-  targetLabel: string;
+  targetIdProp: string;   // Property to match target nodes on (e.g. "machine_id", "article_no")
+  targetLabel?: string;   // Deprecated — use targetIdProp instead
 }
 
 // ── Schema 3: Sync Schema (generic — MQTT, polling, pg-notify) ──

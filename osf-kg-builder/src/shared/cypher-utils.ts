@@ -102,11 +102,11 @@ export interface BulkNode {
 export interface BulkEdge {
   fromLabel: string;
   fromId: string;
-  fromIdProp?: string; // Neo4j property to match on (default: 'id')
+  fromIdProp?: string;
   edgeLabel: string;
-  toLabel: string;
+  toLabels: string[];  // All labels that have the target idProp (resolved from profiles)
   toId: string;
-  toIdProp?: string;   // Neo4j property to match on (default: 'id')
+  toIdProp: string;    // Neo4j property to match target on
   props?: Record<string, any>;
 }
 
@@ -164,12 +164,12 @@ export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: numb
 export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: number; failed: number }> {
   if (edges.length === 0) return { success: 0, failed: 0 };
 
-  // Group by (fromLabel, edgeLabel, toLabel, fromIdProp, toIdProp)
-  const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabel}|${e.fromIdProp || 'id'}|${e.toIdProp || 'id'}`;
-  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabel: string; fromIdProp: string; toIdProp: string; pairs: Array<{ fromId: string; toId: string; props?: Record<string, any> }> }>();
+  // Group by (fromLabel, edgeLabel, toLabels-key, fromIdProp, toIdProp)
+  const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabels.sort().join(',')}|${e.fromIdProp || 'id'}|${e.toIdProp}`;
+  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabels: string[]; fromIdProp: string; toIdProp: string; pairs: Array<{ fromId: string; toId: string; props?: Record<string, any> }> }>();
   for (const e of edges) {
     const k = key(e);
-    if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabel: e.toLabel, fromIdProp: e.fromIdProp || 'id', toIdProp: e.toIdProp || 'id', pairs: [] });
+    if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabels: e.toLabels, fromIdProp: e.fromIdProp || 'id', toIdProp: e.toIdProp, pairs: [] });
     byType.get(k)!.pairs.push({ fromId: e.fromId, toId: e.toId, ...(e.props ? { props: e.props } : {}) });
   }
 
@@ -178,30 +178,46 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
   let failed = 0;
 
   try {
-    for (const [, { fromLabel, edgeLabel, toLabel, fromIdProp, toIdProp, pairs }] of byType) {
+    for (const [, { fromLabel, edgeLabel, toLabels, fromIdProp, toIdProp, pairs }] of byType) {
       validateLabel(fromLabel);
       validateLabel(edgeLabel);
-      validateLabel(toLabel);
+      toLabels.forEach(l => validateLabel(l));
       try {
         const hasProps = pairs.some(p => p.props);
+        // Build target MATCH: (b:Label1 OR b:Label2 ...) with shared idProp
+        const targetWhere = toLabels.length === 1
+          ? `(b:${toLabels[0]} {${toIdProp}: row.toId})`
+          : `(b) WHERE (${toLabels.map(l => `b:${l}`).join(' OR ')}) AND b.${toIdProp} = row.toId`;
+        const isSimple = toLabels.length === 1;
         await session.executeWrite(async (tx) => {
           await tx.run(
-            hasProps
-              ? `UNWIND $batch AS row
-                 MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
-                 MATCH (b:${toLabel} {${toIdProp}: row.toId})
-                 MERGE (a)-[r:${edgeLabel}]->(b)
-                 SET r += row.props`
-              : `UNWIND $batch AS row
-                 MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
-                 MATCH (b:${toLabel} {${toIdProp}: row.toId})
-                 MERGE (a)-[:${edgeLabel}]->(b)`,
+            isSimple
+              ? (hasProps
+                ? `UNWIND $batch AS row
+                   MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
+                   MATCH (b:${toLabels[0]} {${toIdProp}: row.toId})
+                   MERGE (a)-[r:${edgeLabel}]->(b)
+                   SET r += row.props`
+                : `UNWIND $batch AS row
+                   MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
+                   MATCH (b:${toLabels[0]} {${toIdProp}: row.toId})
+                   MERGE (a)-[:${edgeLabel}]->(b)`)
+              : (hasProps
+                ? `UNWIND $batch AS row
+                   MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
+                   MATCH (b) WHERE (${toLabels.map(l => `b:${l}`).join(' OR ')}) AND b.${toIdProp} = row.toId
+                   MERGE (a)-[r:${edgeLabel}]->(b)
+                   SET r += row.props`
+                : `UNWIND $batch AS row
+                   MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
+                   MATCH (b) WHERE (${toLabels.map(l => `b:${l}`).join(' OR ')}) AND b.${toIdProp} = row.toId
+                   MERGE (a)-[:${edgeLabel}]->(b)`),
             { batch: pairs.map(p => ({ fromId: p.fromId, toId: p.toId, props: p.props || {} })) },
           );
         });
         success += pairs.length;
       } catch (e: any) {
-        logger.warn({ fromLabel, edgeLabel, toLabel, count: pairs.length, err: e.message?.substring(0, 100) }, 'Bulk edge merge failed');
+        logger.warn({ fromLabel, edgeLabel, toLabels, count: pairs.length, err: e.message?.substring(0, 100) }, 'Bulk edge merge failed');
         failed += pairs.length;
       }
     }

@@ -300,7 +300,7 @@ const MAX_CONCURRENT_SOURCES = 4;
 async function loadPgSource(
   src: SourceSchema,
   profile: SMProfile,
-  labelIdProp?: Map<string, string>,
+  idPropToLabels?: Map<string, string[]>,
 ): Promise<{ nodes: BulkNode[]; edges: BulkEdge[] }> {
   const conn = src.connection!;
   const pool = new Pool({
@@ -358,14 +358,16 @@ async function loadPgSource(
         for (const edge of src.edges) {
           const fkValue = row[edge.fkColumn];
           if (!fkValue) continue;
-          const toLabel = edge.targetLabel === 'auto' ? 'Node' : edge.targetLabel;
+          const targetIdProp = edge.targetIdProp || 'id';
+          const toLabels = idPropToLabels?.get(targetIdProp) || [];
+          if (toLabels.length === 0) continue; // No profile with this idProp
           edges.push({
             fromLabel: profile.kgNodeLabel, fromId: id,
             fromIdProp: profile.kgIdProperty,
             edgeLabel: edge.type,
-            toLabel,
+            toLabels,
             toId: String(fkValue),
-            toIdProp: labelIdProp?.get(toLabel) || 'id',
+            toIdProp: targetIdProp,
           });
         }
       }
@@ -382,8 +384,13 @@ export async function buildInstancesFromPostgres(
   profiles: SMProfile[],
 ): Promise<{ nodesMerged: number; edgesCreated: number }> {
   const profileMap = new Map(profiles.map(p => [p.profileId, p]));
-  // Lookup: kgNodeLabel → kgIdProperty (for edge MATCH queries)
-  const labelIdProp = new Map(profiles.map(p => [p.kgNodeLabel, p.kgIdProperty]));
+  // Lookup: kgIdProperty → [kgNodeLabels] (for resolving targetIdProp → target labels)
+  const idPropToLabels = new Map<string, string[]>();
+  for (const p of profiles) {
+    const labels = idPropToLabels.get(p.kgIdProperty) || [];
+    if (!labels.includes(p.kgNodeLabel)) labels.push(p.kgNodeLabel);
+    idPropToLabels.set(p.kgIdProperty, labels);
+  }
   let totalNodes = 0;
   let totalEdges = 0;
 
@@ -403,7 +410,7 @@ export async function buildInstancesFromPostgres(
     const results = await Promise.allSettled(
       batch.map(async (src) => {
         const profile = profileMap.get(src.profileRef)!;
-        const { nodes, edges } = await loadPgSource(src, profile, labelIdProp);
+        const { nodes, edges } = await loadPgSource(src, profile, idPropToLabels);
 
         // Merge nodes via UNWIND
         const nodeResult = await executeBulkNodes(nodes, (done, total) => {
@@ -766,7 +773,12 @@ export async function buildInstancesFromMcp(
   authToken?: string,
 ): Promise<{ nodesMerged: number; edgesCreated: number }> {
   const profileMap = new Map(profiles.map(p => [p.profileId, p]));
-  const labelIdProp = new Map(profiles.map(p => [p.kgNodeLabel, p.kgIdProperty]));
+  const idPropToLabels = new Map<string, string[]>();
+  for (const p of profiles) {
+    const labels = idPropToLabels.get(p.kgIdProperty) || [];
+    if (!labels.includes(p.kgNodeLabel)) labels.push(p.kgNodeLabel);
+    idPropToLabels.set(p.kgIdProperty, labels);
+  }
   const mcpSources = sources.filter(s => s.sourceType === 'mcp' && s.mcpTool && profileMap.has(s.profileRef));
 
   if (mcpSources.length === 0) return { nodesMerged: 0, edgesCreated: 0 };
@@ -825,13 +837,16 @@ export async function buildInstancesFromMcp(
           for (const edge of src.edges) {
             const fkValue = row[edge.fkColumn];
             if (!fkValue) continue;
+            const targetIdProp = edge.targetIdProp || 'id';
+            const toLabels = idPropToLabels.get(targetIdProp) || [];
+            if (toLabels.length === 0) continue;
             allEdges.push({
               fromLabel: profile.kgNodeLabel, fromId: id,
               fromIdProp: profile.kgIdProperty,
               edgeLabel: edge.type,
-              toLabel: edge.targetLabel,
+              toLabels,
               toId: String(fkValue),
-              toIdProp: labelIdProp.get(edge.targetLabel) || 'id',
+              toIdProp: targetIdProp,
               props: currentRunTimestamp ? { _lastSeen: currentRunTimestamp } : undefined,
             });
           }
