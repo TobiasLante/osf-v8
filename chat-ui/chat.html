@@ -5174,15 +5174,109 @@ body { padding: 0; }
             const ctx = canvas.getContext('2d');
             const W = canvas.width, H = canvas.height;
             const nodeMap = new Map();
-            let rotation = 0;
+
+            // Pan & zoom state
+            let panX = 0, panY = 0, zoom = 1;
+            let isPanning = false, panStartX = 0, panStartY = 0;
+            let dragNode = null;
+
+            // Convert screen coords to graph coords
+            function screenToGraph(sx, sy) {
+                return { x: (sx - W/2) / zoom - panX + W/2, y: (sy - H/2) / zoom - panY + H/2 };
+            }
+            function graphToScreen(gx, gy) {
+                return { x: (gx - W/2 + panX) * zoom + W/2, y: (gy - H/2 + panY) * zoom + H/2 };
+            }
+
+            // Find node under cursor
+            function hitTest(sx, sy) {
+                const g = screenToGraph(sx, sy);
+                for (let i = kgGraphNodes.length - 1; i >= 0; i--) {
+                    const n = kgGraphNodes[i];
+                    const dx = g.x - n.x, dy = g.y - n.y;
+                    if (dx*dx + dy*dy < 144) return n; // radius 12
+                }
+                return null;
+            }
+
+            canvas.addEventListener('mousedown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const sx = (e.clientX - rect.left) * (W / rect.width);
+                const sy = (e.clientY - rect.top) * (H / rect.height);
+                const hit = hitTest(sx, sy);
+                if (hit) {
+                    dragNode = hit;
+                    canvas.style.cursor = 'grabbing';
+                } else {
+                    isPanning = true;
+                    panStartX = e.clientX; panStartY = e.clientY;
+                    canvas.style.cursor = 'grabbing';
+                }
+            });
+            canvas.addEventListener('mousemove', (e) => {
+                if (dragNode) {
+                    const rect = canvas.getBoundingClientRect();
+                    const g = screenToGraph(
+                        (e.clientX - rect.left) * (W / rect.width),
+                        (e.clientY - rect.top) * (H / rect.height)
+                    );
+                    dragNode.x = g.x; dragNode.y = g.y;
+                    dragNode.vx = 0; dragNode.vy = 0;
+                } else if (isPanning) {
+                    const rect = canvas.getBoundingClientRect();
+                    panX += (e.clientX - panStartX) * (W / rect.width) / zoom;
+                    panY += (e.clientY - panStartY) * (H / rect.height) / zoom;
+                    panStartX = e.clientX; panStartY = e.clientY;
+                }
+            });
+            canvas.addEventListener('mouseup', () => { dragNode = null; isPanning = false; canvas.style.cursor = 'grab'; });
+            canvas.addEventListener('mouseleave', () => { dragNode = null; isPanning = false; canvas.style.cursor = 'grab'; });
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                zoom = Math.max(0.3, Math.min(5, zoom * factor));
+            }, { passive: false });
+
+            // Touch support (pinch zoom + pan)
+            let lastTouchDist = 0;
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    const rect = canvas.getBoundingClientRect();
+                    const sx = (e.touches[0].clientX - rect.left) * (W / rect.width);
+                    const sy = (e.touches[0].clientY - rect.top) * (H / rect.height);
+                    const hit = hitTest(sx, sy);
+                    if (hit) { dragNode = hit; } else { isPanning = true; panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY; }
+                } else if (e.touches.length === 2) {
+                    lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                }
+            }, { passive: true });
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 2 && lastTouchDist) {
+                    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                    zoom = Math.max(0.3, Math.min(5, zoom * (dist / lastTouchDist)));
+                    lastTouchDist = dist;
+                } else if (dragNode && e.touches.length === 1) {
+                    const rect = canvas.getBoundingClientRect();
+                    const g = screenToGraph((e.touches[0].clientX - rect.left) * (W / rect.width), (e.touches[0].clientY - rect.top) * (H / rect.height));
+                    dragNode.x = g.x; dragNode.y = g.y; dragNode.vx = 0; dragNode.vy = 0;
+                } else if (isPanning && e.touches.length === 1) {
+                    const rect = canvas.getBoundingClientRect();
+                    panX += (e.touches[0].clientX - panStartX) * (W / rect.width) / zoom;
+                    panY += (e.touches[0].clientY - panStartY) * (H / rect.height) / zoom;
+                    panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+                }
+            }, { passive: false });
+            canvas.addEventListener('touchend', () => { dragNode = null; isPanning = false; lastTouchDist = 0; });
 
             function simulate() {
                 if (!kgSimRunning) return;
                 kgGraphNodes.forEach(n => nodeMap.set(n.id, n));
 
-                // Simple force simulation
+                // Simple force simulation (skip for dragged node)
                 for (let i = 0; i < kgGraphNodes.length; i++) {
                     const a = kgGraphNodes[i];
+                    if (a === dragNode) continue;
                     // Center gravity
                     a.vx += (W/2 - a.x) * 0.001;
                     a.vy += (H/2 - a.y) * 0.001;
@@ -5193,8 +5287,8 @@ body { padding: 0; }
                         const dist = Math.sqrt(dx*dx + dy*dy) || 1;
                         if (dist < 120) {
                             const f = (120 - dist) * 0.02 / dist;
-                            a.vx += dx * f; a.vy += dy * f;
-                            b.vx -= dx * f; b.vy -= dy * f;
+                            if (a !== dragNode) { a.vx += dx * f; a.vy += dy * f; }
+                            if (b !== dragNode) { b.vx -= dx * f; b.vy -= dy * f; }
                         }
                     }
                 }
@@ -5205,21 +5299,26 @@ body { padding: 0; }
                     const dx = t.x - s.x, dy = t.y - s.y;
                     const dist = Math.sqrt(dx*dx + dy*dy) || 1;
                     const f = (dist - 60) * 0.003;
-                    s.vx += dx * f; s.vy += dy * f;
-                    t.vx -= dx * f; t.vy -= dy * f;
+                    if (s !== dragNode) { s.vx += dx * f; s.vy += dy * f; }
+                    if (t !== dragNode) { t.vx -= dx * f; t.vy -= dy * f; }
                 }
                 // Apply velocity + damping
                 for (const n of kgGraphNodes) {
+                    if (n === dragNode) continue;
                     n.vx *= 0.9; n.vy *= 0.9;
                     n.x += n.vx; n.y += n.vy;
                     n.x = Math.max(20, Math.min(W-20, n.x));
                     n.y = Math.max(20, Math.min(H-20, n.y));
                 }
-                rotation += 0.002;
 
-                // Render
-                ctx.fillStyle = '#0a0a0f';
+                // Render — light background
+                ctx.fillStyle = '#f8fafc';
                 ctx.fillRect(0, 0, W, H);
+
+                ctx.save();
+                ctx.translate(W/2, H/2);
+                ctx.scale(zoom, zoom);
+                ctx.translate(-W/2 + panX, -H/2 + panY);
 
                 // Edges
                 for (const e of kgGraphEdges) {
@@ -5228,36 +5327,55 @@ body { padding: 0; }
                     ctx.beginPath();
                     ctx.moveTo(s.x, s.y);
                     ctx.lineTo(t.x, t.y);
-                    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(100,116,139,0.3)';
+                    ctx.lineWidth = 1.5 / zoom;
                     ctx.stroke();
+                    // Edge label
+                    if (e.label) {
+                        const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
+                        ctx.fillStyle = 'rgba(100,116,139,0.6)';
+                        ctx.font = `${Math.max(7, 8/zoom)}px sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.fillText(e.label, mx, my - 3/zoom);
+                    }
                 }
 
-                // Nodes with glow
+                // Nodes
                 for (const n of kgGraphNodes) {
                     const color = KG_TYPE_COLORS[n.type] || '#8b5cf6';
-                    const r = n.id === kgGraphNodes[0]?.id ? 8 : 5;
+                    const isCenter = n.id === kgGraphNodes[0]?.id;
+                    const r = isCenter ? 8 : 5;
 
-                    // Outer glow
-                    const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
-                    grad.addColorStop(0, color + '30');
-                    grad.addColorStop(1, 'transparent');
+                    // Shadow / glow
                     ctx.beginPath();
-                    ctx.arc(n.x, n.y, r * 3, 0, Math.PI * 2);
-                    ctx.fillStyle = grad;
+                    ctx.arc(n.x, n.y, r + 2, 0, Math.PI * 2);
+                    ctx.fillStyle = color + '25';
                     ctx.fill();
 
-                    // Node
+                    // Node circle
                     ctx.beginPath();
                     ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
                     ctx.fillStyle = color;
                     ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 1.5 / zoom;
+                    ctx.stroke();
 
                     // Label
-                    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-                    ctx.font = '9px sans-serif';
+                    ctx.fillStyle = '#1e293b';
+                    ctx.font = `${isCenter ? 'bold ' : ''}${Math.max(8, 9/zoom)}px sans-serif`;
                     ctx.textAlign = 'center';
-                    ctx.fillText(n.label.substring(0, 12), n.x, n.y + r + 10);
+                    ctx.fillText(n.label.substring(0, 16), n.x, n.y + r + 11/zoom);
+                }
+
+                ctx.restore();
+
+                // Zoom indicator
+                if (zoom !== 1) {
+                    ctx.fillStyle = 'rgba(100,116,139,0.5)';
+                    ctx.font = '10px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(`${Math.round(zoom * 100)}%`, W - 8, H - 8);
                 }
 
                 requestAnimationFrame(simulate);
