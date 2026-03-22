@@ -1165,26 +1165,40 @@ ANTWORT-FORMAT: Reines JSON.
   const finalPrompt = isEn
     ? `Finalize the answer after the specialist debate.
 ${finalQuestionContext}
+SPECIALIST SOURCE DATA (use ONLY these numbers — do NOT invent or estimate):
+${compressed}
+
 ORIGINAL DRAFT:
-${draftText.substring(0, 3000)}
+${draftText.substring(0, 8000)}
 
 SPECIALIST CRITIQUES:
 ${allCritiques.join('\n\n')}
 
 Create the FINAL answer. Incorporate valid critique points.
-- Cite specific numbers, machine IDs, article numbers from the data
+CRITICAL RULES:
+- Use ONLY numbers, percentages, dates from the SPECIALIST SOURCE DATA above
+- Do NOT invent, round, or estimate any numbers — copy them exactly
+- If a specialist reported OEE 38.5%, write 38.5%, not 85%
+- If a specialist reported shift 06:00-14:00, write 06:00-14:00, not 08:00-16:00
 - Do NOT invent person names or organizational units
 - Format: Structured Markdown text. Respond in English.`
     : `Finalisiere die Antwort nach der Spezialisten-Debatte.
 ${finalQuestionContext}
+SPEZIALISTEN-QUELLDATEN (verwende NUR diese Zahlen — NICHTS erfinden oder schätzen):
+${compressed}
+
 URSPRÜNGLICHER ENTWURF:
-${draftText.substring(0, 3000)}
+${draftText.substring(0, 8000)}
 
 SPEZIALISTEN-KRITIK:
 ${allCritiques.join('\n\n')}
 
 Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
-- Nenne konkrete Zahlen, Maschinen-IDs, Artikel-Nummern aus den Daten
+KRITISCHE REGELN:
+- Verwende NUR Zahlen, Prozente, Daten aus den SPEZIALISTEN-QUELLDATEN oben
+- NICHTS erfinden, runden oder schätzen — Zahlen exakt übernehmen
+- Wenn ein Spezialist OEE 38.5% gemeldet hat, schreibe 38.5%, nicht 85%
+- Wenn ein Spezialist Schicht 06:00-14:00 gemeldet hat, schreibe 06:00-14:00, nicht 08:00-16:00
 - Erfinde KEINE Personennamen oder Organisationseinheiten
 - Format: Strukturierter Markdown-Text.`;
 
@@ -1299,10 +1313,18 @@ function generateHtmlReport(
     }
   }
 
-  // Final text — convert basic markdown bold/bullets to HTML
+  // Final text — convert markdown to HTML (headings, bold, bullets, tables)
   const finalHtml = esc(finalText)
+    .replace(/^### (.*)$/gm, '<h4>$1</h4>')
+    .replace(/^## (.*)$/gm, '<h3 class="chapter-heading">$1</h3>')
+    .replace(/^# (.*)$/gm, '<h2>$1</h2>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/^- (.*)$/gm, '<li>$1</li>')
+    .replace(/\|([^\n]+)\|/gm, (match) => `<tr>${match.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('')}</tr>`)
+    .replace(/(<tr>.*<\/tr>\n?)+/g, (match) => `<table class="traffic-light-table">${match}</table>`)
+    .replace(/🟢/g, '<span class="badge badge-green">🟢</span>')
+    .replace(/🟡/g, '<span class="badge badge-yellow">🟡</span>')
+    .replace(/🔴/g, '<span class="badge badge-red">🔴</span>')
     .replace(/\n/g, '<br>');
 
   const isEn = language === 'en';
@@ -1427,6 +1449,14 @@ function generateHtmlReport(
   .badge-sofort { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
   .badge-heute { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
   .badge-woche { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .badge-green { color: #16a34a; }
+  .badge-yellow { color: #d97706; }
+  .badge-red { color: #dc2626; }
+
+  .chapter-heading { font-size: 12pt; font-weight: 700; color: #1e293b; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #2563eb; }
+  .traffic-light-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 8pt; }
+  .traffic-light-table td { padding: 4px 8px; border: 1px solid #e2e8f0; text-align: center; }
+  .traffic-light-table tr:first-child td { font-weight: 600; background: #f1f5f9; }
 
   ul { padding-left: 16px; margin: 4px 0; }
   li { margin: 3px 0; font-size: 8.5pt; color: #334155; }
