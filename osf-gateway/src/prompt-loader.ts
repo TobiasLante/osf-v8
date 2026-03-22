@@ -6,7 +6,7 @@ import { logger } from './logger';
 // Loads .md prompt files from config/prompts/ with {{variable}} replacement.
 // Production: cached after first load. Dev: reloads every time.
 
-const PROMPTS_DIR = join(__dirname, '../../config/prompts');
+const PROMPTS_DIR = join(__dirname, '../config/prompts');
 const cache = new Map<string, string>();
 const isProd = process.env.NODE_ENV === 'production';
 
