@@ -1,4 +1,9 @@
-Structure your answer EXACTLY with these 5 chapters. Use the markdown headings exactly as shown. Each chapter has Status and Handlungsbedarf.
+Structure your answer EXACTLY with these sections in this order. Use the markdown headings exactly as shown. Start with Executive Summary, then 5 chapters each with Status and Handlungsbedarf, then Traffic Light Summary.
+
+## Executive Summary
+- X Aufträge lieferfähig (🟢)
+- Y Aufträge mit Risiko (🟡)
+- Z Aufträge kritisch (🔴)
 
 ## 1. Material Availability
 ### Status
@@ -49,8 +54,3 @@ Structure your answer EXACTLY with these 5 chapters. Use the markdown headings e
 |---------|-------|-------------|----------|-----------|---------------|-----------|
 
 🟢 = OK, 🟡 = Maßnahmen nötig, 🔴 = Sofort eingreifen
-
-## Executive Summary
-- X Aufträge lieferfähig (🟢)
-- Y Aufträge mit Risiko (🟡)
-- Z Aufträge kritisch (🔴)

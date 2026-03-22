@@ -1541,9 +1541,14 @@ function generateHtmlReport(
     ${entityId ? `<div class="subtitle">Entity: ${entityId}</div>` : ''}
     <div class="subtitle" style="font-size:10pt;color:#94a3b8;">${now}</div>
     <div><span class="sev-badge">Severity: ${severity}</span></div>
+    <div style="margin-top:30px;padding:16px 20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;">
+      <div style="font-size:9pt;font-weight:600;color:#1e293b;">Tobias Lante</div>
+      <div style="font-size:8pt;color:#64748b;margin-top:2px;">Transition Technologies PSC (TTPSC)</div>
+      <div style="font-size:7.5pt;color:#94a3b8;margin-top:8px;">${t('Bei Fragen wenden Sie sich bitte an', 'For questions please contact')}: <a href="mailto:tobias.lante@ttpsc.com" style="color:#2563eb;">tobias.lante@ttpsc.com</a></div>
+    </div>
   </div>
   <div class="page-footer">
-    <span>OpenShopFloor &mdash; ZeroGuess AI</span>
+    <span>OpenShopFloor &mdash; ZeroGuess AI | TTPSC</span>
     <span>${t('Seite', 'Page')} 1</span>
   </div>
 </div>
