@@ -18,7 +18,7 @@ This document describes ALL available tools organized by domain. Use it to selec
 - Machine comparison → `factory_get_machine_oee` for each, then `factory_get_machine_pool_members` to check alternatives
 
 ## Capacity & Scheduling
-**When:** Machine load, blocked orders, scheduling, rescheduling, bottlenecks, work center capacity
+**When:** Machine load, blocked orders, scheduling, rescheduling, bottlenecks, work center capacity, shift patterns
 **Tools:**
 - `factory_get_capacity_overview` — Load % for ALL machines/work centers
 - `factory_get_capacity_summary` — Compact capacity summary: current + next week
@@ -26,6 +26,7 @@ This document describes ALL available tools organized by domain. Use it to selec
 - `factory_get_cm01` — Capacity per machine by period (like SAP CM01)
 - `factory_get_cm21_orders` — Orders per work center (like SAP CM21)
 - `factory_get_blocked_orders_count` — Count of blocked orders (material/capacity)
+- `factory_get_shift_schedule` — Shift model for all departments: which shifts run when, net minutes, holidays. Optional: machineId for one machine's department
 - `factory_get_machine_queue` — Order queue for a specific machine, sorted by priority
 - `factory_get_work_order` — Details of a single production order
 - `factory_get_arbeitsplan_full` — Full routing: work center, pool, cycle time, setup time, tools
@@ -33,6 +34,7 @@ This document describes ALL available tools organized by domain. Use it to selec
 - Bottleneck hunt → `factory_get_capacity_overview` (find >95%), then `factory_get_machine_queue` for overloaded machines
 - Rescheduling → `factory_get_cm21_orders` + `factory_get_machine_pool_members` to find alternatives
 - Blocked order analysis → `factory_get_blocked_orders_count` + `factory_get_work_order` per order
+- Shift planning → `factory_get_shift_schedule` for current model, then `factory_get_capacity_summary` to see if extra shifts are needed
 
 ## Materials & Stock
 **When:** Stock levels, shortages, safety stock, material coverage, purchase orders, MRP
