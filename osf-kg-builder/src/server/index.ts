@@ -70,11 +70,14 @@ async function main() {
     }
   };
 
-  // Build mutex to prevent concurrent builds
+  // Build mutex with dirty flag — if a build is requested while one runs,
+  // it will be queued and start immediately after the current build finishes.
   let buildInProgress = false;
+  let pendingReason: string | null = null;
   const safeBuild = async (reason: string) => {
     if (buildInProgress) {
-      logger.info({ reason }, 'Build already in progress, skipping');
+      pendingReason = reason;
+      logger.info({ reason }, 'Build already in progress, queued for after completion');
       return;
     }
     buildInProgress = true;
@@ -83,6 +86,12 @@ async function main() {
       await rebuildFromSchemas();
     } finally {
       buildInProgress = false;
+      if (pendingReason) {
+        const next = pendingReason;
+        pendingReason = null;
+        logger.info({ reason: next }, 'Running queued build...');
+        safeBuild(next);
+      }
     }
   };
 

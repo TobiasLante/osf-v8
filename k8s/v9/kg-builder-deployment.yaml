@@ -5,7 +5,7 @@ metadata:
   namespace: osf
   labels:
     app: osf-kg-builder
-    version: "9.1.0"
+    version: "9.1.1"
 spec:
   replicas: 1
   selector:
@@ -15,11 +15,11 @@ spec:
     metadata:
       labels:
         app: osf-kg-builder
-        version: "9.1.0"
+        version: "9.1.1"
     spec:
       containers:
         - name: kg-builder
-          image: 192.168.178.150:32000/osf-kg-builder:9.1.0
+          image: 192.168.178.150:32000/osf-kg-builder:9.1.1
           imagePullPolicy: Always
           command: ["node", "dist/server/index.js"]
           ports:
