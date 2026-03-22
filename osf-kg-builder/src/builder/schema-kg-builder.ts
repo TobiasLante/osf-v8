@@ -428,7 +428,7 @@ export async function buildInstancesFromPostgres(
     for (const r of results) {
       if (r.status === 'fulfilled') {
         totalNodes += r.value.nodes;
-        allEdges.push(...r.value.edges);
+        for (const e of r.value.edges) allEdges.push(e);
       } else {
         logger.error({ err: r.reason?.message }, '[SchemaBuild] PostgreSQL source failed');
       }
