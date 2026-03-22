@@ -5,7 +5,8 @@ This document describes ALL available tools organized by domain. Use it to selec
 ## Production & OEE
 **When:** OEE, machine performance, availability, downtime, scrap, production output, shift reports
 **Tools:**
-- `factory_get_latest_oee` — Current OEE for ALL machines
+- `factory_get_latest_oee` — Current OEE for ALL machines (last data point per machine — use factory_get_oee_summary for averages)
+- `factory_get_oee_summary` — 24h average OEE per machine: avg/min/max OEE, A/P/Q averages, scrap rate. Sorted worst-first. Use this for reports and planning
 - `factory_get_machine_oee` — OEE breakdown (A/P/Q) for one machine
 - `factory_get_production_history` — Hourly output: good parts, scrap, rework
 - `factory_get_scrap_history` — Scrap history grouped by machine
