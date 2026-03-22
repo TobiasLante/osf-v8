@@ -2320,7 +2320,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge">v8.13.2</span>
+                    <span class="version-badge" id="versionBadge">v…</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -3152,6 +3152,10 @@
                 const data = await res.json();
                 statusIndicator.className = 'status-indicator';
                 statusText.textContent = t('status.connected');
+                if (data.version) {
+                    const badge = document.getElementById('versionBadge');
+                    if (badge) badge.textContent = 'v' + data.version;
+                }
                 fetchLlmModel();
             } catch {
                 statusIndicator.className = 'status-indicator error';

@@ -3,6 +3,8 @@ import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PKG_VERSION: string = require('../package.json').version;
 import { config } from './config';
 import { logFeatureFlags } from './feature-flags';
 import cookieParser from 'cookie-parser';
@@ -272,7 +274,7 @@ async function main() {
 
   // Health check (no auth)
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', version: process.env.APP_VERSION || 'unknown', activeRequests, activeSse: activeSseResponses.size });
+    res.json({ status: 'ok', version: PKG_VERSION, activeRequests, activeSse: activeSseResponses.size });
   });
 
   // Readiness probe — checks DB connectivity + LLM circuit breaker
