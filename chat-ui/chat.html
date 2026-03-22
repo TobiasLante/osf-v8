@@ -2689,8 +2689,12 @@
 
           // Pills
           'pill.quality': { de: 'Qualität', en: 'Quality' },
+          'pill.oee': { de: 'OEE', en: 'OEE' },
           'pill.otd': { de: 'OTD', en: 'OTD' },
           'pill.revenue': { de: 'Umsatz', en: 'Revenue' },
+          'pill.shopfloor': { de: 'Shopfloor', en: 'Shopfloor' },
+          'pill.material': { de: 'Material', en: 'Material' },
+          'pill.impact': { de: 'Impact', en: 'Impact' },
           'pill.overview': { de: 'Übersicht', en: 'Overview' },
           'pill.deep': { de: 'Deep Analyze', en: 'Deep Analyze' },
           'pill.fast': { de: 'Fast', en: 'Fast' },
@@ -2934,8 +2938,14 @@
 
           // Pill labels (accord-header text spans)
           const pillMap = {
+            'delivery': 'pill.delivery',
+            'oee': 'pill.oee',
             'quality': 'pill.quality',
+            'otd': 'pill.otd',
             'revenue': 'pill.revenue',
+            'shopfloor': 'pill.shopfloor',
+            'material': 'pill.material',
+            'impact': 'pill.impact',
           };
           document.querySelectorAll('.accord-section[data-domain]').forEach(sec => {
             const domain = sec.getAttribute('data-domain');
