@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/v6-design.css">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.170/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
     <style>
         /* === CHAT PAGE — V6 Variable Aliases === */
         :root {
@@ -2554,7 +2556,7 @@
         <div class="progress-panel-body" id="progressPanelBody">
         <!-- KG 3D Visualizer -->
         <div class="kg-visualizer-container" id="kgVisualizerContainer">
-            <canvas id="kgCanvas" width="440" height="320" style="width:100%;height:320px;border-radius:12px 12px 0 0;cursor:grab;"></canvas>
+            <div id="kgCanvas3D" style="width:100%;height:320px;border-radius:12px 12px 0 0;"></div>
             <div class="kg-stats-bar" id="kgStatsBar">
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#ef4444"></span> <span id="kgStatCenter">—</span></div>
                 <div class="kg-stat"><span class="kg-stat-dot" style="background:#f97316"></span> <span id="kgStatNodes">0</span> Nodes</div>
@@ -5084,6 +5086,14 @@ body { padding: 0; }
             if (kgEdges) kgEdges.textContent = '0';
             const kgCenter = document.getElementById('kgStatCenter');
             if (kgCenter) kgCenter.textContent = '—';
+            // Destroy 3D graph
+            if (kgGraph3D) {
+                kgGraph3D._destructor && kgGraph3D._destructor();
+                kgGraph3D = null;
+                kgSimRunning = false;
+                const el = document.getElementById('kgCanvas3D');
+                if (el) el.innerHTML = '';
+            }
         }
 
         // ═══════════════════════════════════════════════════════
@@ -5121,6 +5131,7 @@ body { padding: 0; }
         let kgGraphNodes = [];
         let kgGraphEdges = [];
         let kgSimRunning = false;
+        let kgGraph3D = null;
 
         function handleKgEvent(event) {
             const container = document.getElementById('kgVisualizerContainer');
@@ -5135,7 +5146,7 @@ body { padding: 0; }
                     if (event.nodes) {
                         for (const n of event.nodes) {
                             if (!kgGraphNodes.find(e => e.id === n.id)) {
-                                kgGraphNodes.push({ ...n, x: 220 + (Math.random()-0.5)*100, y: 160 + (Math.random()-0.5)*100, vx: 0, vy: 0 });
+                                kgGraphNodes.push(n);
                             }
                         }
                     }
@@ -5144,22 +5155,25 @@ body { padding: 0; }
                     document.getElementById('kgStatEdges').textContent = kgGraphEdges.length;
                     if (event.centerEntity?.id) document.getElementById('kgStatCenter').textContent = event.centerEntity.id;
                     updateKgSchemaBar();
-                    if (!kgSimRunning) startKgSimulation();
+                    updateKg3D();
                     break;
                 case 'kg_traversal_end':
                     document.getElementById('kgStatNodes').textContent = event.totalNodes || kgGraphNodes.length;
                     document.getElementById('kgStatEdges').textContent = event.totalEdges || kgGraphEdges.length;
+                    // Stop auto-rotation slowdown after traversal
+                    if (kgGraph3D) {
+                        const ctrl = kgGraph3D.controls();
+                        if (ctrl) { ctrl.autoRotate = true; ctrl.autoRotateSpeed = 0.5; }
+                    }
                     break;
                 case 'kg_summary':
                     if (event.nodes) {
                         kgGraphNodes = [];
                         kgGraphEdges = [];
-                        for (const n of event.nodes) {
-                            kgGraphNodes.push({ ...n, x: 220 + (Math.random()-0.5)*100, y: 160 + (Math.random()-0.5)*100, vx: 0, vy: 0 });
-                        }
+                        for (const n of event.nodes) kgGraphNodes.push(n);
                         if (event.edges) kgGraphEdges = event.edges;
                         updateKgSchemaBar();
-                        if (!kgSimRunning) startKgSimulation();
+                        updateKg3D();
                     }
                     break;
             }
@@ -5178,222 +5192,119 @@ body { padding: 0; }
             }).join('');
         }
 
-        function startKgSimulation() {
-            kgSimRunning = true;
-            const canvas = document.getElementById('kgCanvas');
-            const ctx = canvas.getContext('2d');
-            const W = canvas.width, H = canvas.height;
-            const nodeMap = new Map();
+        function updateKg3D() {
+            const el = document.getElementById('kgCanvas3D');
+            if (!el || typeof ForceGraph3D === 'undefined') return;
 
-            // Pan & zoom state
-            let panX = 0, panY = 0, zoom = 1;
-            let isPanning = false, panStartX = 0, panStartY = 0;
-            let dragNode = null;
-
-            // Convert screen coords to graph coords
-            function screenToGraph(sx, sy) {
-                return { x: (sx - W/2) / zoom - panX + W/2, y: (sy - H/2) / zoom - panY + H/2 };
+            // Build graph data
+            const nodeSet = new Set();
+            const nodes = [];
+            const centerEntity = kgGraphNodes[0]?.id;
+            for (const n of kgGraphNodes) {
+                if (nodeSet.has(n.id)) continue;
+                nodeSet.add(n.id);
+                nodes.push({
+                    id: n.id,
+                    label: n.label,
+                    type: n.type,
+                    color: KG_TYPE_COLORS[n.type] || '#8b5cf6',
+                    val: n.id === centerEntity ? 8 : 4
+                });
             }
-            function graphToScreen(gx, gy) {
-                return { x: (gx - W/2 + panX) * zoom + W/2, y: (gy - H/2 + panY) * zoom + H/2 };
-            }
+            const links = kgGraphEdges
+                .filter(e => nodeSet.has(e.from) && nodeSet.has(e.to))
+                .map(e => ({
+                    source: e.from,
+                    target: e.to,
+                    label: e.label || '',
+                    color: (e.label === 'ALTERNATIVE' || e.label === 'CAN_REPLACE') ? '#22c55e' : 'rgba(255,255,255,0.15)'
+                }));
 
-            // Find node under cursor
-            function hitTest(sx, sy) {
-                const g = screenToGraph(sx, sy);
-                for (let i = kgGraphNodes.length - 1; i >= 0; i--) {
-                    const n = kgGraphNodes[i];
-                    const dx = g.x - n.x, dy = g.y - n.y;
-                    if (dx*dx + dy*dy < 144) return n; // radius 12
-                }
-                return null;
-            }
+            if (!kgGraph3D) {
+                // Initialize 3D graph
+                kgGraph3D = ForceGraph3D()(el)
+                    .backgroundColor('#0a0a0f')
+                    .nodeId('id')
+                    .nodeVal('val')
+                    .nodeColor('color')
+                    .nodeOpacity(0.9)
+                    .nodeLabel(n => `<div style="background:rgba(0,0,0,0.85);padding:4px 8px;border-radius:6px;border:1px solid ${n.color}40;font-size:11px;color:${n.color}"><b>${n.label}</b><br/><span style="color:rgba(255,255,255,0.5);font-size:9px">${n.type}</span></div>`)
+                    .linkSource('source')
+                    .linkTarget('target')
+                    .linkColor('color')
+                    .linkWidth(1.5)
+                    .linkOpacity(0.4)
+                    .linkDirectionalParticles(2)
+                    .linkDirectionalParticleWidth(1.5)
+                    .linkDirectionalParticleColor(l => l.color)
+                    .linkLabel(l => l.label ? `<div style="background:rgba(0,0,0,0.8);padding:2px 6px;border-radius:4px;font-size:9px;color:rgba(255,255,255,0.5)">${l.label}</div>` : '')
+                    .showNavInfo(false)
+                    .enableNodeDrag(true)
+                    .enableNavigationControls(true)
+                    .warmupTicks(50)
+                    .cooldownTicks(100)
+                    .d3AlphaDecay(0.02)
+                    .d3VelocityDecay(0.3)
+                    .width(el.clientWidth)
+                    .height(320);
 
-            canvas.addEventListener('mousedown', (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const sx = (e.clientX - rect.left) * (W / rect.width);
-                const sy = (e.clientY - rect.top) * (H / rect.height);
-                const hit = hitTest(sx, sy);
-                if (hit) {
-                    dragNode = hit;
-                    canvas.style.cursor = 'grabbing';
-                } else {
-                    isPanning = true;
-                    panStartX = e.clientX; panStartY = e.clientY;
-                    canvas.style.cursor = 'grabbing';
-                }
-            });
-            canvas.addEventListener('mousemove', (e) => {
-                if (dragNode) {
-                    const rect = canvas.getBoundingClientRect();
-                    const g = screenToGraph(
-                        (e.clientX - rect.left) * (W / rect.width),
-                        (e.clientY - rect.top) * (H / rect.height)
-                    );
-                    dragNode.x = g.x; dragNode.y = g.y;
-                    dragNode.vx = 0; dragNode.vy = 0;
-                } else if (isPanning) {
-                    const rect = canvas.getBoundingClientRect();
-                    panX += (e.clientX - panStartX) * (W / rect.width) / zoom;
-                    panY += (e.clientY - panStartY) * (H / rect.height) / zoom;
-                    panStartX = e.clientX; panStartY = e.clientY;
-                }
-            });
-            canvas.addEventListener('mouseup', () => { dragNode = null; isPanning = false; canvas.style.cursor = 'grab'; });
-            canvas.addEventListener('mouseleave', () => { dragNode = null; isPanning = false; canvas.style.cursor = 'grab'; });
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const factor = e.deltaY < 0 ? 1.1 : 0.9;
-                zoom = Math.max(0.3, Math.min(5, zoom * factor));
-            }, { passive: false });
+                // Custom node: sphere + glow + label sprite (like KG3D.tsx)
+                // THREE loaded via CDN (global)
+                kgGraph3D.nodeThreeObject(node => {
+                    const group = new THREE.Group();
 
-            // Touch support (pinch zoom + pan)
-            let lastTouchDist = 0;
-            canvas.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
-                    const rect = canvas.getBoundingClientRect();
-                    const sx = (e.touches[0].clientX - rect.left) * (W / rect.width);
-                    const sy = (e.touches[0].clientY - rect.top) * (H / rect.height);
-                    const hit = hitTest(sx, sy);
-                    if (hit) { dragNode = hit; } else { isPanning = true; panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY; }
-                } else if (e.touches.length === 2) {
-                    lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                }
-            }, { passive: true });
-            canvas.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                if (e.touches.length === 2 && lastTouchDist) {
-                    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                    zoom = Math.max(0.3, Math.min(5, zoom * (dist / lastTouchDist)));
-                    lastTouchDist = dist;
-                } else if (dragNode && e.touches.length === 1) {
-                    const rect = canvas.getBoundingClientRect();
-                    const g = screenToGraph((e.touches[0].clientX - rect.left) * (W / rect.width), (e.touches[0].clientY - rect.top) * (H / rect.height));
-                    dragNode.x = g.x; dragNode.y = g.y; dragNode.vx = 0; dragNode.vy = 0;
-                } else if (isPanning && e.touches.length === 1) {
-                    const rect = canvas.getBoundingClientRect();
-                    panX += (e.touches[0].clientX - panStartX) * (W / rect.width) / zoom;
-                    panY += (e.touches[0].clientY - panStartY) * (H / rect.height) / zoom;
-                    panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
-                }
-            }, { passive: false });
-            canvas.addEventListener('touchend', () => { dragNode = null; isPanning = false; lastTouchDist = 0; });
+                    // Main sphere
+                    const geo = new THREE.SphereGeometry(node.val, 16, 12);
+                    const mat = new THREE.MeshLambertMaterial({ color: node.color, transparent: true, opacity: 0.85 });
+                    group.add(new THREE.Mesh(geo, mat));
 
-            function simulate() {
-                if (!kgSimRunning) return;
-                kgGraphNodes.forEach(n => nodeMap.set(n.id, n));
+                    // Glow sphere
+                    const glowGeo = new THREE.SphereGeometry(node.val * 1.4, 16, 12);
+                    const glowMat = new THREE.MeshBasicMaterial({ color: node.color, transparent: true, opacity: 0.12 });
+                    group.add(new THREE.Mesh(glowGeo, glowMat));
 
-                // Simple force simulation (skip for dragged node)
-                for (let i = 0; i < kgGraphNodes.length; i++) {
-                    const a = kgGraphNodes[i];
-                    if (a === dragNode) continue;
-                    // Center gravity
-                    a.vx += (W/2 - a.x) * 0.001;
-                    a.vy += (H/2 - a.y) * 0.001;
-                    // Repulsion
-                    for (let j = i+1; j < kgGraphNodes.length; j++) {
-                        const b = kgGraphNodes[j];
-                        const dx = a.x - b.x, dy = a.y - b.y;
-                        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-                        if (dist < 120) {
-                            const f = (120 - dist) * 0.02 / dist;
-                            if (a !== dragNode) { a.vx += dx * f; a.vy += dy * f; }
-                            if (b !== dragNode) { b.vx -= dx * f; b.vy -= dy * f; }
-                        }
-                    }
-                }
-                // Edge attraction
-                for (const e of kgGraphEdges) {
-                    const s = nodeMap.get(e.from), t = nodeMap.get(e.to);
-                    if (!s || !t) continue;
-                    const dx = t.x - s.x, dy = t.y - s.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-                    const f = (dist - 60) * 0.003;
-                    if (s !== dragNode) { s.vx += dx * f; s.vy += dy * f; }
-                    if (t !== dragNode) { t.vx -= dx * f; t.vy -= dy * f; }
-                }
-                // Apply velocity + damping
-                for (const n of kgGraphNodes) {
-                    if (n === dragNode) continue;
-                    n.vx *= 0.9; n.vy *= 0.9;
-                    n.x += n.vx; n.y += n.vy;
-                    n.x = Math.max(20, Math.min(W-20, n.x));
-                    n.y = Math.max(20, Math.min(H-20, n.y));
-                }
-
-                // Render — light background
-                ctx.fillStyle = '#f8fafc';
-                ctx.fillRect(0, 0, W, H);
-
-                ctx.save();
-                ctx.translate(W/2, H/2);
-                ctx.scale(zoom, zoom);
-                ctx.translate(-W/2 + panX, -H/2 + panY);
-
-                // Edges
-                for (const e of kgGraphEdges) {
-                    const s = nodeMap.get(e.from), t = nodeMap.get(e.to);
-                    if (!s || !t) continue;
-                    ctx.beginPath();
-                    ctx.moveTo(s.x, s.y);
-                    ctx.lineTo(t.x, t.y);
-                    ctx.strokeStyle = 'rgba(100,116,139,0.3)';
-                    ctx.lineWidth = 1.5 / zoom;
-                    ctx.stroke();
-                    // Edge label
-                    if (e.label) {
-                        const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
-                        ctx.fillStyle = 'rgba(100,116,139,0.6)';
-                        ctx.font = `${Math.max(7, 8/zoom)}px sans-serif`;
-                        ctx.textAlign = 'center';
-                        ctx.fillText(e.label, mx, my - 3/zoom);
-                    }
-                }
-
-                // Nodes
-                for (const n of kgGraphNodes) {
-                    const color = KG_TYPE_COLORS[n.type] || '#8b5cf6';
-                    const isCenter = n.id === kgGraphNodes[0]?.id;
-                    const r = isCenter ? 8 : 5;
-
-                    // Shadow / glow
-                    ctx.beginPath();
-                    ctx.arc(n.x, n.y, r + 2, 0, Math.PI * 2);
-                    ctx.fillStyle = color + '25';
-                    ctx.fill();
-
-                    // Node circle
-                    ctx.beginPath();
-                    ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-                    ctx.fillStyle = color;
-                    ctx.fill();
-                    ctx.strokeStyle = '#fff';
-                    ctx.lineWidth = 1.5 / zoom;
-                    ctx.stroke();
-
-                    // Label
-                    ctx.fillStyle = '#1e293b';
-                    ctx.font = `${isCenter ? 'bold ' : ''}${Math.max(8, 9/zoom)}px sans-serif`;
+                    // Label sprite
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 256; canvas.height = 64;
+                    ctx.font = 'bold 28px sans-serif';
                     ctx.textAlign = 'center';
-                    ctx.fillText(n.label.substring(0, 16), n.x, n.y + r + 11/zoom);
-                }
+                    ctx.fillStyle = node.color;
+                    ctx.fillText(node.label.substring(0, 16), 128, 28);
+                    ctx.font = '20px sans-serif';
+                    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                    ctx.fillText(node.type, 128, 54);
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+                    const sprite = new THREE.Sprite(spriteMat);
+                    sprite.scale.set(24, 6, 1);
+                    sprite.position.set(0, node.val + 4, 0);
+                    group.add(sprite);
 
-                ctx.restore();
+                    return group;
+                });
+                kgGraph3D.nodeThreeObjectExtend(false);
 
-                // Zoom indicator
-                if (zoom !== 1) {
-                    ctx.fillStyle = 'rgba(100,116,139,0.5)';
-                    ctx.font = '10px sans-serif';
-                    ctx.textAlign = 'right';
-                    ctx.fillText(`${Math.round(zoom * 100)}%`, W - 8, H - 8);
-                }
+                // Auto-rotate
+                const controls = kgGraph3D.controls();
+                if (controls) { controls.autoRotate = true; controls.autoRotateSpeed = 0.8; }
 
-                requestAnimationFrame(simulate);
+                // Resize observer
+                const ro = new ResizeObserver(() => {
+                    if (kgGraph3D && el.clientWidth > 0) kgGraph3D.width(el.clientWidth);
+                });
+                ro.observe(el);
+
+                kgSimRunning = true;
             }
-            simulate();
-        }
 
-        // renderKgSummaryDiagram replaced by canvas force-graph above
+            // Update data
+            kgGraph3D.graphData({ nodes, links });
+
+            // Zoom to fit after settle
+            setTimeout(() => { if (kgGraph3D) kgGraph3D.zoomToFit(600, 100); }, 800);
+            setTimeout(() => { if (kgGraph3D) kgGraph3D.zoomToFit(400, 100); }, 2500);
+        }
 
         function toggleKgVisualizer() {
             // iframe removed — toggle is no-op
