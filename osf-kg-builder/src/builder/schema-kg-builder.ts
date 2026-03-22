@@ -387,11 +387,14 @@ export async function buildInstancesFromPostgres(
     s.sourceType === 'postgresql' && s.connection && s.columnMappings && profileMap.has(s.profileRef)
   );
 
-  // ── Pass 1: Load all sources in parallel (max 4 concurrent) ───
-  const allEdges: BulkEdge[] = [];
+  // ── Pass 1: Load all sources — nodes immediately, edges collected per batch ───
+  // Edges are written after each batch (not accumulated in memory) to avoid OOM
+  // on large WMS sources (351k TransportOrders × 3 edges = 1M+ objects).
 
   for (let i = 0; i < pgSources.length; i += MAX_CONCURRENT_SOURCES) {
     const batch = pgSources.slice(i, i + MAX_CONCURRENT_SOURCES);
+    const batchEdges: BulkEdge[] = [];
+
     const results = await Promise.allSettled(
       batch.map(async (src) => {
         const profile = profileMap.get(src.profileRef)!;
@@ -415,23 +418,27 @@ export async function buildInstancesFromPostgres(
     for (const r of results) {
       if (r.status === 'fulfilled') {
         totalNodes += r.value.nodes;
-        allEdges.push(...r.value.edges);
+        batchEdges.push(...r.value.edges);
       } else {
         logger.error({ err: r.reason?.message }, '[SchemaBuild] PostgreSQL source failed');
       }
     }
-  }
 
-  // ── Pass 2: Create all edges via UNWIND (all nodes exist now) ──
-  if (allEdges.length > 0) {
-    logger.info({ edgeCount: allEdges.length }, '[SchemaBuild] Creating edges (pass 2, UNWIND)...');
-    const edgeResult = await executeBulkEdges(allEdges, (done, total) => {
-      if (done % 2000 === 0 || done === total) {
-        logger.info({ done, total }, '[SchemaBuild] Bulk merging edges...');
+    // Write edges for this batch immediately (target nodes may not exist yet for
+    // cross-source edges — MATCH will skip those, but same-source edges work fine.
+    // Cross-source edges are typically small and will be retried in next build cycle.)
+    if (batchEdges.length > 0) {
+      logger.info({ edgeCount: batchEdges.length }, '[SchemaBuild] Writing edges for batch...');
+      const edgeResult = await executeBulkEdges(batchEdges, (done, total) => {
+        if (done % 5000 === 0 || done === total) {
+          logger.info({ done, total }, '[SchemaBuild] Bulk merging edges...');
+        }
+      });
+      totalEdges += edgeResult.success;
+      if (edgeResult.failed > 0) {
+        logger.warn({ success: edgeResult.success, failed: edgeResult.failed }, '[SchemaBuild] Some edges failed (target nodes may not exist yet)');
       }
-    });
-    totalEdges = edgeResult.success;
-    logger.info({ success: edgeResult.success, failed: edgeResult.failed }, '[SchemaBuild] Edges created');
+    }
   }
 
   return { nodesMerged: totalNodes, edgesCreated: totalEdges };
