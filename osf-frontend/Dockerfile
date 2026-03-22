@@ -20,6 +20,13 @@ COPY --from=build /app/out/ /usr/share/nginx/html/
 # Next.js static export: pages are /page.html, not /page/index.html
 RUN printf 'server {\n  listen 3000;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / {\n    try_files $uri $uri.html $uri/ /index.html;\n  }\n}\n' > /etc/nginx/conf.d/default.conf
 
+# Fix permissions for non-root nginx (UID 101)
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
+
+USER nginx
 EXPOSE 3000
 
 CMD ["nginx", "-g", "daemon off;"]
