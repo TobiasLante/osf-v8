@@ -69,6 +69,21 @@ const IMPACT_SPECIALISTS: SpecialistDef[] = [
   { name: 'quality-impact', domain: 'IMPACT_QUALITAET', displayName: 'Qualitäts-Impact Analyst', focus: 'Qualität, Cpk, SPC-Alarme, Ausschuss, Reklamationen' },
 ];
 
+const DELIVERY_SPECIALISTS: SpecialistDef[] = [
+  { name: 'risk-analyst', domain: 'DELIVERY_RISK', displayName: 'Risk Analyst', focus: 'Gefährdete Aufträge, Liefertermintreue, Kunden-OTD. Tools: factory_get_orders_at_risk, factory_get_customer_otd' },
+  { name: 'material-analyst', domain: 'DELIVERY_MATERIAL', displayName: 'Material Analyst', focus: 'Materialverfügbarkeit, Fehlteile, Bestände, MRP-Prüfung. Tools: factory_get_md04, factory_get_md07, factory_check_material_readiness' },
+  { name: 'capacity-analyst', domain: 'DELIVERY_CAPACITY', displayName: 'Capacity Analyst', focus: 'Maschinenauslastung, Schichtkapazität, Engpässe. Tools: factory_get_cm01, factory_get_capacity_overview' },
+  { name: 'production-analyst', domain: 'DELIVERY_PRODUCTION', displayName: 'Production Analyst', focus: 'OEE, Produktivität, aktuelle Auftragsauslastung, Ist-Daten aus KG. Tools: kg_stats, kg_filter, kg_aggregate' },
+];
+
+/** Select specialists based on agent ID */
+function getSpecialistsForAgent(agentId: string): SpecialistDef[] {
+  switch (agentId) {
+    case 'delivery-check': return DELIVERY_SPECIALISTS;
+    default: return IMPACT_SPECIALISTS;
+  }
+}
+
 // ─── Language helper ─────────────────────────────────────────────────────
 
 /** Returns DE or EN string based on language param */
@@ -1655,6 +1670,7 @@ export async function runDiscussionAgent(
       : dl(language, 'Keine Fabrikdaten verfügbar.', 'No factory data available.');
 
     // ── Phase 1: Specialists ──
+    const agentSpecialists = getSpecialistsForAgent(agent.id);
     const reports = await runSpecialistsParallel(
       `${userMsg}\n\n${kgContext}`,
       factoryContext,
@@ -1662,7 +1678,7 @@ export async function runDiscussionAgent(
       freeLlmConfig,
       userId,
       res,
-      IMPACT_SPECIALISTS,
+      agentSpecialists,
       undefined,
       language,
     );
@@ -1689,7 +1705,7 @@ export async function runDiscussionAgent(
     let readyForSynthesis = false;
     let transcript = '';
 
-    const activeSpecialists = [...IMPACT_SPECIALISTS];
+    const activeSpecialists = [...agentSpecialists];
     for (let round = 1; round <= 2 && !readyForSynthesis; round++) {
       const result = await runModeratorReview(
         reports, round, transcript,
@@ -1708,7 +1724,7 @@ export async function runDiscussionAgent(
       reports, transcript,
       premiumLlmConfig, freeLlmConfig,
       userId, res,
-      IMPACT_SPECIALISTS, undefined,
+      agentSpecialists, undefined,
       userMsg || undefined, language,
       kgContext,
     );
@@ -1718,7 +1734,7 @@ export async function runDiscussionAgent(
       finalMitigation, reports,
       kgNodes, kgEdges,
       transcript, params,
-      IMPACT_SPECIALISTS, language,
+      agentSpecialists, language,
       userMsg || undefined,
       agent.name,
     );
