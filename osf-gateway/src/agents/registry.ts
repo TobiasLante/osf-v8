@@ -136,8 +136,10 @@ const BUILT_IN_AGENTS: AgentDef[] = [
     tools: [
       'kg_stats', 'kg_filter', 'kg_query', 'kg_aggregate',
       'factory_get_orders_at_risk', 'factory_get_md04', 'factory_get_md07',
-      'factory_get_cm01', 'factory_get_capacity_overview',
+      'factory_get_cm01', 'factory_get_capacity_overview', 'factory_get_capacity_summary',
+      'factory_get_cm21_orders', 'factory_get_blocked_orders_count',
       'factory_get_customer_otd', 'factory_check_material_readiness',
+      'factory_get_low_stock_items', 'factory_get_stock_item', 'factory_get_material_coverage',
     ],
     difficulty: 'Intermediate',
     icon: '📋',

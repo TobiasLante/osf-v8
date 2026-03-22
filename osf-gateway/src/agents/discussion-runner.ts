@@ -71,8 +71,8 @@ const IMPACT_SPECIALISTS: SpecialistDef[] = [
 
 const DELIVERY_SPECIALISTS: SpecialistDef[] = [
   { name: 'risk-analyst', domain: 'DELIVERY_RISK', displayName: 'Risk Analyst', focus: 'Gefährdete Aufträge, Liefertermintreue, Kunden-OTD. Tools: factory_get_orders_at_risk, factory_get_customer_otd' },
-  { name: 'material-analyst', domain: 'DELIVERY_MATERIAL', displayName: 'Material Analyst', focus: 'Materialverfügbarkeit, Fehlteile, Bestände, MRP-Prüfung. Tools: factory_get_md04, factory_get_md07, factory_check_material_readiness' },
-  { name: 'capacity-analyst', domain: 'DELIVERY_CAPACITY', displayName: 'Capacity Analyst', focus: 'Maschinenauslastung, Schichtkapazität, Engpässe. Tools: factory_get_cm01, factory_get_capacity_overview' },
+  { name: 'material-analyst', domain: 'DELIVERY_MATERIAL', displayName: 'Material Analyst', focus: 'Materialverfügbarkeit, Fehlteile, Bestände, Lagerbestand, Materialreichweite, MRP-Prüfung. Tools: factory_get_md04, factory_get_md07, factory_check_material_readiness, factory_get_low_stock_items, factory_get_stock_item, factory_get_material_coverage' },
+  { name: 'capacity-analyst', domain: 'DELIVERY_CAPACITY', displayName: 'Capacity Analyst', focus: 'Maschinenauslastung, Schichtkapazität, Engpässe, Schichtmodell, Kapazitätsplanung. Tools: factory_get_cm01, factory_get_capacity_overview, factory_get_capacity_summary, factory_get_cm21_orders, factory_get_blocked_orders_count' },
   { name: 'production-analyst', domain: 'DELIVERY_PRODUCTION', displayName: 'Production Analyst', focus: 'OEE, Produktivität, aktuelle Auftragsauslastung, Ist-Daten aus KG. Tools: kg_stats, kg_filter, kg_aggregate' },
 ];
 
