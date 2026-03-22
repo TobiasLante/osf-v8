@@ -65,11 +65,48 @@ export async function buildTypeSystem(profiles: SMProfile[]): Promise<number> {
         logger.debug({ label, err: (err as Error).message }, '[SchemaBuild] Index skipped');
       }
     }
+
   } finally {
     await session.close();
   }
 
   return constraintsCreated;
+}
+
+/**
+ * Set parentType as additional Neo4j labels on existing nodes.
+ * E.g. all InjectionMoldingMachine nodes also get :Machine label.
+ * Called AFTER nodes are created (Phase 2).
+ */
+export async function applyParentLabels(profiles: SMProfile[]): Promise<number> {
+  const session = getDriver().session({ database: config.neo4j.database });
+  let applied = 0;
+
+  try {
+    for (const profile of profiles) {
+      const parentType = profile.parentType as string | undefined;
+      if (!parentType || parentType === 'null' || parentType === 'None') continue;
+
+      // parentType can be a label name ("Machine") or a profileId ("SMProfile-CNC-Machine")
+      const parentLabel = parentType.startsWith('SMProfile-')
+        ? profiles.find(p => p.profileId === parentType)?.kgNodeLabel
+        : parentType;
+      if (!parentLabel) continue;
+
+      try {
+        validateLabel(parentLabel);
+        await session.run(`MATCH (n:${profile.kgNodeLabel}) SET n:${parentLabel}`);
+        applied++;
+        logger.info({ label: profile.kgNodeLabel, parentLabel }, `[SchemaBuild] Parent label: :${profile.kgNodeLabel} → also :${parentLabel}`);
+      } catch (err) {
+        logger.debug({ err: (err as Error).message }, `[SchemaBuild] Parent label failed for ${profile.kgNodeLabel}`);
+      }
+    }
+  } finally {
+    await session.close();
+  }
+
+  return applied;
 }
 
 // ── Phase 2: Instance Nodes (from OPC-UA Mappings) ──────────────
@@ -961,6 +998,13 @@ export async function buildFromSchemas(
     edgesCreated += result.edgesCreated;
   } catch (err) {
     errors.push(`Phase 2c (MCP Instances): ${(err as Error).message}`);
+  }
+
+  // Phase 2d: Apply parent labels (e.g. InjectionMoldingMachine → also :Machine)
+  try {
+    await applyParentLabels(profiles);
+  } catch (err) {
+    errors.push(`Phase 2d (Parent Labels): ${(err as Error).message}`);
   }
 
   // Phase 3a: Live MQTT Subscriptions
