@@ -95,15 +95,18 @@ export function edgeCypher(
 export interface BulkNode {
   label: string;
   id: string;
+  idProp?: string; // Neo4j property to MERGE on (default: 'id')
   props: Record<string, any>;
 }
 
 export interface BulkEdge {
   fromLabel: string;
   fromId: string;
+  fromIdProp?: string; // Neo4j property to match on (default: 'id')
   edgeLabel: string;
   toLabel: string;
   toId: string;
+  toIdProp?: string;   // Neo4j property to match on (default: 'id')
   props?: Record<string, any>;
 }
 
@@ -114,12 +117,13 @@ export interface BulkEdge {
 export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: number; failed: number }> {
   if (nodes.length === 0) return { success: 0, failed: 0 };
 
-  // Group by label
-  const byLabel = new Map<string, Array<{ id: string; props: Record<string, any> }>>();
+  // Group by label+idProp (nodes of the same label always share the same idProp)
+  const byLabel = new Map<string, { idProp: string; items: Array<{ id: string; props: Record<string, any> }> }>();
   for (const n of nodes) {
-    const group = byLabel.get(n.label) || [];
-    group.push({ id: n.id, props: { id: n.id, ...n.props } });
-    byLabel.set(n.label, group);
+    const idProp = n.idProp || 'id';
+    const entry = byLabel.get(n.label) || { idProp, items: [] };
+    entry.items.push({ id: n.id, props: { [idProp]: n.id, ...n.props } });
+    byLabel.set(n.label, entry);
   }
 
   const session = getDriver().session({ database: config.neo4j.database });
@@ -127,18 +131,23 @@ export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: numb
   let failed = 0;
 
   try {
-    for (const [label, items] of byLabel) {
+    for (const [label, { idProp, items }] of byLabel) {
       validateLabel(label);
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(idProp)) {
+        logger.warn({ label, idProp }, 'Invalid idProp, skipping');
+        failed += items.length;
+        continue;
+      }
       try {
         await session.executeWrite(async (tx) => {
           await tx.run(
-            `UNWIND $batch AS row MERGE (n:${label} {id: row.id}) SET n += row.props`,
+            `UNWIND $batch AS row MERGE (n:${label} {${idProp}: row.id}) SET n += row.props`,
             { batch: items.map(i => ({ id: i.id, props: i.props })) },
           );
         });
         success += items.length;
       } catch (e: any) {
-        logger.warn({ label, count: items.length, err: e.message?.substring(0, 100) }, 'Bulk merge failed');
+        logger.warn({ label, idProp, count: items.length, err: e.message?.substring(0, 100) }, 'Bulk merge failed');
         failed += items.length;
       }
     }
@@ -155,12 +164,12 @@ export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: numb
 export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: number; failed: number }> {
   if (edges.length === 0) return { success: 0, failed: 0 };
 
-  // Group by (fromLabel, edgeLabel, toLabel)
-  const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabel}`;
-  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabel: string; pairs: Array<{ fromId: string; toId: string; props?: Record<string, any> }> }>();
+  // Group by (fromLabel, edgeLabel, toLabel, fromIdProp, toIdProp)
+  const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabel}|${e.fromIdProp || 'id'}|${e.toIdProp || 'id'}`;
+  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabel: string; fromIdProp: string; toIdProp: string; pairs: Array<{ fromId: string; toId: string; props?: Record<string, any> }> }>();
   for (const e of edges) {
     const k = key(e);
-    if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabel: e.toLabel, pairs: [] });
+    if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabel: e.toLabel, fromIdProp: e.fromIdProp || 'id', toIdProp: e.toIdProp || 'id', pairs: [] });
     byType.get(k)!.pairs.push({ fromId: e.fromId, toId: e.toId, ...(e.props ? { props: e.props } : {}) });
   }
 
@@ -169,7 +178,7 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
   let failed = 0;
 
   try {
-    for (const [, { fromLabel, edgeLabel, toLabel, pairs }] of byType) {
+    for (const [, { fromLabel, edgeLabel, toLabel, fromIdProp, toIdProp, pairs }] of byType) {
       validateLabel(fromLabel);
       validateLabel(edgeLabel);
       validateLabel(toLabel);
@@ -179,13 +188,13 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
           await tx.run(
             hasProps
               ? `UNWIND $batch AS row
-                 MATCH (a:${fromLabel} {id: row.fromId})
-                 MATCH (b:${toLabel} {id: row.toId})
+                 MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
+                 MATCH (b:${toLabel} {${toIdProp}: row.toId})
                  MERGE (a)-[r:${edgeLabel}]->(b)
                  SET r += row.props`
               : `UNWIND $batch AS row
-                 MATCH (a:${fromLabel} {id: row.fromId})
-                 MATCH (b:${toLabel} {id: row.toId})
+                 MATCH (a:${fromLabel} {${fromIdProp}: row.fromId})
+                 MATCH (b:${toLabel} {${toIdProp}: row.toId})
                  MERGE (a)-[:${edgeLabel}]->(b)`,
             { batch: pairs.map(p => ({ fromId: p.fromId, toId: p.toId, props: p.props || {} })) },
           );
