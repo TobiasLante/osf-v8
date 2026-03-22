@@ -5344,10 +5344,16 @@ body { padding: 0; }
 
             try {
                 let entities = [];
+
+                function safeParseMcp(data) {
+                    try { return JSON.parse(data); }
+                    catch { throw new Error('Ungueltige Antwort vom Server'); }
+                }
+
                 if (entityType === 'machine') {
                     // kg_type_overview → all machine instances
                     const data = await mcpCall('kg_type_overview', {});
-                    const parsed = JSON.parse(data);
+                    const parsed = safeParseMcp(data);
                     for (const type of (parsed.types || [])) {
                         for (const inst of (type.instances || [])) {
                             entities.push({ id: inst.id, label: inst.name || inst.id });
@@ -5356,14 +5362,14 @@ body { padding: 0; }
                 } else if (entityType === 'material') {
                     // factory_get_md07 → shortages[].teilId
                     const data = await mcpCall('factory_get_md07', {});
-                    const parsed = JSON.parse(data);
+                    const parsed = safeParseMcp(data);
                     for (const item of (parsed.shortages || [])) {
                         entities.push({ id: item.teilId, label: item.teilId });
                     }
                 } else if (entityType === 'supplier') {
                     // factory_get_pending_purchases → unique lieferant
                     const data = await mcpCall('factory_get_pending_purchases', {});
-                    const parsed = JSON.parse(data);
+                    const parsed = safeParseMcp(data);
                     const seen = new Set();
                     for (const o of (parsed.orders || [])) {
                         if (o.lieferant && !seen.has(o.lieferant)) {
@@ -5374,7 +5380,7 @@ body { padding: 0; }
                 } else if (entityType === 'customer') {
                     // factory_get_customer_orders → unique kundeName
                     const data = await mcpCall('factory_get_customer_orders', {});
-                    const parsed = JSON.parse(data);
+                    const parsed = safeParseMcp(data);
                     const seen = new Set();
                     for (const o of (parsed.orders || [])) {
                         if (o.kundeName && !seen.has(o.kundeName)) {
@@ -5385,7 +5391,7 @@ body { padding: 0; }
                 } else if (entityType === 'article') {
                     // factory_get_customer_orders → unique artikelNr
                     const data = await mcpCall('factory_get_customer_orders', {});
-                    const parsed = JSON.parse(data);
+                    const parsed = safeParseMcp(data);
                     const seen = new Set();
                     for (const o of (parsed.orders || [])) {
                         if (o.artikelNr && !seen.has(o.artikelNr)) {
