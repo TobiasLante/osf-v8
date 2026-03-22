@@ -24,6 +24,7 @@ RUN npm ci --omit=dev
 RUN apk del python3 make g++
 
 COPY --from=builder /app/dist ./dist/
+COPY config/prompts/ ./config/prompts/
 COPY nodered-nodes/ ./nodered-nodes/
 
 RUN mkdir -p /tmp && chown -R 1000:3000 /app /tmp
