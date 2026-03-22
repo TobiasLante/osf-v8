@@ -302,7 +302,7 @@ async function loadPgSource(
     host: conn.host, port: conn.port, database: conn.database,
     user: process.env.PG_USER || 'admin',
     password: process.env.PG_PASSWORD || config.db.password,
-    max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000,
+    max: 2, connectionTimeoutMillis: 10000, idleTimeoutMillis: 120000, query_timeout: 300000,
   });
 
   try {
@@ -486,7 +486,7 @@ export async function startPollingSync(
         host: conn.host, port: conn.port, database: conn.database,
         user: process.env.PG_USER || 'admin',
         password: process.env.PG_PASSWORD || config.db.password,
-        max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000,
+        max: 2, connectionTimeoutMillis: 10000, idleTimeoutMillis: 120000, query_timeout: 300000,
       });
       poolForSource.set(ref.sourceRef, pool);
       pollingPools.push(pool);
