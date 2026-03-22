@@ -983,6 +983,7 @@ async function runDebate(
   userMessage?: string,
   language?: string,
   kgContext?: string,
+  agentReportStructure?: string,
 ): Promise<string> {
   // 3a: Moderator drafts answer
   logger.info({ reportCount: reports.size }, 'Debate: moderator drafting synthesis answer');
@@ -1161,6 +1162,12 @@ ANTWORT-FORMAT: Reines JSON.
       : `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDie Antwort MUSS diese Frage DIREKT beantworten.\n`)
     : '';
 
+  const structureInstruction = agentReportStructure
+    ? (isEn
+      ? `\nIMPORTANT: Structure your answer EXACTLY as defined below. Use the markdown headings exactly as shown.\n\n${agentReportStructure}\n`
+      : `\nWICHTIG: Strukturiere deine Antwort EXAKT wie unten definiert. Verwende die Markdown-Überschriften genau wie angegeben.\n\n${agentReportStructure}\n`)
+    : '';
+
   const finalPrompt = isEn
     ? `Finalize the answer after the specialist debate.
 ${finalQuestionContext}
@@ -1169,9 +1176,8 @@ ${draftText.substring(0, 3000)}
 
 SPECIALIST CRITIQUES:
 ${allCritiques.join('\n\n')}
-
+${structureInstruction}
 Create the FINAL answer. Incorporate valid critique points.
-- Start with the DIRECT ANSWER to the user question
 - Cite specific numbers, machine IDs, article numbers from the data
 - Do NOT invent person names or organizational units
 - Format: Structured Markdown text. Respond in English.`
@@ -1182,9 +1188,8 @@ ${draftText.substring(0, 3000)}
 
 SPEZIALISTEN-KRITIK:
 ${allCritiques.join('\n\n')}
-
+${structureInstruction}
 Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
-- Beginne mit der DIREKTEN ANTWORT auf die User-Frage
 - Nenne konkrete Zahlen, Maschinen-IDs, Artikel-Nummern aus den Daten
 - Erfinde KEINE Personennamen oder Organisationseinheiten
 - Format: Strukturierter Markdown-Text.`;
@@ -1720,6 +1725,7 @@ export async function runDiscussionAgent(
     clearInterval(phaseHeartbeat);
 
     // ── Phase 3: Debate + Synthesis ──
+    const agentReportStructure = loadPrompt(`agents/${agent.id}`) || undefined;
     const finalMitigation = await runDebate(
       reports, transcript,
       premiumLlmConfig, freeLlmConfig,
@@ -1727,6 +1733,7 @@ export async function runDiscussionAgent(
       agentSpecialists, undefined,
       userMsg || undefined, language,
       kgContext,
+      agentReportStructure,
     );
 
     // ── Phase 4: Generate HTML Report ──
