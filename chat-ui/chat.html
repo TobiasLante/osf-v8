@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="css/v6-design.css">
     <script src="https://cdn.jsdelivr.net/npm/three@0.160/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <style>
         /* === CHAT PAGE — V6 Variable Aliases === */
         :root {
@@ -3965,6 +3966,16 @@
                         case 'run_start':
                             handleProgressEvent({ ...event, timestamp: event.timestamp || new Date().toISOString() });
                             break;
+                        case 'chart_data':
+                        case 'chart': {
+                            // Chart data from chart-engine or tool result
+                            const chartId = 'chart-' + Date.now();
+                            const chartHtml = `<div style="margin:12px 0;padding:12px;background:rgba(255,255,255,0.95);border-radius:12px;border:1px solid rgba(0,0,0,0.08);"><canvas id="${chartId}" style="width:100%;height:300px;"></canvas></div>`;
+                            assistantText += chartHtml;
+                            // Defer chart creation until canvas is in DOM
+                            setTimeout(() => renderChartInChat(event.chart || event.chartConfig, chartId), 100);
+                            break;
+                        }
                         case 'heartbeat':
                             break; // Silently ignore
                         case 'done':
@@ -4320,6 +4331,60 @@ ${status} **${otd}%**
                 .replace(/^- (.+)$/gm, '<li>$1</li>')
                 .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
                 .replace(/\n/g, '<br>');
+        }
+
+        // === CHART RENDERING ===
+        function renderChartInChat(chartConfig, containerId) {
+            if (typeof Chart === 'undefined') return;
+
+            // Convert Recharts format to Chart.js format if needed
+            const config = {
+                type: chartConfig.type || 'line',
+                data: chartConfig.data || { labels: [], datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: !!chartConfig.title,
+                            text: chartConfig.title || '',
+                            font: { size: 14, weight: '600' },
+                            color: '#1e293b',
+                        },
+                        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+                    },
+                    scales: chartConfig.type === 'pie' ? {} : {
+                        x: { title: { display: !!chartConfig.xAxis, text: chartConfig.xAxis || '' }, grid: { color: 'rgba(0,0,0,0.06)' } },
+                        y: { title: { display: !!chartConfig.yAxis, text: chartConfig.yAxis || '' }, grid: { color: 'rgba(0,0,0,0.06)' } },
+                    },
+                },
+            };
+
+            // If data is Recharts format (array of objects), convert to Chart.js
+            if (Array.isArray(chartConfig.data) && chartConfig.data.length > 0 && !chartConfig.data.labels) {
+                const keys = Object.keys(chartConfig.data[0]);
+                const xKey = chartConfig.xAxis || keys[0];
+                const yKeys = keys.filter(k => k !== xKey);
+                const colors = chartConfig.colors || ['#ff9500', '#d03a8c', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+
+                config.data = {
+                    labels: chartConfig.data.map(d => d[xKey]),
+                    datasets: yKeys.map((key, i) => ({
+                        label: key,
+                        data: chartConfig.data.map(d => d[key]),
+                        borderColor: colors[i % colors.length],
+                        backgroundColor: chartConfig.type === 'bar' || chartConfig.type === 'pie'
+                            ? colors.map(c => c + '80')
+                            : colors[i % colors.length] + '20',
+                        fill: chartConfig.type === 'area',
+                        tension: 0.3,
+                    })),
+                };
+            }
+
+            const canvas = document.getElementById(containerId);
+            if (!canvas) return;
+            new Chart(canvas.getContext('2d'), config);
         }
 
         // === PROGRESS PANEL ===

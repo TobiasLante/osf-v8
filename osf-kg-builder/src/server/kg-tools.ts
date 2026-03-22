@@ -1,4 +1,5 @@
 import { cypherQuery, validateLabel } from '../shared/cypher-utils';
+import { generateChart } from './chart-engine';
 import { generateEmbedding } from '../shared/embedding-service';
 import { semanticSearch } from '../shared/vector-store';
 import { loadDomainConfig, loadSchemaTemplate } from '../shared/domain-config';
@@ -172,8 +173,20 @@ export function loadDomainTools(): void {
 /**
  * Get all available tools (generic + domain-specific).
  */
+const CHART_TOOL: KgToolDef = {
+  name: 'kg_generate_chart',
+  description: 'Generate a chart visualization from a natural language question about the knowledge graph. Returns Chart.js compatible config with data. Use when user asks for trends, comparisons, or visualizations.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      question: { type: 'string', description: 'Natural language question for chart (e.g. "OEE trend for SGM-004", "top 10 machines by scrap rate")' },
+    },
+    required: ['question'],
+  },
+};
+
 export function getAllTools(): KgToolDef[] {
-  return [...KG_TOOLS, ...domainTools];
+  return [...KG_TOOLS, CHART_TOOL, ...domainTools];
 }
 
 /**
@@ -210,6 +223,8 @@ export async function executeTool(name: string, args: Record<string, any>): Prom
       return executeQuery(args.cypher, args.params);
     case 'kg_stats':
       return executeStats();
+    case 'kg_generate_chart':
+      return executeChart(args.question);
     default:
       // Fallback: try domain-specific tools
       if (domainToolCyphers.has(name)) {
@@ -368,4 +383,26 @@ async function executeFilter(label: string, conditions?: Record<string, any>, li
 
   const rows = await cypherQuery(cypher, params);
   return { label: safeLabel, count: rows.length, nodes: rows.map(r => r.props || r) };
+}
+
+async function executeChart(question: string): Promise<any> {
+  // Load schema from Neo4j (auto-detect labels + edges)
+  const nodeTypes = await cypherQuery(`
+    MATCH (n) WITH labels(n)[0] AS label, keys(n) AS props
+    RETURN label, collect(DISTINCT props) AS allProps LIMIT 20
+  `);
+  const edgeTypes = await cypherQuery(`
+    MATCH (a)-[r]->(b) RETURN DISTINCT labels(a)[0] AS fromType, type(r) AS label, labels(b)[0] AS toType LIMIT 30
+  `);
+
+  const schema = {
+    nodeTypes: nodeTypes.map((n: any) => ({
+      label: n.label,
+      properties: (n.allProps?.[0] || []).map((p: string) => ({ name: p, type: 'String' })),
+    })),
+    edgeTypes: edgeTypes.map((e: any) => ({ fromType: e.fromType, label: e.label, toType: e.toType })),
+  };
+
+  const result = await generateChart(question, schema as any);
+  return { _chartConfig: result.chart, cypher: result.cypher, question: result.question };
 }

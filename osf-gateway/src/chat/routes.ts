@@ -506,6 +506,14 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
 
           res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, result })}\n\n`);
 
+          // If tool result contains chart data, emit a chart event for the UI
+          try {
+            const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+            if (parsed?._chartConfig) {
+              res.write(`data: ${JSON.stringify({ type: 'chart', chart: parsed._chartConfig })}\n\n`);
+            }
+          } catch { /* not JSON or no chart */ }
+
           // Truncate large tool results to avoid LLM context overflow
           const truncatedResult = result.length > config.truncation.toolResult
             ? result.substring(0, config.truncation.toolResult) + `\n... (${result.length} chars total, truncated)`
