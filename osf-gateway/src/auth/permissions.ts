@@ -44,6 +44,12 @@ async function loadAllowedTools(categories: Set<string>): Promise<Set<string>> {
   }
 
   try {
+    // If no classifications exist at all, governance is not yet configured → allow everything
+    const total = await pool.query('SELECT COUNT(*) AS c FROM tool_classifications');
+    if (parseInt(total.rows[0].c) === 0) {
+      return new Set(['__all__']);
+    }
+
     const catArray = [...categories];
     const result = await pool.query(
       `SELECT tool_name FROM tool_classifications

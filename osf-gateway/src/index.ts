@@ -715,7 +715,7 @@ async function main() {
   app.use('/v1', createVersionedRouter([
     { path: '/auth',        handler: authRoutes },
     { path: '/chat',        handler: chatRoutes },
-    { path: '/mcp',         handler: createMcpProxy() },
+    { path: '/mcp',         handler: mcpProxyRouter },
     { path: '/agents',      handler: agentRoutes },
     { path: '/challenges',  handler: challengeRoutes },
     { path: '/chains',      handler: chainRoutes },
