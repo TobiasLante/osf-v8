@@ -4,9 +4,7 @@ import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
 import { isToolAllowed, filterToolsForUser } from '../auth/permissions';
 import { audit } from '../auth/audit';
-import { getMcpTools } from '../chat/tool-executor';
-
-const MCP_URL = process.env.MCP_URL || 'http://localhost:8020';
+import { getMcpTools, getMcpServersCached, callMcpTool } from '../chat/tool-executor';
 
 const router = Router();
 
@@ -18,7 +16,8 @@ const ALLOWED_METHODS = new Set([
   'notifications/initialized',
 ]);
 
-// POST /mcp — JSON-RPC proxy to factory MCP server
+// POST / — JSON-RPC MCP proxy
+// Routes tools to the correct MCP server via mcp_servers DB table (same as chat tool-executor).
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     // Rate limit: 20 MCP calls per minute per user
@@ -53,8 +52,26 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // Governance: filter tools/list response, check tools/call permission
+    // ── tools/list: merge tools from ALL registered MCP servers ──
+    if (method === 'tools/list') {
+      const allTools = await getMcpTools();
+      // Convert to MCP format
+      const mcpTools = allTools.map((t: any) => ({
+        name: t.function?.name || t.name,
+        description: t.function?.description || t.description || '',
+        inputSchema: t.function?.parameters || t.inputSchema || {},
+      }));
+      // Governance filter
+      const filtered = await filterToolsForUser(req.user!.userId, allTools);
+      const allowedNames = new Set(filtered.map((t: any) => t.function?.name || t.name));
+      const result = mcpTools.filter(t => allowedNames.has(t.name));
+      res.json({ jsonrpc: '2.0', id, result: { tools: result } });
+      return;
+    }
+
+    // ── tools/call: route to correct server via tool-executor ──
     if (method === 'tools/call' && params?.name) {
+      // Governance check
       const allowed = await isToolAllowed(req.user!.userId, params.name);
       if (!allowed) {
         audit({
@@ -81,29 +98,28 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
         source: 'mcp_proxy',
         ip_address: req.ip,
       });
+
+      // Execute via tool-executor (handles server discovery, retries, circuit breaker)
+      const resultText = await callMcpTool(params.name, params.arguments || {});
+      let resultContent: any;
+      try {
+        resultContent = JSON.parse(resultText);
+      } catch {
+        resultContent = resultText;
+      }
+
+      res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          content: [{ type: 'text', text: typeof resultContent === 'string' ? resultContent : JSON.stringify(resultContent) }],
+        },
+      });
+      return;
     }
 
-    const resp = await fetch(`${MCP_URL}/mcp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc, id, method, params }),
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    const data: any = await resp.json();
-
-    // Governance: filter tools/list response to only allowed tools
-    if (method === 'tools/list' && data.result?.tools) {
-      const allTools = data.result.tools.map((t: any) => ({
-        type: 'function',
-        function: { name: t.name, description: t.description, parameters: t.inputSchema },
-      }));
-      const filtered = await filterToolsForUser(req.user!.userId, allTools);
-      const allowedNames = new Set(filtered.map((t: any) => t.function.name));
-      data.result.tools = data.result.tools.filter((t: any) => allowedNames.has(t.name));
-    }
-
-    res.json(data);
+    // Fallback for other methods (initialize, notifications)
+    res.json({ jsonrpc: '2.0', id, result: {} });
   } catch (err: any) {
     logger.error({ err: err.message }, 'MCP proxy error');
     res.status(502).json({

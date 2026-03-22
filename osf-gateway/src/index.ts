@@ -31,48 +31,17 @@ import { validateEncryptionKey } from './auth/crypto';
 import { registry, httpRequestsTotal } from './metrics';
 import { recordRequest, getSnapshot } from './internal-metrics';
 import { createVersionedRouter } from './api-version';
+import mcpProxyRouter from './mcp/proxy';
 
 // ─── Service Registry (v9 microservices) ────────────────────────────────
 const KG_AGENT_URL = process.env.KG_AGENT_URL || 'http://osf-kg-agent:8032';
 const UNS_STREAM_URL = process.env.UNS_STREAM_URL || 'http://osf-uns-stream:8033';
-const MCP_PROXY_URL = process.env.MCP_PROXY_URL || 'http://osf-mcp-proxy:8034';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
 let nrPodManager: NrPodManager;
 
-// ─── MCP Proxy → osf-mcp-proxy service (v9) ─────────────────────────────
-function createMcpProxy(): express.Router {
-  const mcpRouter = express.Router();
-  mcpRouter.all('*', async (req, res) => {
-    try {
-      const target = `${MCP_PROXY_URL}/mcp${req.url === '/' ? '' : req.url}`;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
-
-      const resp = await fetch(target, {
-        method: req.method,
-        headers,
-        ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body: JSON.stringify(req.body) } : {}),
-        signal: AbortSignal.timeout(30_000),
-      });
-
-      res.status(resp.status);
-      const data = await resp.text();
-      const ct = resp.headers.get('content-type');
-      if (ct) res.setHeader('Content-Type', ct);
-      res.send(data);
-    } catch (err: any) {
-      logger.warn({ err: err.message }, 'MCP proxy error');
-      res.status(502).json({
-        jsonrpc: '2.0',
-        id: req.body?.id || null,
-        error: { code: -32000, message: 'MCP proxy service unavailable' },
-      });
-    }
-  });
-  return mcpRouter;
-}
+// ─── MCP Proxy (inline, routes via mcp_servers DB + tool-executor) ────
 
 // Track active SSE responses for graceful shutdown
 const activeSseResponses = new Set<express.Response>();
@@ -707,7 +676,7 @@ async function main() {
 
   // Routes
   // /api/* aliases (chat-ui JS calls /api/mcp, /api/chat/*, /api/agents/*, etc.)
-  app.use('/api/mcp', createMcpProxy());
+  app.use('/api/mcp', mcpProxyRouter);
   app.use('/api/chat', chatRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/agents', agentRoutes);
@@ -718,7 +687,7 @@ async function main() {
   });
   app.use('/auth', authRoutes);
   app.use('/chat', chatRoutes);
-  app.use('/mcp', createMcpProxy());
+  app.use('/mcp', mcpProxyRouter);
   app.use('/agents', agentRoutes);
   app.use('/challenges', challengeRoutes);
   app.use('/chains', chainRoutes);
