@@ -308,7 +308,9 @@ export async function executeBulkEdges(
 ): Promise<{ success: number; failed: number }> {
   let totalSuccess = 0;
   let totalFailed = 0;
-  const PARALLEL = 3;
+  // Sequential edge writes to avoid ExclusiveLock deadlocks when
+  // multiple batches target the same node (e.g. many edges → same Article)
+  const PARALLEL = 1;
 
   const batches: BulkEdge[][] = [];
   for (let i = 0; i < edges.length; i += config.batchSize) {
