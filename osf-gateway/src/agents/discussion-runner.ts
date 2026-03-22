@@ -1162,12 +1162,6 @@ ANTWORT-FORMAT: Reines JSON.
       : `\nURSPRÜNGLICHE USER-FRAGE: "${userMessage}"\nDie Antwort MUSS diese Frage DIREKT beantworten.\n`)
     : '';
 
-  const structureInstruction = agentReportStructure
-    ? (isEn
-      ? `\nIMPORTANT: Structure your answer EXACTLY as defined below. Use the markdown headings exactly as shown.\n\n${agentReportStructure}\n`
-      : `\nWICHTIG: Strukturiere deine Antwort EXAKT wie unten definiert. Verwende die Markdown-Überschriften genau wie angegeben.\n\n${agentReportStructure}\n`)
-    : '';
-
   const finalPrompt = isEn
     ? `Finalize the answer after the specialist debate.
 ${finalQuestionContext}
@@ -1176,7 +1170,7 @@ ${draftText.substring(0, 3000)}
 
 SPECIALIST CRITIQUES:
 ${allCritiques.join('\n\n')}
-${structureInstruction}
+
 Create the FINAL answer. Incorporate valid critique points.
 - Cite specific numbers, machine IDs, article numbers from the data
 - Do NOT invent person names or organizational units
@@ -1188,7 +1182,7 @@ ${draftText.substring(0, 3000)}
 
 SPEZIALISTEN-KRITIK:
 ${allCritiques.join('\n\n')}
-${structureInstruction}
+
 Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
 - Nenne konkrete Zahlen, Maschinen-IDs, Artikel-Nummern aus den Daten
 - Erfinde KEINE Personennamen oder Organisationseinheiten
@@ -1200,11 +1194,16 @@ Erstelle die FINALE Antwort. Arbeite berechtigte Kritikpunkte ein.
   }, 15_000);
   let finalText: string;
   try {
+    const systemContent = agentReportStructure
+      ? (language === 'en'
+        ? `You are an experienced manufacturing expert. You MUST structure your answer EXACTLY as defined below. Use the markdown headings exactly as shown. Do NOT invent names or facts.\n\nREQUIRED REPORT STRUCTURE:\n${agentReportStructure}`
+        : `Du bist ein erfahrener Fertigungsexperte. Du MUSST deine Antwort EXAKT wie unten definiert strukturieren. Verwende die Markdown-Überschriften genau wie angegeben. Erfinde KEINE Namen oder Fakten.\n\nVORGESCHRIEBENE BERICHTSSTRUKTUR:\n${agentReportStructure}`)
+      : (language === 'en'
+        ? 'You are an experienced manufacturing expert. Answer the question directly, precisely and data-driven. Do NOT invent names or facts.'
+        : 'Du bist ein erfahrener Fertigungsexperte. Beantworte die Frage direkt, präzise und datenbasiert. Erfinde KEINE Namen oder Fakten.');
     const finalResponse = await callLlm(
       [
-        { role: 'system', content: language === 'en'
-          ? 'You are an experienced manufacturing expert. Answer the question directly, precisely and data-driven. Do NOT invent names or facts.'
-          : 'Du bist ein erfahrener Fertigungsexperte. Beantworte die Frage direkt, präzise und datenbasiert. Erfinde KEINE Namen oder Fakten.' },
+        { role: 'system', content: systemContent },
         { role: 'user', content: finalPrompt },
       ],
       undefined,
@@ -1725,7 +1724,7 @@ export async function runDiscussionAgent(
     clearInterval(phaseHeartbeat);
 
     // ── Phase 3: Debate + Synthesis ──
-    const agentReportStructure = loadPrompt(`agents/${agent.id}`) || undefined;
+    const agentReportStructure = loadPrompt(`agents/${agent.id}-report`) || undefined;
     const finalMitigation = await runDebate(
       reports, transcript,
       premiumLlmConfig, freeLlmConfig,
