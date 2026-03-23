@@ -127,6 +127,22 @@ const BUILT_IN_AGENTS: AgentDef[] = [
     featured: true,
   },
   {
+    id: 'delivery-quick',
+    name: 'Delivery Quick Check',
+    type: 'operational',
+    category: 'Delivery',
+    description: 'Schneller Lieferfaehigkeits-Check via Neo4j Knowledge Graph — Ampel-Tabelle in Sekunden, ohne Multi-Agent-Diskussion.',
+    systemPrompt: loadAgentPrompt('delivery-quick'),
+    tools: [
+      'kg_delivery_snapshot',
+      'factory_get_orders_at_risk', 'factory_get_oee_summary',
+      'factory_get_customer_otd', 'factory_get_low_stock_items',
+    ],
+    difficulty: 'Beginner',
+    icon: '⚡',
+    featured: true,
+  },
+  {
     id: 'delivery-check',
     name: 'Delivery Check',
     type: 'strategic',

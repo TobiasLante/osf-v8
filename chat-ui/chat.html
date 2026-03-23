@@ -2719,7 +2719,8 @@
           'pill.materialShortage': { de: 'Material-Engpass', en: 'Material shortage' },
           'pill.allScenarios': { de: 'Alle Szenarien...', en: 'All scenarios...' },
           'pill.delivery': { de: 'Lieferfähigkeit', en: 'Delivery' },
-          'pill.deliveryCheck': { de: 'Check starten', en: 'Start Check' },
+          'pill.deliveryQuick': { de: 'Quick Check', en: 'Quick Check' },
+          'pill.deliveryCheck': { de: 'Full Check', en: 'Full Check' },
           'pill.notAvailable': { de: 'Nicht verfügbar', en: 'Not available' },
           'pill.internalOnly': { de: 'Nur intern umschaltbar', en: 'Internal only' },
 
@@ -3562,7 +3563,8 @@
             },
             'delivery': {
                 buttons: [
-                    { labelKey: 'pill.deliveryCheck', label: 'Check starten', dot: 'green', action: 'agent', agent: 'delivery-check' },
+                    { labelKey: 'pill.deliveryQuick', label: 'Quick Check', dot: 'blue', action: 'agent', agent: 'delivery-quick' },
+                    { labelKey: 'pill.deliveryCheck', label: 'Full Check', dot: 'green', action: 'agent', agent: 'delivery-check' },
                 ]
             },
         };
@@ -3627,7 +3629,7 @@
                         } else if (btn.action === 'skill') {
                             openMachineModal('skill', btn.skill);
                         } else if (btn.action === 'agent') {
-                            const noMachine = ['goodmorning', 'deep-morning', 'monthly-revenue', 'strategic-planner', 'delivery-check'];
+                            const noMachine = ['goodmorning', 'deep-morning', 'monthly-revenue', 'strategic-planner', 'delivery-check', 'delivery-quick'];
                             if (noMachine.includes(btn.agent)) {
                                 executeAgent(btn.agent);
                             } else {

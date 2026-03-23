@@ -136,6 +136,17 @@ export const KG_TOOLS: KgToolDef[] = [
       required: [],
     },
   },
+  {
+    name: 'kg_delivery_snapshot',
+    description: 'Delivery feasibility snapshot — returns orders with linked materials, stock levels, machine capacity, OEE, and customer info in a single graph traversal. Use for quick delivery checks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days_ahead: { type: 'number', description: 'Look-ahead window in days (default 7)' },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Domain-Specific Tools (loaded from template) ──────────────────
@@ -225,6 +236,8 @@ export async function executeTool(name: string, args: Record<string, any>): Prom
       return executeStats();
     case 'kg_generate_chart':
       return executeChart(args.question);
+    case 'kg_delivery_snapshot':
+      return executeDeliverySnapshot(args.days_ahead);
     default:
       // Fallback: try domain-specific tools
       if (domainToolCyphers.has(name)) {
@@ -405,4 +418,73 @@ async function executeChart(question: string): Promise<any> {
 
   const result = await generateChart(question, schema as any);
   return { _chartConfig: result.chart, cypher: result.cypher, question: result.question };
+}
+
+async function executeDeliverySnapshot(daysAhead?: number): Promise<any> {
+  const days = Math.min(Math.max(daysAhead || 7, 1), 30);
+
+  // Single traversal: Order → Material/Stock, Order → Machine/OEE, Order → Customer
+  const rows = await cypherQuery(`
+    MATCH (o:Order)
+    WHERE o.status IS NULL OR o.status <> 'completed'
+    OPTIONAL MATCH (o)-[:HAS_BOM]->(m)
+    OPTIONAL MATCH (o)-[:FOR_CUSTOMER]->(c)
+    OPTIONAL MATCH (o)<-[:WORKS_ON]-(mach)
+    WITH o, collect(DISTINCT {
+      id: m.id, name: m.name, quantity: m.quantity,
+      stock: m.stock, safety_stock: m.safety_stock,
+      coverage_days: CASE WHEN m.daily_usage > 0 THEN toFloat(m.stock) / m.daily_usage ELSE null END
+    }) AS materials,
+    collect(DISTINCT {
+      id: mach.id, name: mach.name, oee: mach.oee,
+      availability: mach.availability, performance: mach.performance, quality: mach.quality,
+      status: mach.status, utilization: mach.utilization
+    }) AS machines,
+    c
+    RETURN o.id AS order_id, o.name AS order_name,
+           o.due_date AS due_date, o.quantity AS order_qty,
+           o.status AS order_status, o.priority AS priority,
+           o.risk_score AS risk_score,
+           c.id AS customer_id, c.name AS customer_name,
+           materials, machines
+    ORDER BY o.due_date ASC
+    LIMIT 50
+  `);
+
+  // Separate query for shift/capacity info (not order-linked)
+  const capacityRows = await cypherQuery(`
+    MATCH (mach)
+    WHERE any(l IN labels(mach) WHERE l ENDS WITH 'Machine' OR l = 'Machine')
+    RETURN mach.id AS machine_id, mach.name AS machine_name,
+           mach.oee AS oee, mach.availability AS availability,
+           mach.performance AS performance, mach.quality AS quality,
+           mach.utilization AS utilization, mach.status AS status,
+           mach.shift_model AS shift_model, mach.scrap_rate AS scrap_rate
+    ORDER BY mach.oee ASC
+    LIMIT 20
+  `);
+
+  // Low-stock materials
+  const lowStockRows = await cypherQuery(`
+    MATCH (m)
+    WHERE (m:Material OR m:Article) AND m.stock IS NOT NULL AND m.safety_stock IS NOT NULL
+      AND m.stock < m.safety_stock
+    RETURN m.id AS id, m.name AS name, m.stock AS stock,
+           m.safety_stock AS safety_stock, m.unit AS unit
+    ORDER BY toFloat(m.stock) / CASE WHEN m.safety_stock > 0 THEN m.safety_stock ELSE 1 END ASC
+    LIMIT 20
+  `);
+
+  return {
+    tool: 'kg_delivery_snapshot',
+    days_ahead: days,
+    orders: rows,
+    machines: capacityRows,
+    low_stock_materials: lowStockRows,
+    summary: {
+      total_orders: rows.length,
+      total_machines: capacityRows.length,
+      low_stock_count: lowStockRows.length,
+    },
+  };
 }
