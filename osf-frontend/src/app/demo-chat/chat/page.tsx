@@ -35,7 +35,7 @@ export default function DemoChatPage() {
         </div>
       </div>
       <iframe
-        src={`${CHAT_UI_URL}/chat${token ? `?token=${encodeURIComponent(token)}` : ''}`}
+        src={`${CHAT_UI_URL}/chat.html?v=${Date.now()}${token ? `&token=${encodeURIComponent(token)}` : ''}`}
         className="flex-1 w-full border-0"
       />
     </div>
