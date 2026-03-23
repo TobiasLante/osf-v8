@@ -1,6 +1,6 @@
 {
   "name": "osf-kg-builder",
-  "version": "9.2.0",
+  "version": "9.2.1",
   "description": "OSF KG Platform — Builder (batch) + Server (always-on MCP, REST, MQTT)",
   "main": "dist/server/index.js",
   "scripts": {
