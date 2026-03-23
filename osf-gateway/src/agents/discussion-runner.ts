@@ -80,6 +80,7 @@ const DELIVERY_SPECIALISTS: SpecialistDef[] = [
 function getSpecialistsForAgent(agentId: string): SpecialistDef[] {
   switch (agentId) {
     case 'delivery-check': return DELIVERY_SPECIALISTS;
+    case 'delivery-quick': return DELIVERY_SPECIALISTS;
     default: return IMPACT_SPECIALISTS;
   }
 }
@@ -1734,41 +1735,78 @@ export async function runDiscussionAgent(
       return;
     }
 
-    // ── Phase 2: Moderator Discussion (max 2 rounds) ──
-    // Heartbeat to keep connection alive while waiting for LLM semaphore
-    const phaseHeartbeat = setInterval(() => {
-      if (res.writableEnded) { clearInterval(phaseHeartbeat); return; }
-      emitSSE(res, { type: 'heartbeat' });
-    }, 15000);
-
-    let readyForSynthesis = false;
+    // ── Phase 2: Moderator Discussion (skip for quick agents) ──
+    const skipDiscussion = agent.id === 'delivery-quick';
     let transcript = '';
 
-    const activeSpecialists = [...agentSpecialists];
-    for (let round = 1; round <= 2 && !readyForSynthesis; round++) {
-      const result = await runModeratorReview(
-        reports, round, transcript,
-        premiumLlmConfig, freeLlmConfig,
-        userId, res, undefined, language,
-        activeSpecialists, kgContext, factoryContext,
-      );
-      readyForSynthesis = result.readyForSynthesis;
-      transcript = result.followUpTranscript;
+    if (!skipDiscussion) {
+      const phaseHeartbeat = setInterval(() => {
+        if (res.writableEnded) { clearInterval(phaseHeartbeat); return; }
+        emitSSE(res, { type: 'heartbeat' });
+      }, 15000);
+
+      let readyForSynthesis = false;
+      const activeSpecialists = [...agentSpecialists];
+      for (let round = 1; round <= 2 && !readyForSynthesis; round++) {
+        const result = await runModeratorReview(
+          reports, round, transcript,
+          premiumLlmConfig, freeLlmConfig,
+          userId, res, undefined, language,
+          activeSpecialists, kgContext, factoryContext,
+        );
+        readyForSynthesis = result.readyForSynthesis;
+        transcript = result.followUpTranscript;
+      }
+
+      clearInterval(phaseHeartbeat);
     }
 
-    clearInterval(phaseHeartbeat);
+    // ── Phase 3: Synthesis (quick = direct synthesis, full = debate + synthesis) ──
+    // Use delivery-check-report structure for both quick and full
+    const reportStructureId = agent.id === 'delivery-quick' ? 'delivery-check' : agent.id;
+    const agentReportStructure = loadPrompt(`agents/${reportStructureId}-report`) || undefined;
 
-    // ── Phase 3: Debate + Synthesis ──
-    const agentReportStructure = loadPrompt(`agents/${agent.id}-report`) || undefined;
-    const finalMitigation = await runDebate(
-      reports, transcript,
-      premiumLlmConfig, freeLlmConfig,
-      userId, res,
-      agentSpecialists, undefined,
-      userMsg || undefined, language,
-      kgContext,
-      agentReportStructure,
-    );
+    let finalMitigation: string;
+    if (skipDiscussion) {
+      // Quick path: direct synthesis from specialist reports, no debate
+      const compressed = Array.from(reports.entries())
+        .map(([name, report]) => compressReport(name, report))
+        .join('\n\n');
+
+      const systemContent = agentReportStructure
+        ? (language === 'en'
+          ? `You are an experienced manufacturing expert. You MUST structure your answer EXACTLY as defined below. Use the markdown headings exactly as shown. Do NOT invent names or facts.\n\nREQUIRED REPORT STRUCTURE:\n${agentReportStructure}`
+          : `Du bist ein erfahrener Fertigungsexperte. Du MUSST deine Antwort EXAKT wie unten definiert strukturieren. Verwende die Markdown-Überschriften genau wie angegeben. Erfinde KEINE Namen oder Fakten.\n\nVORGESCHRIEBENE BERICHTSSTRUKTUR:\n${agentReportStructure}`)
+        : (language === 'en'
+          ? 'You are an experienced manufacturing expert. Answer directly, precisely and data-driven.'
+          : 'Du bist ein erfahrener Fertigungsexperte. Beantworte direkt, präzise und datenbasiert.');
+
+      emitSSE(res, { type: 'discussion_synthesis_start' });
+
+      const synthResponse = await callLlm(
+        [
+          { role: 'system', content: systemContent },
+          { role: 'user', content: `${language === 'en' ? 'SPECIALIST SOURCE DATA' : 'SPEZIALISTEN-QUELLDATEN'}:\n${compressed}\n\n${language === 'en' ? 'Create the delivery feasibility report. Use ONLY numbers from the specialist data above.' : 'Erstelle den Lieferfähigkeits-Bericht. Verwende NUR Zahlen aus den Spezialisten-Daten oben.'}` },
+        ],
+        undefined,
+        premiumLlmConfig,
+        userId,
+      );
+      finalMitigation = synthResponse.content || '';
+      const summary = finalMitigation.length > 8000 ? finalMitigation.substring(0, 8000) + '...' : finalMitigation;
+      emitSSE(res, { type: 'debate_final', debateFinalSummary: summary });
+    } else {
+      // Full path: debate + synthesis
+      finalMitigation = await runDebate(
+        reports, transcript,
+        premiumLlmConfig, freeLlmConfig,
+        userId, res,
+        agentSpecialists, undefined,
+        userMsg || undefined, language,
+        kgContext,
+        agentReportStructure,
+      );
+    }
 
     // ── Phase 4: Generate HTML Report ──
     const htmlReport = generateHtmlReport(
