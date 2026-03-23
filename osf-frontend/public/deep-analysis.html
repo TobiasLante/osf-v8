@@ -2787,8 +2787,11 @@ html[data-theme="light"] .ambient .glow {
                 'otd-optimize': 'Liefertreue-Optimierung',
                 'otd-planner': 'Liefertreue-Planung',
                 'oee_summary': 'OEE Übersicht',
+                'factory_get_oee_summary': 'OEE Übersicht',
                 'quality_summary': 'Qualität',
-                'otd_summary': 'Liefertreue'
+                'factory_get_scrap_history': 'Qualität / Ausschuss',
+                'otd_summary': 'Liefertreue',
+                'factory_get_otd_statistics': 'Liefertreue',
             };
 
             modalTitle.textContent = titles[name] || name;
@@ -2873,13 +2876,13 @@ html[data-theme="light"] .ambient .glow {
         function handleQuickAction(action) {
             switch(action) {
                 case 'oee':
-                    openMachineModal('skill', 'oee_summary');
+                    openMachineModal('skill', 'factory_get_oee_summary');
                     break;
                 case 'quality':
-                    openMachineModal('skill', 'quality_summary');
+                    openMachineModal('skill', 'factory_get_scrap_history');
                     break;
                 case 'otd':
-                    openMachineModal('skill', 'otd_summary');
+                    openMachineModal('skill', 'factory_get_otd_statistics');
                     break;
                 case 'oee-diagnose':
                 case 'oee-optimize':
@@ -3078,8 +3081,12 @@ html[data-theme="light"] .ambient .glow {
 
             const skillNames = {
                 'oee_summary': 'OEE Übersicht',
+                'factory_get_oee_summary': 'OEE Übersicht',
                 'quality_summary': 'Qualität',
-                'otd_summary': 'Liefertreue'
+                'factory_get_scrap_history': 'Qualität / Ausschuss',
+                'otd_summary': 'Liefertreue',
+                'factory_get_otd_statistics': 'Liefertreue',
+                'factory_get_low_stock_items': 'Lagerbestand kritisch',
             };
 
             addMessage('user', `${skillNames[skill] || skill} anzeigen`);
@@ -3199,7 +3206,7 @@ html[data-theme="light"] .ambient .glow {
             // Check if it's a machine ID (4 digits)
             const machineMatch = text.match(/^(\d{4})$/);
             if (machineMatch) {
-                await executeSkill('oee_summary', { machine_id: machineMatch[1] });
+                await executeSkill('factory_get_oee_summary', { machine_id: machineMatch[1] });
                 return;
             }
 
@@ -3502,64 +3509,106 @@ html[data-theme="light"] .ambient .glow {
             }
 
             switch (skill) {
-                case 'oee_summary': return formatOEE(data);
-                case 'quality_summary': return formatQuality(data);
-                case 'otd_summary': return formatOTD(data);
+                case 'oee_summary':
+                case 'factory_get_oee_summary': return formatOEE(data);
+                case 'quality_summary':
+                case 'factory_get_scrap_history': return formatQuality(data);
+                case 'otd_summary':
+                case 'factory_get_otd_statistics': return formatOTD(data);
+                case 'factory_get_low_stock_items': return formatLowStock(data);
                 default: return '```json\n' + JSON.stringify(data, null, 2) + '\n```';
             }
         }
 
         function formatOEE(data) {
-            if (data.oee !== undefined) {
-                const oee = (data.oee * 100).toFixed(1);
+            // Single machine with machineNo
+            if (data.machineNo && data.avgOee) {
+                const oee = parseFloat(data.avgOee);
                 const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
-                return `## OEE ${data.machine_id || ''}
+                return `## OEE ${data.machineNo}
 
-${status} **${oee}%**
+${status} **${data.avgOee}**
 
 | Kennzahl | Wert |
 |----------|------|
-| Verfügbarkeit | ${((data.availability || 0) * 100).toFixed(1)}% |
-| Leistung | ${((data.performance || 0) * 100).toFixed(1)}% |
-| Qualität | ${((data.quality || 0) * 100).toFixed(1)}% |`;
+| Verfügbarkeit | ${data.avgVerfuegbarkeit || '-'} |
+| Leistung | ${data.avgLeistung || '-'} |
+| Qualität | ${data.avgQualitaet || '-'} |
+| Ausschuss | ${data.ausschussRate || '-'} |`;
             }
 
-            const machines = Array.isArray(data) ? data : (data.machines || []);
+            const machines = data.maschinen || data.machines || (Array.isArray(data) ? data : []);
             if (!machines.length) return '## OEE\n\nKeine Daten verfügbar.';
 
-            let msg = '## OEE Übersicht\n\n| Maschine | OEE | Status |\n|----------|-----|--------|\n';
+            let msg = `## OEE Übersicht (${data.zeitraum || '24h'})\n\n| Maschine | OEE | A | P | Q | Status |\n|------|-----|---|---|---|------|\n`;
             for (const m of machines) {
-                const oee = ((m.oee || 0) * 100).toFixed(1);
+                const oee = parseFloat(m.avgOee || m.oee || '0');
                 const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
-                msg += `| ${m.machine_id || m.id} | ${oee}% | ${status} |\n`;
+                msg += `| ${m.machineNo || m.machine_id || m.id} | ${m.avgOee || '-'} | ${m.avgVerfuegbarkeit || '-'} | ${m.avgLeistung || '-'} | ${m.avgQualitaet || '-'} | ${status} |\n`;
             }
             return msg;
         }
 
         function formatQuality(data) {
-            const rate = ((data.quality_rate || data.rate || 0) * 100).toFixed(1);
-            const status = rate >= 98 ? '🟢' : rate >= 95 ? '🟡' : '🔴';
-            return `## Qualität
+            const machines = data.maschinen || [];
+            if (!machines.length) return '## Qualität\n\nKeine Daten verfügbar.';
 
-${status} **${rate}%**
+            const totalScrap = machines.reduce((s, m) => s + (m.ausschuss || 0), 0);
+            const totalGood = machines.reduce((s, m) => s + (m.gutTeile || 0), 0);
+            const totalRate = totalGood > 0 ? ((totalGood / (totalGood + totalScrap)) * 100).toFixed(1) : '0.0';
+            const status = totalRate >= 98 ? '🟢' : totalRate >= 95 ? '🟡' : '🔴';
 
-| Kennzahl | Wert |
-|----------|------|
-| Ausschuss | ${data.defects || 0} |
-| Gut-Teile | ${data.good_parts || '-'} |`;
+            let msg = `## Qualität (${data.zeitraum || '24h'})\n\n${status} **${totalRate}%** Gutrate | ${totalScrap} Ausschuss | ${totalGood} Gutteile\n\n`;
+            msg += `| Maschine | Ausschuss | Gutteile | Rate | Status |\n|------|-----------|----------|------|------|\n`;
+            for (const m of machines.slice(0, 20)) {
+                const rate = parseFloat(m.ausschussRate || '0');
+                const st = rate <= 2 ? '🟢' : rate <= 5 ? '🟡' : '🔴';
+                msg += `| ${m.maschine} | ${m.ausschuss} | ${m.gutTeile} | ${m.ausschussRate} | ${st} |\n`;
+            }
+            if (machines.length > 20) msg += `\n*... und ${machines.length - 20} weitere*`;
+            return msg;
         }
 
         function formatOTD(data) {
-            const otd = ((data.otd || data.on_time_delivery || 0) * 100).toFixed(1);
+            const otd = parseFloat(data.gesamtOtd || data.otd || '0');
             const status = otd >= 95 ? '🟢' : otd >= 85 ? '🟡' : '🔴';
-            return `## Liefertreue
 
-${status} **${otd}%**
+            let msg = `## Liefertreue\n\n${status} **${data.gesamtOtd || otd + '%'}**\n\n`;
+            msg += `| Kennzahl | Wert |\n|----------|------|\n`;
+            msg += `| Pünktlich | ${data.puenktlich || data.on_time_orders || 0} |\n`;
+            msg += `| Verspätet | ${data.verspaetet || data.late_orders || 0} |\n`;
+            if (data.offeneAuftraege) msg += `| Offene Auftr. | ${data.offeneAuftraege} |\n`;
+            if (data.gefaehrdet) msg += `| Gefährdet | ${data.gefaehrdet} |\n`;
 
-| Kennzahl | Wert |
-|----------|------|
-| Pünktlich | ${data.on_time_orders || 0} |
-| Verspätet | ${data.late_orders || 0} |`;
+            const kunden = data.proKunde || [];
+            if (kunden.length) {
+                msg += `\n### Pro Kunde\n\n| Kunde | OTD | Auftr. | Status |\n|-------|-----|--------|------|\n`;
+                for (const k of kunden.slice(0, 10)) {
+                    const kotd = parseFloat(k.otd || '0');
+                    const st = kotd >= 95 ? '🟢' : kotd >= 85 ? '🟡' : '🔴';
+                    msg += `| ${k.kunde} | ${k.otd} | ${k.auftraege} | ${st} |\n`;
+                }
+                if (kunden.length > 10) msg += `\n*... und ${kunden.length - 10} weitere*`;
+            }
+            return msg;
+        }
+
+        function formatLowStock(data) {
+            const critical = data.kritisch || [];
+            const warnings = data.warnung || [];
+            if (!critical.length && !warnings.length) return '## Material\n\nKeine Engpässe.';
+
+            let msg = `## Material / Lager\n\n🔴 **${data.critical_count || critical.length}** kritisch | 🟡 **${data.warning_count || warnings.length}** Warnung\n\n`;
+            if (critical.length) {
+                const realShortage = critical.filter(c => c.fehlmenge > 0);
+                const display = realShortage.length ? realShortage : critical;
+                msg += `| Teil | Bestand | Mindest | Fehlmenge |\n|------|---------|---------|----------|\n`;
+                for (const c of display.slice(0, 20)) {
+                    msg += `| ${c.teilId} | ${c.bestandFrei} | ${c.mindestbestand} | ${c.fehlmenge > 0 ? c.fehlmenge : '-'} |\n`;
+                }
+                if (display.length > 20) msg += `\n*... und ${display.length - 20} weitere*`;
+            }
+            return msg;
         }
 
         function renderMarkdown(text) {
