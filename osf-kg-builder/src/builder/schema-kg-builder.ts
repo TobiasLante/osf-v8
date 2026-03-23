@@ -447,25 +447,27 @@ export async function buildInstancesFromPostgres(
         const profile = profileMap.get(src.profileRef)!;
         const { nodes, edges } = await loadPgSource(src, profile, idPropToLabels);
 
-        // Merge nodes via UNWIND
+        // Merge nodes via UNWIND — then free the array immediately
         const nodeResult = await executeBulkNodes(nodes, (done, total) => {
           if (done % 2000 === 0 || done === total) {
             logger.info({ sourceId: src.sourceId, done, total }, '[SchemaBuild] Bulk merging nodes...');
           }
         });
+        nodes.length = 0; // Free node objects (can be 350k+)
 
         logger.info({
           sourceId: src.sourceId, table: src.connection!.table, nodes: nodeResult.success,
         }, '[SchemaBuild] PostgreSQL nodes loaded');
 
-        return { nodes: nodeResult.success, edges };
+        return { nodeCount: nodeResult.success, edges };
       })
     );
 
     for (const r of results) {
       if (r.status === 'fulfilled') {
-        totalNodes += r.value.nodes;
+        totalNodes += r.value.nodeCount;
         for (const e of r.value.edges) allEdges.push(e);
+        r.value.edges.length = 0; // Free after pushing to allEdges
       } else {
         logger.error({ err: r.reason?.message }, '[SchemaBuild] PostgreSQL source failed');
       }
