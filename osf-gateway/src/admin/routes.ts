@@ -26,8 +26,12 @@ router.get('/users', async (req: Request, res: Response) => {
     const [countResult, result] = await Promise.all([
       pool.query('SELECT COUNT(*) as total FROM users'),
       pool.query(
-        `SELECT id, email, name, role, tier, email_verified, locked_until, marketing_consent, created_at
-         FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+        `SELECT u.id, u.email, u.name, u.role, u.tier, u.email_verified, u.locked_until, u.marketing_consent, u.created_at,
+                COALESCE(
+                  (SELECT json_agg(ur.role_id) FROM user_roles ur WHERE ur.user_id = u.id),
+                  '[]'::json
+                ) AS factory_roles
+         FROM users u ORDER BY u.created_at DESC LIMIT $1 OFFSET $2`,
         [limit, offset]
       ),
     ]);

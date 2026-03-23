@@ -15,6 +15,14 @@ interface AdminUser {
   email_verified: boolean;
   locked_until: string | null;
   created_at: string;
+  factory_roles: string[];
+}
+
+interface FactoryRole {
+  id: string;
+  name: string;
+  description: string;
+  categories: string[];
 }
 
 interface Stats {
@@ -363,8 +371,10 @@ function formatUptime(seconds: number): string {
 
 function UsersTab() {
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [factoryRoles, setFactoryRoles] = useState<FactoryRole[]>([]);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [showRoleRef, setShowRoleRef] = useState(false);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
@@ -383,7 +393,22 @@ function UsersTab() {
 
   useEffect(() => {
     loadUsers();
+    apiFetch<{ roles: FactoryRole[] }>("/admin/roles")
+      .then((d) => setFactoryRoles(d.roles))
+      .catch(() => {});
   }, [loadUsers]);
+
+  const setUserRole = async (userId: string, roleId: string) => {
+    try {
+      await apiFetch(`/admin/users/${userId}/roles`, {
+        method: "PUT",
+        body: JSON.stringify({ roles: roleId ? [roleId] : [] }),
+      });
+      loadUsers();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -419,13 +444,46 @@ function UsersTab() {
 
       <div className="flex justify-between items-center mb-4">
         <span className="text-text-muted text-sm">{total} users</span>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="px-3 py-1.5 bg-accent text-bg text-sm rounded hover:bg-accent-hover transition-colors"
-        >
-          Create User
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowRoleRef((v) => !v)}
+            className="px-3 py-1.5 text-sm rounded border border-border text-text-muted hover:text-text transition-colors"
+          >
+            {showRoleRef ? "Hide" : "Show"} Role Reference
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="px-3 py-1.5 bg-accent text-bg text-sm rounded hover:bg-accent-hover transition-colors"
+          >
+            Create User
+          </button>
+        </div>
       </div>
+
+      {showRoleRef && factoryRoles.length > 0 && (
+        <div className="mb-4 p-3 bg-bg-surface border border-border rounded text-xs overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border text-left text-text-muted">
+                <th className="py-1 pr-3">Rolle</th>
+                <th className="py-1">Kategorien</th>
+              </tr>
+            </thead>
+            <tbody>
+              {factoryRoles.map((r) => (
+                <tr key={r.id} className="border-b border-border/30">
+                  <td className="py-1 pr-3 text-text font-medium whitespace-nowrap">{r.name}</td>
+                  <td className="py-1 text-text-muted">
+                    {(r.categories || []).length > 0
+                      ? (r.categories as string[]).sort().join(", ")
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {showCreate && (
         <CreateUserModal
@@ -444,6 +502,7 @@ function UsersTab() {
               <th className="py-2 pr-4">Email</th>
               <th className="py-2 pr-4">Name</th>
               <th className="py-2 pr-4">Role</th>
+              <th className="py-2 pr-4">Factory Role</th>
               <th className="py-2 pr-4">Tier</th>
               <th className="py-2 pr-4">Verified</th>
               <th className="py-2 pr-4">Locked</th>
@@ -465,6 +524,20 @@ function UsersTab() {
                     <option value="user">user</option>
                     <option value="demo">demo</option>
                     <option value="admin">admin</option>
+                  </select>
+                </td>
+                <td className="py-2 pr-4">
+                  <select
+                    value={u.factory_roles?.[0] || ""}
+                    onChange={(e) => setUserRole(u.id, e.target.value)}
+                    className="bg-bg border border-border rounded px-2 py-0.5 text-text text-xs [&>option]:text-gray-900 [&>option]:bg-white"
+                  >
+                    <option value="">— none —</option>
+                    {factoryRoles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
                   </select>
                 </td>
                 <td className="py-2 pr-4 text-text-muted">

@@ -118,6 +118,12 @@ router.post('/register', async (req: Request, res: Response) => {
         [user.id, JSON.stringify(SEED_FLOW), Date.now().toString()]
       );
 
+      // Assign full_access governance role (demo platform — all tools available)
+      await client.query(
+        `INSERT INTO user_roles (user_id, role_id) VALUES ($1, 'full_access') ON CONFLICT DO NOTHING`,
+        [user.id]
+      );
+
       // Create verification token (24h expiry)
       token = generateToken();
       await client.query(
