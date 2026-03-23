@@ -484,6 +484,9 @@ export async function buildInstancesFromPostgres(
     logger.info({ success: edgeResult.success, failed: edgeResult.failed }, '[SchemaBuild] Edges created');
   }
 
+  // Free memory — allEdges can hold 1M+ objects (~500MB)
+  allEdges.length = 0;
+
   return { nodesMerged: totalNodes, edgesCreated: totalEdges };
 }
 
