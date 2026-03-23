@@ -7,8 +7,9 @@ import { BackgroundOrbs } from "@/components/BackgroundOrbs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai";
 
-// ── ISA-95 Machine → Hierarchy Mapping ──────────────────────────────
-const ISA95_MAP: Record<string, { area: string; workCenter: string; cell: string }> = {
+// ── ISA-95 Hierarchy — loaded from Neo4j Knowledge Graph ────────────
+// Fallback prefixes used only when KG is unavailable
+const FALLBACK_MAP: Record<string, { area: string; workCenter: string; cell: string }> = {
   "CNC-":     { area: "Fertigung", workCenter: "MechBearbeitung", cell: "CNC" },
   "DRH-":     { area: "Fertigung", workCenter: "MechBearbeitung", cell: "Drehen" },
   "FRS-":     { area: "Fertigung", workCenter: "MechBearbeitung", cell: "Fraesen" },
@@ -18,18 +19,44 @@ const ISA95_MAP: Record<string, { area: string; workCenter: string; cell: string
   "Montage-": { area: "Montage",   workCenter: "Endmontage",      cell: "Linie" },
 };
 
+interface HierarchyEntry {
+  machine: string;
+  labels: string[];
+  site: string;
+  area: string;
+  workCenter: string;
+  cell: string;
+}
+
+interface MachineContext {
+  orders: Array<{
+    id: string; name: string; due_date: string;
+    quantity: number; status: string;
+    materials: Array<{ id: string; name: string; stock: number }>;
+  }>;
+  customer: { id: string; name: string } | null;
+}
+
 const ENTERPRISE = "OSF";
-const SITE = "Werk-Sued";
 
 // Categories that belong at Site or Area level (not under equipment)
 const SITE_LEVEL_CATEGORIES = new Set(["ERP"]);
 const AREA_LEVEL_CATEGORIES = new Set(["QMS", "TMS", "WMS"]);
 
-function getMachineMapping(machine: string) {
-  for (const [prefix, mapping] of Object.entries(ISA95_MAP)) {
-    if (machine.startsWith(prefix)) return mapping;
+function getMachineMapping(
+  machine: string,
+  hierarchy: Record<string, HierarchyEntry> | null,
+): { area: string; workCenter: string; cell: string; site: string } {
+  // Phase 1: Use KG hierarchy if available
+  if (hierarchy && hierarchy[machine]) {
+    const h = hierarchy[machine];
+    return { site: h.site, area: h.area, workCenter: h.workCenter, cell: h.cell };
   }
-  return { area: "Sonstige", workCenter: "Sonstige", cell: "Sonstige" };
+  // Fallback: prefix matching
+  for (const [prefix, mapping] of Object.entries(FALLBACK_MAP)) {
+    if (machine.startsWith(prefix)) return { ...mapping, site: "Werk-Sued" };
+  }
+  return { area: "Sonstige", workCenter: "Sonstige", cell: "Sonstige", site: "Werk-Sued" };
 }
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -74,8 +101,13 @@ function buildFlatTree(messages: Map<string, MqttMessage>): TopicNode {
 
 /** ISA-95 tree — remap Factory/{Machine}/{Order}/{Tool}/{Category}/{Var}
  *  → Enterprise/Site/Area/WorkCenter/Cell/Machine/Category/Var
- *  Orders and tools become metadata under the equipment node. */
-function buildIsa95Tree(messages: Map<string, MqttMessage>): TopicNode {
+ *  Orders and tools become metadata under the equipment node.
+ *  Hierarchy from Neo4j KG (schema-driven), context from ERP data. */
+function buildIsa95Tree(
+  messages: Map<string, MqttMessage>,
+  hierarchy: Record<string, HierarchyEntry> | null,
+  context: Record<string, MachineContext> | null,
+): TopicNode {
   const root: TopicNode = { name: ENTERPRISE, fullTopic: "isa95", children: new Map() };
 
   function ensureNode(parent: TopicNode, name: string, prefix: string): TopicNode {
@@ -85,9 +117,11 @@ function buildIsa95Tree(messages: Map<string, MqttMessage>): TopicNode {
     return parent.children.get(name)!;
   }
 
+  // Track which machines we've seen (for injecting ERP context later)
+  const seenMachines = new Set<string>();
+
   for (const [topic, msg] of Array.from(messages.entries())) {
     const parts = topic.split("/");
-    // Expected: Factory / Machine / Order / Tool / Category / Variable
     if (parts.length < 2) continue;
 
     const machine = parts[1];
@@ -96,46 +130,38 @@ function buildIsa95Tree(messages: Map<string, MqttMessage>): TopicNode {
     const category = parts[4] || "Data";
     const variable = parts[5] || null;
 
-    const { area, workCenter, cell } = getMachineMapping(machine);
+    const { site, area, workCenter, cell } = getMachineMapping(machine, hierarchy);
+    seenMachines.add(machine);
 
-    // Build hierarchy based on where the category belongs per Walker Reynolds
     const p = "isa95";
-    const siteNode = ensureNode(root, SITE, p);
+    const siteNode = ensureNode(root, site, p);
 
-    // ERP → Site level (plant-wide: orders, BOMs, materials)
-    // QMS/TMS/WMS → Area level (area-specific: quality, tooling, warehouse)
-    // BDE/ProcessData → Equipment level (machine-specific)
     let targetNode: TopicNode;
     let targetPath: string;
 
     if (SITE_LEVEL_CATEGORIES.has(category)) {
-      // ERP data at site level: OSF/Werk-Sued/ERP/{machine context}/{variable}
-      const catNode = ensureNode(siteNode, category, p + "/" + SITE);
+      const catNode = ensureNode(siteNode, category, p + "/" + site);
       targetNode = catNode;
       targetPath = catNode.fullTopic;
-      // Add machine as context under ERP
       const machCtx = ensureNode(targetNode, machine, targetPath);
       targetNode = machCtx;
       targetPath = machCtx.fullTopic;
     } else if (AREA_LEVEL_CATEGORIES.has(category)) {
-      // QMS/TMS/WMS at area level: OSF/Werk-Sued/Fertigung/QMS/{machine}/{variable}
-      const areaNode = ensureNode(siteNode, area, p + "/" + SITE);
+      const areaNode = ensureNode(siteNode, area, p + "/" + site);
       const catNode = ensureNode(areaNode, category, areaNode.fullTopic);
       const machCtx = ensureNode(catNode, machine, catNode.fullTopic);
       targetNode = machCtx;
       targetPath = machCtx.fullTopic;
     } else {
-      // BDE/ProcessData → full ISA-95 path under equipment
-      const areaNode = ensureNode(siteNode, area, p + "/" + SITE);
-      const wcNode = ensureNode(areaNode, workCenter, p + "/" + SITE + "/" + area);
-      const cellNode = ensureNode(wcNode, cell, p + "/" + SITE + "/" + area + "/" + workCenter);
-      const machineNode = ensureNode(cellNode, machine, p + "/" + SITE + "/" + area + "/" + workCenter + "/" + cell);
+      const areaNode = ensureNode(siteNode, area, p + "/" + site);
+      const wcNode = ensureNode(areaNode, workCenter, p + "/" + site + "/" + area);
+      const cellNode = ensureNode(wcNode, cell, p + "/" + site + "/" + area + "/" + workCenter);
+      const machineNode = ensureNode(cellNode, machine, p + "/" + site + "/" + area + "/" + workCenter + "/" + cell);
       const catNode = ensureNode(machineNode, category, machineNode.fullTopic);
       targetNode = catNode;
       targetPath = catNode.fullTopic;
     }
 
-    // Attach order/tool/variable under the target node
     if (order) {
       const orderNode = ensureNode(targetNode, order, targetPath);
       if (tool) {
@@ -165,6 +191,49 @@ function buildIsa95Tree(messages: Map<string, MqttMessage>): TopicNode {
       targetNode.ts = msg.ts;
     }
   }
+
+  // Phase 2: Inject ERP context as virtual topics under each machine
+  if (context) {
+    for (const machine of Array.from(seenMachines)) {
+      const ctx = context[machine];
+      if (!ctx) continue;
+
+      const { site, area, workCenter, cell } = getMachineMapping(machine, hierarchy);
+      const p = "isa95";
+      const siteNode = ensureNode(root, site, p);
+      const areaNode = ensureNode(siteNode, area, p + "/" + site);
+      const wcNode = ensureNode(areaNode, workCenter, p + "/" + site + "/" + area);
+      const cellNode = ensureNode(wcNode, cell, p + "/" + site + "/" + area + "/" + workCenter);
+      const machineNode = ensureNode(cellNode, machine, p + "/" + site + "/" + area + "/" + workCenter + "/" + cell);
+      const erpNode = ensureNode(machineNode, "ERP-Context", machineNode.fullTopic);
+
+      if (ctx.customer) {
+        const custNode = ensureNode(erpNode, "Customer", erpNode.fullTopic);
+        custNode.value = JSON.stringify({ Value: ctx.customer.name, Unit: "", Definition: "Current customer" });
+        custNode.ts = Date.now();
+      }
+
+      for (const order of ctx.orders.slice(0, 3)) {
+        const orderNode = ensureNode(erpNode, order.id || order.name, erpNode.fullTopic);
+        if (order.due_date) {
+          const dueNode = ensureNode(orderNode, "DueDate", orderNode.fullTopic);
+          dueNode.value = JSON.stringify({ Value: order.due_date, Unit: "", Definition: "Liefertermin" });
+          dueNode.ts = Date.now();
+        }
+        if (order.quantity) {
+          const qtyNode = ensureNode(orderNode, "Quantity", orderNode.fullTopic);
+          qtyNode.value = JSON.stringify({ Value: order.quantity, Unit: "pcs", Definition: "Auftragsmenge" });
+          qtyNode.ts = Date.now();
+        }
+        if (order.status) {
+          const statusNode = ensureNode(orderNode, "Status", orderNode.fullTopic);
+          statusNode.value = JSON.stringify({ Value: order.status, Unit: "", Definition: "Auftragsstatus" });
+          statusNode.ts = Date.now();
+        }
+      }
+    }
+  }
+
   return root;
 }
 
@@ -275,9 +344,35 @@ export default function UnsPage() {
   const bufferRef = useRef<Map<string, MqttMessage>>(new Map());
   const msgCountRef = useRef(0);
 
+  // Phase 1+2: Schema-driven hierarchy + ERP context from KG
+  const [hierarchy, setHierarchy] = useState<Record<string, HierarchyEntry> | null>(null);
+  const [context, setContext] = useState<Record<string, MachineContext> | null>(null);
+  const [hierarchySource, setHierarchySource] = useState<"loading" | "neo4j" | "fallback">("loading");
+
   useEffect(() => {
     if (!loading && !token) router.push("/login");
   }, [loading, token, router]);
+
+  // Fetch hierarchy + context from KG on load
+  useEffect(() => {
+    if (!token) return;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    fetch(`${API_BASE}/uns/hierarchy`, { headers, signal: AbortSignal.timeout(8000) })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
+      .then(data => {
+        setHierarchy(data.machines || {});
+        setHierarchySource("neo4j");
+      })
+      .catch(() => {
+        setHierarchySource("fallback");
+      });
+
+    fetch(`${API_BASE}/uns/context`, { headers, signal: AbortSignal.timeout(8000) })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
+      .then(data => setContext(data.machines || {}))
+      .catch(() => {});
+  }, [token]);
 
   const onToggleFlat = useCallback((topic: string) => {
     setFlatExpanded((prev) => {
@@ -353,13 +448,21 @@ export default function UnsPage() {
       setIsaExpanded((prev) => {
         const next = new Set(prev);
         next.add("isa95");
-        next.add("isa95/" + SITE);
-        next.add("isa95/" + SITE + "/Fertigung");
-        next.add("isa95/" + SITE + "/Montage");
+        // Auto-expand all unique sites from hierarchy
+        const sites = new Set<string>();
+        if (hierarchy) {
+          for (const h of Object.values(hierarchy)) sites.add(h.site);
+        }
+        if (sites.size === 0) sites.add("Werk-Sued"); // fallback
+        for (const site of Array.from(sites)) {
+          next.add("isa95/" + site);
+          next.add("isa95/" + site + "/Fertigung");
+          next.add("isa95/" + site + "/Montage");
+        }
         return next;
       });
     }
-  }, [displayMessages]);
+  }, [displayMessages, hierarchy]);
 
   if (loading || !token) {
     return (
@@ -370,7 +473,7 @@ export default function UnsPage() {
   }
 
   const flatTree = buildFlatTree(displayMessages);
-  const isaTree = buildIsa95Tree(displayMessages);
+  const isaTree = buildIsa95Tree(displayMessages, hierarchy, context);
   const topicCount = displayMessages.size;
   const isaDepth = maxDepth(isaTree);
 
@@ -443,9 +546,15 @@ export default function UnsPage() {
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-accent/20 text-accent px-1.5 py-0.5 rounded">ISA-95</span>
                 <h2 className="text-sm font-bold text-text">Unified Namespace</h2>
+                {hierarchySource === "neo4j" && (
+                  <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded" title="Hierarchy loaded from Neo4j Knowledge Graph (git-driven)">KG-driven</span>
+                )}
+                {hierarchySource === "fallback" && (
+                  <span className="text-[9px] font-mono bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded" title="KG unavailable, using prefix fallback">fallback</span>
+                )}
               </div>
               <p className="text-[11px] text-text-dim">
-                Walker Reynolds&apos; UNS pattern. Full enterprise hierarchy. Same data. 3x deeper.
+                Walker Reynolds&apos; UNS pattern. Hierarchy from Knowledge Graph — push a schema change to Git, tree updates live.
               </p>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-[10px] text-text-dim">
@@ -480,11 +589,13 @@ export default function UnsPage() {
           </div>
           <div className="p-4 rounded-md border border-border bg-bg-surface">
             <div className="text-xs font-semibold text-text mb-1">
-              <span className="text-accent">ISA-95</span> UNS
+              <span className="text-accent">ISA-95</span> UNS {hierarchySource === "neo4j" && <span className="text-emerald-400 text-[10px] ml-1">(Git-driven)</span>}
             </div>
             <div className="text-[11px] text-text-muted">
               Walker Reynolds&apos; pattern: Enterprise &rarr; Site &rarr; Area &rarr; WorkCenter &rarr; Cell &rarr; Equipment.
-              ERP at site level, QMS/TMS at area level, BDE/Process under equipment.
+              {hierarchySource === "neo4j"
+                ? " Hierarchy loaded from Knowledge Graph. Push a schema change to GitHub — tree restructures automatically."
+                : " ERP at site level, QMS/TMS at area level, BDE/Process under equipment."}
             </div>
           </div>
           <div className="p-4 rounded-md border border-border bg-bg-surface">

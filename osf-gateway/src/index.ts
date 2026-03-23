@@ -34,10 +34,10 @@ import { registry, httpRequestsTotal } from './metrics';
 import { recordRequest, getSnapshot } from './internal-metrics';
 import { createVersionedRouter } from './api-version';
 import mcpProxyRouter from './mcp/proxy';
+import unsRoutes from './uns/stream';
 
 // ─── Service Registry (v9 microservices) ────────────────────────────────
 const KG_AGENT_URL = process.env.KG_AGENT_URL || 'http://osf-kg-agent:8032';
-const UNS_STREAM_URL = process.env.UNS_STREAM_URL || 'http://osf-uns-stream:8033';
 
 const PORT = parseInt(process.env.PORT || '8012', 10);
 let httpServer: http.Server;
@@ -616,62 +616,8 @@ async function main() {
     }
   });
 
-  // UNS live stream → proxy to osf-uns-stream service (v9)
-  app.use('/uns', async (req, res) => {
-    try {
-      const target = `${UNS_STREAM_URL}${req.url}`;
-      const headers: Record<string, string> = {};
-      if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
-      if (req.headers.accept) headers['Accept'] = req.headers.accept as string;
-
-      const upstream = await fetch(target, {
-        method: req.method,
-        headers,
-        signal: AbortSignal.timeout(300_000), // 5min for SSE
-      });
-
-      // SSE pass-through
-      const ct = upstream.headers.get('content-type') || '';
-      if (ct.includes('text/event-stream')) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
-        const origin = req.headers.origin || '';
-        if (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes('*')) {
-          res.setHeader('Access-Control-Allow-Origin', origin);
-        }
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-        res.flushHeaders();
-        let aborted = false;
-        req.on('close', () => { aborted = true; });
-        const reader = (upstream.body as any).getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (!aborted) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(decoder.decode(value, { stream: true }));
-          }
-        } catch { /* connection closed */ }
-        reader.cancel().catch(() => {});
-        if (!aborted) res.end();
-        return;
-      }
-
-      res.status(upstream.status);
-      for (const [key, value] of upstream.headers) {
-        if (!['transfer-encoding', 'content-encoding', 'connection'].includes(key.toLowerCase())) {
-          res.setHeader(key, value);
-        }
-      }
-      const body = await upstream.text();
-      res.send(body);
-    } catch (err: any) {
-      logger.warn({ err: err.message }, 'UNS proxy error');
-      res.status(502).json({ error: 'UNS stream service unavailable' });
-    }
-  });
+  // UNS live stream — built-in MQTT→SSE bridge
+  app.use('/uns', unsRoutes);
 
   // Internal API for NR pods (authenticated via pod secret, no user auth)
   app.use('/internal', internalApiRoutes);

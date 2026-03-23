@@ -251,6 +251,144 @@ router.get('/topics', (_req: Request, res: Response) => {
   });
 });
 
+// ── Phase 1: Schema-driven ISA-95 Hierarchy from Neo4j ──────────────
+
+const KG_MCP_URL = process.env.MCP_KG_URL || process.env.MCP_URL_KG || 'http://osf-kg-server:8035';
+
+interface HierarchyEntry {
+  machine: string;
+  labels: string[];
+  site: string;
+  area: string;
+  workCenter: string;
+  cell: string;
+}
+
+let hierarchyCache: { data: Record<string, HierarchyEntry>; ts: number } | null = null;
+const HIERARCHY_TTL = 300_000; // 5 min
+
+async function callKgTool(name: string, args: Record<string, unknown> = {}): Promise<any> {
+  const res = await fetch(`${KG_MCP_URL}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const rpc = await res.json() as any;
+  if (rpc.error) throw new Error(rpc.error.message);
+  const text = rpc.result?.content?.[0]?.text;
+  return text ? JSON.parse(text) : null;
+}
+
+async function loadHierarchy(): Promise<Record<string, HierarchyEntry>> {
+  if (hierarchyCache && Date.now() - hierarchyCache.ts < HIERARCHY_TTL) return hierarchyCache.data;
+
+  const result = await callKgTool('kg_query', {
+    cypher: `
+      MATCH (m)-[:PART_OF*1..4]->(ancestor)
+      WHERE any(l IN labels(m) WHERE l ENDS WITH 'Machine' OR l = 'Machine' OR l = 'InjectionMoldingMachine' OR l = 'FFS_Cell' OR l = 'AssemblyLine')
+      WITH m, collect({id: ancestor.id, name: ancestor.name, labels: labels(ancestor)}) AS ancestors
+      RETURN m.id AS machine, labels(m) AS labels, ancestors
+    `,
+  });
+
+  const map: Record<string, HierarchyEntry> = {};
+  for (const row of result?.results || []) {
+    const ancestors = row.ancestors || [];
+    const findByLabel = (label: string) => ancestors.find((a: any) => a.labels?.includes(label));
+    const site = findByLabel('Site');
+    const area = findByLabel('Area');
+    const line = findByLabel('ProductionLine');
+
+    map[row.machine] = {
+      machine: row.machine,
+      labels: row.labels || [],
+      site: site?.name || site?.id || 'Unknown',
+      area: area?.name || area?.id || 'Unknown',
+      workCenter: line?.name || line?.id || 'Unknown',
+      cell: line?.name || line?.id || 'Unknown',
+    };
+  }
+
+  hierarchyCache = { data: map, ts: Date.now() };
+  logger.info({ machines: Object.keys(map).length }, 'UNS hierarchy loaded from KG');
+  return map;
+}
+
+// GET /uns/hierarchy — ISA-95 hierarchy from Neo4j Knowledge Graph
+router.get('/hierarchy', async (_req: Request, res: Response) => {
+  try {
+    const hierarchy = await loadHierarchy();
+    res.json({ source: 'neo4j', count: Object.keys(hierarchy).length, machines: hierarchy });
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'UNS hierarchy fetch failed');
+    res.status(502).json({ error: 'KG hierarchy unavailable', detail: err.message });
+  }
+});
+
+// ── Phase 2: Virtual ERP context per machine ────────────────────────
+
+let contextCache: { data: Record<string, any>; ts: number } | null = null;
+const CONTEXT_TTL = 60_000; // 1 min (ERP data changes more often)
+
+async function loadContext(): Promise<Record<string, any>> {
+  if (contextCache && Date.now() - contextCache.ts < CONTEXT_TTL) return contextCache.data;
+
+  const result = await callKgTool('kg_query', {
+    cypher: `
+      MATCH (m)-[:WORKS_ON]->(o:Order)
+      OPTIONAL MATCH (o)-[:FOR_CUSTOMER]->(c)
+      OPTIONAL MATCH (o)-[:HAS_BOM]->(mat)
+      WITH m, o, c, collect(DISTINCT {id: mat.id, name: mat.name, stock: mat.stock}) AS materials
+      RETURN m.id AS machine,
+             o.id AS order_id, o.name AS order_name, o.due_date AS due_date,
+             o.quantity AS quantity, o.status AS status,
+             c.id AS customer_id, c.name AS customer_name,
+             materials
+      ORDER BY m.id
+    `,
+  });
+
+  const map: Record<string, any> = {};
+  for (const row of result?.results || []) {
+    if (!map[row.machine]) {
+      map[row.machine] = { orders: [], customer: null };
+    }
+    map[row.machine].orders.push({
+      id: row.order_id, name: row.order_name,
+      due_date: row.due_date, quantity: row.quantity, status: row.status,
+      materials: row.materials,
+    });
+    if (row.customer_name) {
+      map[row.machine].customer = { id: row.customer_id, name: row.customer_name };
+    }
+  }
+
+  contextCache = { data: map, ts: Date.now() };
+  return map;
+}
+
+// GET /uns/context — ERP context (orders, customers, materials) per machine
+router.get('/context', async (_req: Request, res: Response) => {
+  try {
+    const context = await loadContext();
+    res.json({ source: 'neo4j', count: Object.keys(context).length, machines: context });
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'UNS context fetch failed');
+    res.status(502).json({ error: 'KG context unavailable', detail: err.message });
+  }
+});
+
+// ── Phase 3: Cache invalidation (called after KG rebuild) ───────────
+
+// POST /uns/invalidate — clear hierarchy + context caches (called by admin or KG builder webhook)
+router.post('/invalidate', (_req: Request, res: Response) => {
+  hierarchyCache = null;
+  contextCache = null;
+  logger.info('UNS hierarchy + context caches invalidated');
+  res.json({ ok: true, message: 'Caches cleared, next request will reload from KG' });
+});
+
 // Initialize cache on first import
 initCache().catch(err => {
   logger.warn({ err: err.message }, 'UNS cache init failed (will retry on first request)');
