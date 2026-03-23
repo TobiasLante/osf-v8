@@ -12,6 +12,7 @@ import { logger } from '../logger';
 // Agent ID aliases — maps old/alternate IDs to canonical V8 IDs
 const AGENT_ALIASES: Record<string, string> = {
   'otd-optimize': 'otd-deep-analyzer',
+  'material-optimize': 'strategic-planner',
 };
 
 // Agent IDs that should delegate to a chain instead
