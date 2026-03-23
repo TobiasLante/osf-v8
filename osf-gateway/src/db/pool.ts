@@ -723,6 +723,173 @@ export async function initSchema(): Promise<void> {
       ON CONFLICT DO NOTHING;
     `);
 
+    // ─── Seed tool_classifications (map MCP tools → categories) ──────────
+    await migrate('governance: seed tool_classifications', `
+      INSERT INTO tool_classifications (tool_name, category_id, status, classified_by) VALUES
+        -- production: OEE, Kapazitaet, Maschinen, Energie
+        ('factory_get_latest_oee',        'production', 'approved', 'system'),
+        ('factory_get_oee_summary',       'production', 'approved', 'system'),
+        ('factory_get_machine_oee',       'production', 'approved', 'system'),
+        ('factory_get_production_history', 'production', 'approved', 'system'),
+        ('factory_get_downtime_report',   'production', 'approved', 'system'),
+        ('factory_get_capacity_overview', 'production', 'approved', 'system'),
+        ('factory_get_capacity_load',     'production', 'approved', 'system'),
+        ('factory_get_capacity_summary',  'production', 'approved', 'system'),
+        ('factory_get_cm01',              'production', 'approved', 'system'),
+        ('factory_get_cm21_orders',       'production', 'approved', 'system'),
+        ('factory_get_machine_queue',     'production', 'approved', 'system'),
+        ('factory_get_machine_pool_members', 'production', 'approved', 'system'),
+        ('factory_get_machine_reliability', 'production', 'approved', 'system'),
+        ('factory_get_shift_schedule',    'production', 'approved', 'system'),
+        ('factory_get_base_load',         'production', 'approved', 'system'),
+        ('factory_get_blocked_orders_count', 'production', 'approved', 'system'),
+        ('factory_get_work_order',        'production', 'approved', 'system'),
+        ('factory_get_arbeitsplan_full',  'production', 'approved', 'system'),
+        ('get_machines',                  'production', 'approved', 'system'),
+        ('get_orders',                    'production', 'approved', 'system'),
+
+        -- energy
+        ('factory_get_energy_overview',   'energy', 'approved', 'system'),
+        ('factory_get_energy_costs',      'energy', 'approved', 'system'),
+        ('factory_get_energy_per_part',   'energy', 'approved', 'system'),
+        ('factory_get_energy_trend',      'energy', 'approved', 'system'),
+        ('factory_get_machine_energy',    'energy', 'approved', 'system'),
+
+        -- materials
+        ('factory_get_low_stock_items',   'materials', 'approved', 'system'),
+        ('factory_get_stock_item',        'materials', 'approved', 'system'),
+        ('factory_get_material_coverage', 'materials', 'approved', 'system'),
+        ('factory_get_baugruppen_shortages', 'materials', 'approved', 'system'),
+        ('factory_get_availability_at_date', 'materials', 'approved', 'system'),
+        ('get_materials',                 'materials', 'approved', 'system'),
+        ('get_articles',                  'materials', 'approved', 'system'),
+        ('get_bom',                       'materials', 'approved', 'system'),
+        ('factory_get_bom_multi_level',   'materials', 'approved', 'system'),
+
+        -- mrp
+        ('factory_get_md04',              'mrp', 'approved', 'system'),
+        ('factory_get_md07',              'mrp', 'approved', 'system'),
+        ('factory_check_material_readiness', 'mrp', 'approved', 'system'),
+        ('factory_get_pending_purchases', 'mrp', 'approved', 'system'),
+
+        -- procurement
+        ('factory_get_supplier_evaluation', 'procurement', 'approved', 'system'),
+        ('factory_get_supplier_for_material', 'procurement', 'approved', 'system'),
+        ('factory_get_supplier_materials', 'procurement', 'approved', 'system'),
+        ('get_suppliers',                 'procurement', 'approved', 'system'),
+
+        -- quality
+        ('factory_get_scrap_history',     'quality', 'approved', 'system'),
+        ('factory_get_spc_alarms',        'quality', 'approved', 'system'),
+        ('factory_get_cpk_overview',      'quality', 'approved', 'system'),
+        ('factory_get_quality_notifications', 'quality', 'approved', 'system'),
+        ('factory_get_open_notifications', 'quality', 'approved', 'system'),
+        ('factory_get_calibration_due',   'quality', 'approved', 'system'),
+
+        -- customer
+        ('factory_get_customer_orders',   'customer', 'approved', 'system'),
+        ('factory_get_customer_order',    'customer', 'approved', 'system'),
+        ('factory_get_customer_otd',      'customer', 'approved', 'system'),
+        ('factory_get_otd_statistics',    'customer', 'approved', 'system'),
+        ('factory_get_orders_at_risk',    'customer', 'approved', 'system'),
+        ('factory_get_monthly_revenue',   'customer', 'approved', 'system'),
+        ('factory_get_va05_summary',      'customer', 'approved', 'system'),
+        ('get_customers',                 'customer', 'approved', 'system'),
+
+        -- maintenance
+        ('factory_get_maintenance_orders', 'maintenance', 'approved', 'system'),
+        ('factory_get_maintenance_summary', 'maintenance', 'approved', 'system'),
+
+        -- subcontracting
+        ('factory_get_fb_auftraege',      'subcontracting', 'approved', 'system'),
+        ('factory_get_fb_bewertung',      'subcontracting', 'approved', 'system'),
+        ('factory_get_fb_kapazitaet',     'subcontracting', 'approved', 'system'),
+        ('factory_get_fb_liefertreue',    'subcontracting', 'approved', 'system'),
+        ('factory_get_fb_queue',          'subcontracting', 'approved', 'system'),
+        ('factory_get_fb_versand',        'subcontracting', 'approved', 'system'),
+        ('factory_get_fb_wareneingang',   'subcontracting', 'approved', 'system'),
+
+        -- sgm (Spritzguss)
+        ('sgm_get_cavity_balance',        'sgm', 'approved', 'system'),
+        ('sgm_get_cavity_trend',          'sgm', 'approved', 'system'),
+        ('sgm_get_hourly_aggregates',     'sgm', 'approved', 'system'),
+        ('sgm_get_process_data',          'sgm', 'approved', 'system'),
+        ('sgm_get_process_trend',         'sgm', 'approved', 'system'),
+
+        -- tms (Werkzeugverwaltung)
+        ('tms_check_tool_availability',   'tms', 'approved', 'system'),
+        ('tms_get_critical',              'tms', 'approved', 'system'),
+        ('tms_get_history',               'tms', 'approved', 'system'),
+        ('tms_get_machine_tools',         'tms', 'approved', 'system'),
+        ('tms_get_replacements',          'tms', 'approved', 'system'),
+        ('tms_get_status',                'tms', 'approved', 'system'),
+        ('tms_get_tool_changes',          'tms', 'approved', 'system'),
+        ('tms_get_tools_for_article',     'tms', 'approved', 'system'),
+        ('tms_replace_tool',              'tms', 'approved', 'system'),
+
+        -- assembly (Montage)
+        ('montage_get_bde',               'assembly', 'approved', 'system'),
+        ('montage_get_critical_tools',    'assembly', 'approved', 'system'),
+        ('montage_get_due_plans',         'assembly', 'approved', 'system'),
+        ('montage_get_maintenance_summary', 'assembly', 'approved', 'system'),
+        ('montage_get_oee',               'assembly', 'approved', 'system'),
+        ('montage_get_open_notifications', 'assembly', 'approved', 'system'),
+        ('montage_get_open_orders',       'assembly', 'approved', 'system'),
+        ('montage_get_prozessdaten',      'assembly', 'approved', 'system'),
+        ('montage_get_prueffeld_ergebnisse', 'assembly', 'approved', 'system'),
+        ('montage_get_prueffeld_fehleranalyse', 'assembly', 'approved', 'system'),
+        ('montage_get_prueffeld_queue',   'assembly', 'approved', 'system'),
+        ('montage_get_prueffeld_status',  'assembly', 'approved', 'system'),
+        ('montage_get_replacements',      'assembly', 'approved', 'system'),
+        ('montage_get_station_reliability', 'assembly', 'approved', 'system'),
+        ('montage_get_station_tools',     'assembly', 'approved', 'system'),
+        ('montage_get_tms_status',        'assembly', 'approved', 'system'),
+        ('montage_get_tool_history',      'assembly', 'approved', 'system'),
+        ('montage_get_vormontage_buffer', 'assembly', 'approved', 'system'),
+        ('montage_get_vormontage_oee',    'assembly', 'approved', 'system'),
+        ('montage_get_vormontage_status', 'assembly', 'approved', 'system'),
+        ('montage_get_vormontage_wartung', 'assembly', 'approved', 'system'),
+        ('montage_replace_tool',          'assembly', 'approved', 'system'),
+
+        -- kg_analytics
+        ('kg_bottleneck_analysis',        'kg_analytics', 'approved', 'system'),
+        ('kg_cluster_analysis',           'kg_analytics', 'approved', 'system'),
+        ('kg_critical_path_orders',       'kg_analytics', 'approved', 'system'),
+        ('kg_customer_delivery_risk',     'kg_analytics', 'approved', 'system'),
+        ('kg_dependency_graph',           'kg_analytics', 'approved', 'system'),
+        ('kg_energy_efficiency',          'kg_analytics', 'approved', 'system'),
+        ('kg_energy_hotpath',             'kg_analytics', 'approved', 'system'),
+        ('kg_equipment_topology',         'kg_analytics', 'approved', 'system'),
+        ('kg_find_alternatives',          'kg_analytics', 'approved', 'system'),
+        ('kg_impact_analysis',            'kg_analytics', 'approved', 'system'),
+        ('kg_kpi_dashboard',              'kg_analytics', 'approved', 'system'),
+        ('kg_lot_genealogy',              'kg_analytics', 'approved', 'system'),
+        ('kg_maintenance_risk',           'kg_analytics', 'approved', 'system'),
+        ('kg_material_commonality',       'kg_analytics', 'approved', 'system'),
+        ('kg_material_shortage_impact',   'kg_analytics', 'approved', 'system'),
+        ('kg_material_traceability',      'kg_analytics', 'approved', 'system'),
+        ('kg_oee_vs_target',              'kg_analytics', 'approved', 'system'),
+        ('kg_order_batch_similarity',     'kg_analytics', 'approved', 'system'),
+        ('kg_pool_demand_forecast',       'kg_analytics', 'approved', 'system'),
+        ('kg_procurement_status',         'kg_analytics', 'approved', 'system'),
+        ('kg_quality_impact',             'kg_analytics', 'approved', 'system'),
+        ('kg_rerouting_options',          'kg_analytics', 'approved', 'system'),
+        ('kg_shortest_path',             'kg_analytics', 'approved', 'system'),
+        ('kg_subcontracting_risk',        'kg_analytics', 'approved', 'system'),
+        ('kg_supplier_herfindahl',        'kg_analytics', 'approved', 'system'),
+        ('kg_supply_chain_risk',          'kg_analytics', 'approved', 'system'),
+        ('kg_tool_wear_cascade',          'kg_analytics', 'approved', 'system'),
+        ('kg_trace_order',                'kg_analytics', 'approved', 'system'),
+        ('kg_type_overview',              'kg_analytics', 'approved', 'system'),
+        ('kg_what_if_machine_down',       'kg_analytics', 'approved', 'system'),
+
+        -- kg_sensors
+        ('kg_discovered_machines',        'kg_sensors', 'approved', 'system'),
+        ('kg_machine_sensors',            'kg_sensors', 'approved', 'system')
+
+      ON CONFLICT (tool_name) DO NOTHING;
+    `);
+
     // ─── Data Retention ─────────────────────────────────────────────────────
     // Audit log: keep 90 days, delete older entries on every startup
     try {

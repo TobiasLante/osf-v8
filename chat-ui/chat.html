@@ -2754,8 +2754,12 @@
 
           // Skill names
           'skill.oee_summary': { de: 'OEE Übersicht', en: 'OEE Overview' },
+          'skill.factory_get_oee_summary': { de: 'OEE Übersicht', en: 'OEE Overview' },
           'skill.quality_summary': { de: 'Qualität', en: 'Quality' },
+          'skill.factory_get_scrap_history': { de: 'Qualität / Ausschuss', en: 'Quality / Scrap' },
           'skill.otd_summary': { de: 'Liefertreue', en: 'On-Time Delivery' },
+          'skill.factory_get_otd_statistics': { de: 'Liefertreue', en: 'On-Time Delivery' },
+          'skill.factory_get_low_stock_items': { de: 'Lagerbestand kritisch', en: 'Low Stock' },
           'skill.show': { de: 'anzeigen', en: 'show' },
 
           // Tool names (progress panel)
@@ -3329,7 +3333,7 @@
                         jsonrpc: '2.0',
                         id: 'machines-' + Date.now(),
                         method: 'tools/call',
-                        params: { name: 'list-machines', arguments: {} }
+                        params: { name: 'get_machines', arguments: {} }
                     })
                 });
                 const data = await res.json();
@@ -3343,13 +3347,13 @@
                     if (textContent) {
                         try {
                             const parsed = JSON.parse(textContent.text);
-                            machines = (parsed.machines || parsed || []).map(m => m.machine_id || m.id || m);
+                            machines = (parsed.machines || parsed || []).map(m => m.maschine_id || m.machine_id || m.id || m);
                         } catch {
                             machines = [];
                         }
                     }
                 } else if (Array.isArray(result)) {
-                    machines = result.map(m => m.machine_id || m.id || m);
+                    machines = result.map(m => m.maschine_id || m.machine_id || m.id || m);
                 }
                 machineCache = machines;
                 renderMachineButtons(container, machineCache);
@@ -3406,13 +3410,13 @@
         function handleQuickAction(action) {
             switch(action) {
                 case 'oee':
-                    openMachineModal('skill', 'oee_summary');
+                    openMachineModal('skill', 'factory_get_oee_summary');
                     break;
                 case 'quality':
-                    openMachineModal('skill', 'quality_summary');
+                    openMachineModal('skill', 'factory_get_scrap_history');
                     break;
                 case 'otd':
-                    openMachineModal('skill', 'otd_summary');
+                    openMachineModal('skill', 'factory_get_otd_statistics');
                     break;
                 case 'oee-diagnose':
                 case 'oee-optimize':
@@ -3515,21 +3519,21 @@
             'llm-config': { type: 'llm' },
             'oee': {
                 buttons: [
-                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'oee_summary' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'factory_get_oee_summary' },
                     { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'oee-optimize' },
                     { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', action: 'agent', agent: 'oee-diagnose' },
                 ]
             },
             'quality': {
                 buttons: [
-                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'quality_summary' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'factory_get_scrap_history' },
                     { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'quality-optimize' },
                     { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', disabled: true },
                 ]
             },
             'otd': {
                 buttons: [
-                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'otd_summary' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'factory_get_otd_statistics' },
                     { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'otd-optimize' },
                     { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', action: 'agent', agent: 'otd-planner' },
                 ]
@@ -3551,7 +3555,7 @@
             'material': {
                 buttons: [
                     { labelKey: 'pill.discussion', label: 'Discussion', dot: 'orange', action: 'agent', agent: 'material-optimize' },
-                    { labelKey: 'pill.lowStock', label: 'Low Stock', dot: 'red', action: 'skill', skill: 'material_low_stock' },
+                    { labelKey: 'pill.lowStock', label: 'Low Stock', dot: 'red', action: 'skill', skill: 'factory_get_low_stock_items' },
                 ]
             },
             'impact': {
@@ -3889,7 +3893,7 @@
             // Check if it's a machine ID (4 digits)
             const machineMatch = text.match(/^(\d{4})$/);
             if (machineMatch) {
-                await executeSkill('oee_summary', { machine_id: machineMatch[1] });
+                await executeSkill('factory_get_oee_summary', { machine_id: machineMatch[1] });
                 return;
             }
 
@@ -4252,64 +4256,108 @@
             }
 
             switch (skill) {
-                case 'oee_summary': return formatOEE(data);
-                case 'quality_summary': return formatQuality(data);
-                case 'otd_summary': return formatOTD(data);
+                case 'factory_get_oee_summary': return formatOEE(data);
+                case 'factory_get_scrap_history': return formatQuality(data);
+                case 'factory_get_otd_statistics': return formatOTD(data);
+                case 'factory_get_low_stock_items': return formatLowStock(data);
                 default: return '```json\n' + JSON.stringify(data, null, 2) + '\n```';
             }
         }
 
         function formatOEE(data) {
-            if (data.oee !== undefined) {
-                const oee = (data.oee * 100).toFixed(1);
+            // factory_get_oee_summary returns {maschinen: [{machineNo, avgOee: "85.0%", avgVerfuegbarkeit, avgLeistung, avgQualitaet, ausschussRate}]}
+            // Also handle single-machine: {machineNo, avgOee, ...}
+            if (data.machineNo && data.avgOee) {
+                const oee = parseFloat(data.avgOee);
                 const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
-                return `## OEE ${data.machine_id || ''}
+                return `## OEE ${data.machineNo}
 
-${status} **${oee}%**
+${status} **${data.avgOee}**
 
 | ${t('format.metric')} | ${t('format.value')} |
 |----------|------|
-| ${t('format.availability')} | ${((data.availability || 0) * 100).toFixed(1)}% |
-| ${t('format.performance')} | ${((data.performance || 0) * 100).toFixed(1)}% |
-| ${t('format.quality')} | ${((data.quality || 0) * 100).toFixed(1)}% |`;
+| ${t('format.availability')} | ${data.avgVerfuegbarkeit || '-'} |
+| ${t('format.performance')} | ${data.avgLeistung || '-'} |
+| ${t('format.quality')} | ${data.avgQualitaet || '-'} |
+| Ausschuss | ${data.ausschussRate || '-'} |`;
             }
 
-            const machines = Array.isArray(data) ? data : (data.machines || []);
+            const machines = data.maschinen || data.machines || (Array.isArray(data) ? data : []);
             if (!machines.length) return '## OEE\n\n' + t('format.noData');
 
-            let msg = `## ${t('format.oee')}\n\n| ${t('format.machine')} | OEE | ${t('format.status')} |\n|----------|-----|--------|\n`;
+            let msg = `## ${t('format.oee')} (${data.zeitraum || '24h'})\n\n| ${t('format.machine')} | OEE | A | P | Q | ${t('format.status')} |\n|------|-----|---|---|---|------|\n`;
             for (const m of machines) {
-                const oee = ((m.oee || 0) * 100).toFixed(1);
+                const oee = parseFloat(m.avgOee || m.oee || '0');
                 const status = oee >= 85 ? '🟢' : oee >= 65 ? '🟡' : '🔴';
-                msg += `| ${m.machine_id || m.id} | ${oee}% | ${status} |\n`;
+                msg += `| ${m.machineNo || m.machine_id || m.id} | ${m.avgOee || '-'} | ${m.avgVerfuegbarkeit || '-'} | ${m.avgLeistung || '-'} | ${m.avgQualitaet || '-'} | ${status} |\n`;
             }
             return msg;
         }
 
         function formatQuality(data) {
-            const rate = ((data.quality_rate || data.rate || 0) * 100).toFixed(1);
-            const status = rate >= 98 ? '🟢' : rate >= 95 ? '🟡' : '🔴';
-            return `## ${t('format.quality')}
+            // factory_get_scrap_history returns {zeitraum, count, maschinen: [{maschine, ausschuss, gutTeile, ausschussRate}]}
+            const machines = data.maschinen || [];
+            if (!machines.length) return `## ${t('format.quality')}\n\n` + t('format.noData');
 
-${status} **${rate}%**
+            const totalScrap = machines.reduce((s, m) => s + (m.ausschuss || 0), 0);
+            const totalGood = machines.reduce((s, m) => s + (m.gutTeile || 0), 0);
+            const totalRate = totalGood > 0 ? ((totalGood / (totalGood + totalScrap)) * 100).toFixed(1) : '0.0';
+            const status = totalRate >= 98 ? '🟢' : totalRate >= 95 ? '🟡' : '🔴';
 
-| ${t('format.metric')} | ${t('format.value')} |
-|----------|------|
-| ${t('format.defects')} | ${data.defects || 0} |
-| ${t('format.goodParts')} | ${data.good_parts || '-'} |`;
+            let msg = `## ${t('format.quality')} (${data.zeitraum || '24h'})\n\n${status} **${totalRate}%** Gutrate | ${totalScrap} Ausschuss | ${totalGood} Gutteile\n\n`;
+            msg += `| ${t('format.machine')} | Ausschuss | Gutteile | Rate | ${t('format.status')} |\n|------|-----------|----------|------|------|\n`;
+            for (const m of machines.slice(0, 20)) {
+                const rate = parseFloat(m.ausschussRate || '0');
+                const st = rate <= 2 ? '🟢' : rate <= 5 ? '🟡' : '🔴';
+                msg += `| ${m.maschine} | ${m.ausschuss} | ${m.gutTeile} | ${m.ausschussRate} | ${st} |\n`;
+            }
+            if (machines.length > 20) msg += `\n*... und ${machines.length - 20} weitere*`;
+            return msg;
         }
 
         function formatOTD(data) {
-            const otd = ((data.otd || data.on_time_delivery || 0) * 100).toFixed(1);
+            // factory_get_otd_statistics returns {gesamtOtd: "39.0%", gelieferteAuftraege, puenktlich, verspaetet, offeneAuftraege, gefaehrdet, proKunde: [...]}
+            const otd = parseFloat(data.gesamtOtd || data.otd || '0');
             const status = otd >= 95 ? '🟢' : otd >= 85 ? '🟡' : '🔴';
-            return `## ${t('format.otd')}
 
-${status} **${otd}%**
+            let msg = `## ${t('format.otd')}\n\n${status} **${data.gesamtOtd || otd + '%'}**\n\n`;
+            msg += `| ${t('format.metric')} | ${t('format.value')} |\n|----------|------|\n`;
+            msg += `| ${t('format.onTime')} | ${data.puenktlich || data.on_time_orders || 0} |\n`;
+            msg += `| ${t('format.late')} | ${data.verspaetet || data.late_orders || 0} |\n`;
+            if (data.offeneAuftraege) msg += `| Offene Auftr. | ${data.offeneAuftraege} |\n`;
+            if (data.gefaehrdet) msg += `| Gefaehrdet | ${data.gefaehrdet} |\n`;
 
-| ${t('format.metric')} | ${t('format.value')} |
-|----------|------|
-| ${t('format.onTime')} | ${data.on_time_orders || 0} |
-| ${t('format.late')} | ${data.late_orders || 0} |`;
+            const kunden = data.proKunde || [];
+            if (kunden.length) {
+                msg += `\n### Pro Kunde\n\n| Kunde | OTD | Auftr. | ${t('format.status')} |\n|-------|-----|--------|------|\n`;
+                for (const k of kunden.slice(0, 10)) {
+                    const kotd = parseFloat(k.otd || '0');
+                    const st = kotd >= 95 ? '🟢' : kotd >= 85 ? '🟡' : '🔴';
+                    msg += `| ${k.kunde} | ${k.otd} | ${k.auftraege} | ${st} |\n`;
+                }
+                if (kunden.length > 10) msg += `\n*... und ${kunden.length - 10} weitere*`;
+            }
+            return msg;
+        }
+
+        function formatLowStock(data) {
+            // factory_get_low_stock_items returns {critical_count, warning_count, kritisch: [{teilId, bestandFrei, mindestbestand, fehlmenge, status}], warnung: [...]}
+            const critical = data.kritisch || [];
+            const warnings = data.warnung || [];
+            if (!critical.length && !warnings.length) return '## Material\n\nKeine Engpaesse.';
+
+            let msg = `## Material / Lager\n\n🔴 **${data.critical_count || critical.length}** kritisch | 🟡 **${data.warning_count || warnings.length}** Warnung\n\n`;
+            if (critical.length) {
+                // Show only items with actual shortage (fehlmenge > 0)
+                const realShortage = critical.filter(c => c.fehlmenge > 0);
+                const display = realShortage.length ? realShortage : critical;
+                msg += `| Teil | Bestand | Mindest | Fehlmenge |\n|------|---------|---------|----------|\n`;
+                for (const c of display.slice(0, 20)) {
+                    msg += `| ${c.teilId} | ${c.bestandFrei} | ${c.mindestbestand} | ${c.fehlmenge > 0 ? c.fehlmenge : '-'} |\n`;
+                }
+                if (display.length > 20) msg += `\n*... und ${display.length - 20} weitere*`;
+            }
+            return msg;
         }
 
         function renderMarkdown(text) {
