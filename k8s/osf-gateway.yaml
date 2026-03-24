@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: gateway
-        image: 192.168.178.150:32000/osf-gateway:8.19.0
+        image: 192.168.178.150:32000/osf-gateway:8.18.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8012
