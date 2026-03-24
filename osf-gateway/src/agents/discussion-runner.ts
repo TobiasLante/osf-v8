@@ -1783,6 +1783,12 @@ export async function runDiscussionAgent(
 
       emitSSE(res, { type: 'discussion_synthesis_start' });
 
+      // Heartbeat to keep SSE alive during LLM synthesis call (Cloudflare Tunnel timeout)
+      const synthHeartbeat = setInterval(() => {
+        if (res.writableEnded) { clearInterval(synthHeartbeat); return; }
+        emitSSE(res, { type: 'heartbeat' });
+      }, 10_000);
+
       const synthResponse = await callLlm(
         [
           { role: 'system', content: systemContent },
@@ -1792,6 +1798,7 @@ export async function runDiscussionAgent(
         premiumLlmConfig,
         userId,
       );
+      clearInterval(synthHeartbeat);
       finalMitigation = synthResponse.content || '';
       const summary = finalMitigation.length > 8000 ? finalMitigation.substring(0, 8000) + '...' : finalMitigation;
       emitSSE(res, { type: 'debate_final', debateFinalSummary: summary });
