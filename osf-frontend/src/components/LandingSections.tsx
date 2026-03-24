@@ -17,7 +17,7 @@ const FEATURES = [
   },
   {
     icon: "\u{1F517}",
-    title: "111 MCP Tools",
+    title: "118 MCP Tools",
     desc: "Access ERP orders, machine status, OEE metrics, quality reports, tool inventory, live #shared.UNS data, and knowledge graphs through the Model Context Protocol.",
   },
   {
@@ -165,7 +165,7 @@ export function LandingSections() {
                   Prefer code? Write TypeScript agents.
                 </h3>
                 <p className="text-text-muted text-sm leading-relaxed mb-4">
-                  Full access to 111 MCP tools and LLM calls from TypeScript.
+                  Full access to 118 MCP tools and LLM calls from TypeScript.
                   Deploy from GitHub with one click — no Node-RED required.
                 </p>
                 <div className="flex flex-wrap gap-2">

@@ -15,32 +15,32 @@ const tabs: { id: Tab; label: string }[] = [
 /* ── MCP Server Data ── */
 const mcpServers = [
   {
-    name: "ERP",
+    name: "Factory",
     icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2",
-    tools: 42,
-    port: 8021,
-    desc: "Orders, customers, capacity planning, material management, purchasing, and KPIs. The core transactional backbone.",
+    tools: 86,
+    port: 8020,
+    desc: "ERP, OEE, capacity, MRP, maintenance, energy, stock, purchasing, subcontracting, TMS, SGM, assembly, pre-assembly, test field.",
   },
   {
-    name: "OEE",
-    icon: "M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z",
-    tools: 28,
-    port: 8024,
-    desc: "Overall Equipment Effectiveness, machine performance, scrap history, injection molding process data, and energy monitoring.",
-  },
-  {
-    name: "QMS",
-    icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+    name: "KG",
+    icon: "M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l-2-1m2 1l-2 1",
     tools: 12,
-    port: 8023,
-    desc: "Quality management: SPC alarms, calibration tracking, Cpk analysis, quality notifications, and test field results.",
+    port: 8035,
+    desc: "Knowledge Graph: impact analysis, paths, semantic search, Cypher queries, delivery snapshots, chart generation.",
   },
   {
-    name: "TMS",
-    icon: "M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z",
-    tools: 7,
-    port: 8022,
-    desc: "Tool management system: tool wear tracking, replacement schedules, article-to-tool mappings, and inventory.",
+    name: "Historian",
+    icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+    tools: 6,
+    port: 8030,
+    desc: "Time-series analytics: trends, comparisons, aggregations (AVG/MIN/MAX), anomaly detection, machine/variable discovery.",
+  },
+  {
+    name: "Discovery",
+    icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+    tools: 2,
+    port: "AGE",
+    desc: "Auto-discovered machines and sensors from MQTT UNS via Apache AGE graph.",
   },
   {
     name: "#shared.UNS",
@@ -598,7 +598,7 @@ function UNSTab() {
             </div>
             <p className="text-xs text-text-muted leading-relaxed">
               Structured data in PostgreSQL for KPI calculations, OEE history,
-              order tracking, and complex queries. The 111 MCP tools query this
+              order tracking, and complex queries. The 118 MCP tools query this
               layer for analytics and decision support.
             </p>
           </div>

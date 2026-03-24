@@ -223,28 +223,37 @@ export function ApiReferenceContent() {
           <Endpoint
             method="GET"
             path="/mcp/tools"
-            description="List all available MCP tools across all 4 servers"
+            description="List all available MCP tools across all servers"
             response={`[{ "name": "...", "description": "...", "parameters": {...} }]`}
           />
         </div>
         <WikiCallout type="tip">
-          The MCP proxy handles routing automatically: tools starting with{" "}
+          The MCP proxy routes tools by prefix:{" "}
           <code className="text-accent bg-accent/10 px-1 rounded text-xs">
             factory_
           </code>{" "}
-          go to Manufacturing,{" "}
-          <code className="text-accent bg-accent/10 px-1 rounded text-xs">
-            quality_
+          / <code className="text-accent bg-accent/10 px-1 rounded text-xs">
+            tms_
           </code>{" "}
-          to QMS,{" "}
-          <code className="text-accent bg-accent/10 px-1 rounded text-xs">
-            warehouse_
+          / <code className="text-accent bg-accent/10 px-1 rounded text-xs">
+            sgm_
           </code>{" "}
-          to WMS, and{" "}
-          <code className="text-accent bg-accent/10 px-1 rounded text-xs">
-            erp_
+          / <code className="text-accent bg-accent/10 px-1 rounded text-xs">
+            montage_
           </code>{" "}
-          to ERP.
+          to Factory Sim,{" "}
+          <code className="text-accent bg-accent/10 px-1 rounded text-xs">
+            uns_
+          </code>{" "}
+          to UNS,{" "}
+          <code className="text-accent bg-accent/10 px-1 rounded text-xs">
+            kg_
+          </code>{" "}
+          to Knowledge Graph,{" "}
+          <code className="text-accent bg-accent/10 px-1 rounded text-xs">
+            history_
+          </code>{" "}
+          to Historian.
         </WikiCallout>
       </WikiSection>
 

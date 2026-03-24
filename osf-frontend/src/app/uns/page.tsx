@@ -250,11 +250,13 @@ function maxDepth(node: TopicNode, d = 0): number {
 function parsePayloadValue(raw: string): { display: string; unit: string; label: string } | null {
   try {
     const obj = JSON.parse(raw);
-    if (obj.Value !== undefined) {
-      const val = typeof obj.Value === "number"
-        ? (Number.isInteger(obj.Value) ? String(obj.Value) : obj.Value.toFixed(2))
-        : String(obj.Value);
-      return { display: val, unit: obj.Unit || "", label: obj.Definition || "" };
+    // Accept both standard {Value, Unit, Definition} and legacy {value}
+    const rawVal = obj.Value !== undefined ? obj.Value : obj.value;
+    if (rawVal !== undefined) {
+      const val = typeof rawVal === "number"
+        ? (Number.isInteger(rawVal) ? String(rawVal) : rawVal.toFixed(2))
+        : String(rawVal);
+      return { display: val, unit: obj.Unit || obj.unit || "", label: obj.Definition || obj.definition || "" };
     }
   } catch {}
   return null;
@@ -344,6 +346,10 @@ export default function UnsPage() {
   const bufferRef = useRef<Map<string, MqttMessage>>(new Map());
   const msgCountRef = useRef(0);
 
+  // Schema rebuild state
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildStatus, setRebuildStatus] = useState<string | null>(null);
+
   // Phase 1+2: Schema-driven hierarchy + ERP context from KG
   const [hierarchy, setHierarchy] = useState<Record<string, HierarchyEntry> | null>(null);
   const [context, setContext] = useState<Record<string, MachineContext> | null>(null);
@@ -373,6 +379,70 @@ export default function UnsPage() {
       .then(data => setContext(data.machines || {}))
       .catch(() => {});
   }, [token]);
+
+  // Trigger schema rebuild (pull from GitHub + rebuild KG)
+  const triggerRebuild = useCallback(async () => {
+    if (!token || rebuilding) return;
+    setRebuilding(true);
+    setRebuildStatus("Pulling schemas from GitHub...");
+
+    try {
+      const resp = await fetch(`${API_BASE}/uns/rebuild`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+
+      if (resp.status === 409) {
+        setRebuildStatus("Build already running");
+        setTimeout(() => { setRebuilding(false); setRebuildStatus(null); }, 3000);
+        return;
+      }
+
+      if (!resp.ok || !resp.body) {
+        setRebuildStatus("Error: " + resp.statusText);
+        setTimeout(() => { setRebuilding(false); setRebuildStatus(null); }, 3000);
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === "progress") setRebuildStatus(evt.step || "Building...");
+            else if (evt.type === "done") setRebuildStatus(`Done: ${evt.summary}`);
+            else if (evt.type === "error") setRebuildStatus(`Error: ${evt.message}`);
+          } catch {}
+        }
+      }
+
+      // Reload hierarchy + context after rebuild
+      const headers = { Authorization: `Bearer ${token}` };
+      fetch(`${API_BASE}/uns/hierarchy`, { headers, signal: AbortSignal.timeout(8000) })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => { setHierarchy(data.machines || {}); setHierarchySource("neo4j"); })
+        .catch(() => {});
+
+      fetch(`${API_BASE}/uns/context`, { headers, signal: AbortSignal.timeout(8000) })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => setContext(data.machines || {}))
+        .catch(() => {});
+
+      setTimeout(() => { setRebuilding(false); setRebuildStatus(null); }, 5000);
+    } catch (err: any) {
+      setRebuildStatus("Error: " + (err.message || "Network error"));
+      setTimeout(() => { setRebuilding(false); setRebuildStatus(null); }, 3000);
+    }
+  }, [token, rebuilding]);
 
   const onToggleFlat = useCallback((topic: string) => {
     setFlatExpanded((prev) => {
@@ -505,6 +575,22 @@ export default function UnsPage() {
           <span className="text-border">|</span>
           <span className="text-xs text-text-dim">{msgCount} messages received</span>
           <span className="text-xs text-text-dim">{topicCount} active topics</span>
+          <span className="text-border">|</span>
+          <button
+            onClick={triggerRebuild}
+            disabled={rebuilding}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+              rebuilding
+                ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 cursor-wait"
+                : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 cursor-pointer"
+            }`}
+            title="Pull latest schemas from GitHub and rebuild KG hierarchy"
+          >
+            {rebuilding ? "Rebuilding..." : "Reload Schemas"}
+          </button>
+          {rebuildStatus && (
+            <span className="text-[10px] text-text-muted max-w-[300px] truncate">{rebuildStatus}</span>
+          )}
         </div>
 
         {/* Two-Panel Layout */}

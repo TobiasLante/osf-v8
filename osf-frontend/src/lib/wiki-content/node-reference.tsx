@@ -154,6 +154,24 @@ export function NodeReferenceContent() {
             description="Call a tool from the Tool Management (TMS) MCP server. Access tool inventory, usage history, maintenance schedules."
             config="Select the tool and configure its parameters."
           />
+          <NodeCard
+            name="osf-mcp-oee"
+            variant="mcp"
+            description="Call a tool from the OEE MCP server. Access machine OEE metrics, production history, scrap rates, and energy data."
+            config="Select the tool and configure its parameters."
+          />
+          <NodeCard
+            name="osf-mcp-uns"
+            variant="mcp"
+            description="Call a tool from the UNS (MQTT) MCP server. Access live machine data, topic search, alerts, and cross-machine comparisons."
+            config="Select the tool and configure its parameters."
+          />
+          <NodeCard
+            name="osf-mcp-kg"
+            variant="mcp"
+            description="Call a tool from the Knowledge Graph MCP server. Impact analysis, paths, semantic search, Cypher queries, delivery snapshots."
+            config="Select the tool and configure its parameters."
+          />
         </div>
       </WikiSection>
 

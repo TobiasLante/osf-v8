@@ -251,7 +251,7 @@ export function OtdTeaser() {
                 <div className="mt-6 pt-6 border-t border-border">
                   <p className="text-xs text-text-dim mb-3 font-semibold uppercase tracking-wider">MCP Endpoints Used</p>
                   <div className="flex flex-wrap gap-2">
-                    {['mcp-erp:8021', 'mcp-fertigung:8024', 'mcp-qms:8023', 'mcp-wms:8022'].map(ep => (
+                    {['factory-sim:8020', 'mqtt-uns:8025', 'kg-server:8035', 'historian:8030'].map(ep => (
                       <span key={ep} className="text-[10px] font-mono px-2 py-0.5 rounded bg-bg-surface-2 border border-border text-text-dim">
                         {ep}
                       </span>

@@ -13,7 +13,7 @@ export function FactorySimulationContent() {
           progress.
         </p>
         <p>
-          All data is stored in SQLite databases and exposed through MCP tools.
+          All data is stored in PostgreSQL databases and exposed through MCP tools.
           You can view the live factory state on the{" "}
           <a
             href="https://osf-factory.zeroguess.ai"
@@ -169,31 +169,31 @@ export function FactorySimulationContent() {
           </thead>
           <tbody>
             <tr className="border-t border-border">
-              <td className="p-3 font-mono text-xs text-accent">factory_</td>
-              <td className="p-3 text-text-muted">mcp-fertigung:8024</td>
+              <td className="p-3 font-mono text-xs text-accent">factory_ / tms_ / sgm_ / montage_</td>
+              <td className="p-3 text-text-muted">factory-sim:8020</td>
               <td className="p-3 text-text-muted">
-                Machines, OEE, production, tools
+                ERP, OEE, capacity, MRP, maintenance, energy, stock, TMS, SGM, assembly
               </td>
             </tr>
             <tr className="border-t border-border">
-              <td className="p-3 font-mono text-xs text-accent">erp_</td>
-              <td className="p-3 text-text-muted">mcp-erp:8021</td>
+              <td className="p-3 font-mono text-xs text-accent">uns_</td>
+              <td className="p-3 text-text-muted">mqtt-uns:8025</td>
               <td className="p-3 text-text-muted">
-                Orders, customers, materials, BOM
+                Live MQTT machine data, topics, alerts
               </td>
             </tr>
             <tr className="border-t border-border">
-              <td className="p-3 font-mono text-xs text-accent">quality_</td>
-              <td className="p-3 text-text-muted">mcp-qms:8023</td>
+              <td className="p-3 font-mono text-xs text-accent">kg_</td>
+              <td className="p-3 text-text-muted">kg-server:8035</td>
               <td className="p-3 text-text-muted">
-                Defects, inspections, SPC, audits
+                Knowledge Graph, semantic search, charts
               </td>
             </tr>
             <tr className="border-t border-border">
-              <td className="p-3 font-mono text-xs text-accent">warehouse_</td>
-              <td className="p-3 text-text-muted">mcp-wms:8022</td>
+              <td className="p-3 font-mono text-xs text-accent">history_</td>
+              <td className="p-3 text-text-muted">historian:8030</td>
               <td className="p-3 text-text-muted">
-                Inventory, stock, locations
+                Time-series trends, anomalies
               </td>
             </tr>
           </tbody>

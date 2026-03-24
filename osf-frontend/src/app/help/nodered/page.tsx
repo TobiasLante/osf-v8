@@ -161,6 +161,24 @@ export default function NodeRedHelpPage() {
                   description="Call a tool from the Tool Management (TMS) MCP server. Access tool inventory, usage history, maintenance schedules."
                   config="Select the tool and configure its parameters."
                 />
+                <NodeType
+                  name="osf-mcp-oee"
+                  color="bg-orange-500/10 text-orange-400 border-orange-500/20"
+                  description="Call a tool from the OEE MCP server. Access machine OEE, production history, scrap rates, energy data."
+                  config="Select the tool and configure its parameters."
+                />
+                <NodeType
+                  name="osf-mcp-uns"
+                  color="bg-green-500/10 text-green-400 border-green-500/20"
+                  description="Call a tool from the UNS (MQTT) MCP server. Live machine data, topic search, alerts, cross-machine comparisons."
+                  config="Select the tool and configure its parameters."
+                />
+                <NodeType
+                  name="osf-mcp-kg"
+                  color="bg-purple-500/10 text-purple-400 border-purple-500/20"
+                  description="Call a tool from the Knowledge Graph MCP server. Impact analysis, paths, semantic search, Cypher queries, delivery snapshots."
+                  config="Select the tool and configure its parameters."
+                />
               </div>
             </Section>
 

@@ -60,7 +60,7 @@ export const wikiArticles: WikiArticle[] = [
   {
     slug: "mcp-tools",
     title: "MCP Tools Reference",
-    description: "All 111 MCP tools across 4 domains",
+    description: "All 118 MCP tools across 4 domains",
     category: "Referenz",
   },
   {

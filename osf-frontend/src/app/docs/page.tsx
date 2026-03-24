@@ -70,7 +70,7 @@ export default function DocsPage() {
               <div className="space-y-4 text-sm text-text-muted">
                 <p>
                   OpenShopFloor exposes a full manufacturing simulation through
-                  135+ MCP (Model Context Protocol) tools. Your AI agent connects
+                  118 MCP (Model Context Protocol) tools. Your AI agent connects
                   to our MCP server and gets access to real-time factory data.
                 </p>
                 <div className="p-4 rounded-sm bg-bg-surface-2 border border-border font-mono text-xs">

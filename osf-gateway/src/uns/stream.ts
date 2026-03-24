@@ -389,6 +389,60 @@ router.post('/invalidate', (_req: Request, res: Response) => {
   res.json({ ok: true, message: 'Caches cleared, next request will reload from KG' });
 });
 
+// POST /uns/rebuild — trigger schema pull from GitHub + KG rebuild (proxy to KG builder)
+router.post('/rebuild', async (req: Request, res: Response) => {
+  try {
+    const upstream = await fetch(`${KG_MCP_URL}/api/kg/build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (!upstream.ok && upstream.status === 409) {
+      res.status(409).json({ error: 'A build is already running' });
+      return;
+    }
+
+    // Stream SSE from KG builder to client
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin as string)) {
+      res.setHeader('Access-Control-Allow-Origin', origin as string);
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.flushHeaders();
+
+    const reader = upstream.body?.getReader();
+    if (!reader) { res.end(); return; }
+
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const chunk = await reader.read();
+      done = chunk.done;
+      if (chunk.value) {
+        const text = decoder.decode(chunk.value, { stream: true });
+        res.write(text);
+      }
+    }
+
+    // Invalidate caches after successful rebuild
+    hierarchyCache = null;
+    contextCache = null;
+    logger.info('UNS caches invalidated after schema rebuild');
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Schema rebuild proxy failed');
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'KG builder unreachable', detail: err.message });
+    }
+  } finally {
+    if (!res.writableEnded) res.end();
+  }
+});
+
 // Initialize cache on first import
 initCache().catch(err => {
   logger.warn({ err: err.message }, 'UNS cache init failed (will retry on first request)');

@@ -7,7 +7,7 @@ export function McpToolsContent() {
     <>
       <WikiSection title="Overview">
         <p>
-          OpenShopFloor exposes <strong>111 MCP tools</strong> across 4 domain
+          OpenShopFloor exposes <strong>118 MCP tools</strong> across 7 domain
           servers. These tools provide real-time access to the factory simulation
           data via the Model Context Protocol.
         </p>
@@ -39,10 +39,10 @@ export function McpToolsContent() {
           <div className="text-text-dim">{"  ▼"}</div>
           <div>
             Gateway proxies to{" "}
-            <span className="text-green-400">mcp-fertigung:8024</span>
+            <span className="text-green-400">factory-sim:8020</span>
           </div>
           <div className="text-text-dim">{"  ▼"}</div>
-          <div>MCP server queries SQLite, returns JSON</div>
+          <div>MCP server queries PostgreSQL, returns JSON</div>
           <div className="text-text-dim">{"  ▼"}</div>
           <div>LLM analyzes result, responds to user</div>
         </div>
@@ -52,52 +52,79 @@ export function McpToolsContent() {
         <div className="mt-3 space-y-4">
           <div className="p-4 rounded border border-border bg-bg-surface-2">
             <h4 className="font-semibold text-sm mb-2">
-              Manufacturing (mcp-fertigung)
+              Factory &amp; ERP (mcp-fertigung / mcp-erp)
             </h4>
             <p className="text-text-dim text-xs mb-2">
-              Prefix: <code className="text-accent">factory_</code> &mdash; ~30
-              tools
+              Prefix: <code className="text-accent">factory_</code> &mdash; 60+ tools
             </p>
             <p>
-              Machine status, OEE data, production history, capacity overview,
-              shift schedules, maintenance plans, tool management.
-            </p>
-          </div>
-          <div className="p-4 rounded border border-border bg-bg-surface-2">
-            <h4 className="font-semibold text-sm mb-2">ERP (mcp-erp)</h4>
-            <p className="text-text-dim text-xs mb-2">
-              Prefix: <code className="text-accent">erp_</code> &mdash; ~25 tools
-            </p>
-            <p>
-              Production orders, customer data, delivery schedules, material
-              management, BOM (Bill of Materials), at-risk orders, on-time
-              delivery.
+              Machine status, OEE, capacity (CM01/CM21), shift schedules,
+              customer orders (VA05), MRP (MD04/MD07), maintenance, energy
+              management, stock, purchasing, and subcontracting. Both servers
+              route to the same Factory Simulator backend.
             </p>
           </div>
           <div className="p-4 rounded border border-border bg-bg-surface-2">
             <h4 className="font-semibold text-sm mb-2">
-              Quality Management (mcp-qms)
+              Tool Management (mcp-tms)
             </h4>
             <p className="text-text-dim text-xs mb-2">
-              Prefix: <code className="text-accent">quality_</code> &mdash; ~20
-              tools
+              Prefix: <code className="text-accent">tms_</code> &mdash; 9 tools
             </p>
             <p>
-              Defect reports, quality metrics, audit data, inspection results,
-              SPC charts, CAPA management.
+              Tool status, wear tracking, critical tools, replacements, tool
+              availability per article, tool changes for changeovers.
             </p>
           </div>
           <div className="p-4 rounded border border-border bg-bg-surface-2">
             <h4 className="font-semibold text-sm mb-2">
-              Warehouse Management (mcp-wms)
+              Injection Molding (SGM) &amp; Assembly
             </h4>
             <p className="text-text-dim text-xs mb-2">
-              Prefix: <code className="text-accent">warehouse_</code> &mdash; ~16
-              tools
+              Prefix: <code className="text-accent">sgm_</code> / <code className="text-accent">montage_</code> &mdash; 23 tools
             </p>
             <p>
-              Inventory levels, stock movements, storage locations, material
-              reservations, reorder points.
+              SGM: process data (~97 params), cavity balance, trends. Assembly:
+              station OEE, BDE, process data, maintenance, pre-assembly cells,
+              test field (function/leak/burn-in).
+            </p>
+          </div>
+          <div className="p-4 rounded border border-border bg-bg-surface-2">
+            <h4 className="font-semibold text-sm mb-2">
+              UNS / MQTT (mcp-uns)
+            </h4>
+            <p className="text-text-dim text-xs mb-2">
+              Prefix: <code className="text-accent">uns_</code> &mdash; 8 tools
+            </p>
+            <p>
+              Live machine data via MQTT: list machines, get status/values per
+              category, search topics, alerts, history, and cross-machine
+              comparisons.
+            </p>
+          </div>
+          <div className="p-4 rounded border border-border bg-bg-surface-2">
+            <h4 className="font-semibold text-sm mb-2">
+              Knowledge Graph (mcp-kg)
+            </h4>
+            <p className="text-text-dim text-xs mb-2">
+              Prefix: <code className="text-accent">kg_</code> &mdash; 12 tools
+            </p>
+            <p>
+              Impact analysis, shortest paths, neighbors, subgraphs, semantic
+              search (vector embeddings), Cypher queries, schema inspection,
+              delivery snapshots, and chart generation.
+            </p>
+          </div>
+          <div className="p-4 rounded border border-border bg-bg-surface-2">
+            <h4 className="font-semibold text-sm mb-2">
+              Historian (time-series)
+            </h4>
+            <p className="text-text-dim text-xs mb-2">
+              Prefix: <code className="text-accent">history_</code> &mdash; 6 tools
+            </p>
+            <p>
+              Time-series trends, machine comparisons, aggregations (AVG/MIN/MAX),
+              anomaly detection (N-sigma), machine listing, and variable discovery.
             </p>
           </div>
         </div>
@@ -133,7 +160,7 @@ export function McpToolsContent() {
           <Link href="/docs#tools" className="text-accent hover:underline">
             View the complete Tool Reference
           </Link>{" "}
-          with all 111 tools, descriptions, and parameters.
+          with all 118 tools, descriptions, and parameters.
         </WikiCallout>
       </WikiSection>
     </>

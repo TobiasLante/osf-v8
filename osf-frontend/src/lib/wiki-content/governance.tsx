@@ -131,7 +131,7 @@ export function GovernanceContent() {
           <div>{"{"}</div>
           <div>{"  user: 'meister@factory.de',"}</div>
           <div>{"  role: 'Meister',"}</div>
-          <div>{"  tool: 'erp_get_production_orders',"}</div>
+          <div>{"  tool: 'factory_get_customer_orders',"}</div>
           <div>{"  category: 'ERP',"}</div>
           <div>{"  sensitivity: 'low',"}</div>
           <div>{"  decision: 'ALLOW',"}</div>

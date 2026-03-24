@@ -10,7 +10,7 @@ export function GettingStartedContent() {
           OpenShopFloor (OSF) is an open-source factory AI sandbox. It provides a
           complete manufacturing simulation with real-time machine data, production
           orders, quality metrics, and tool management &mdash; all accessible through
-          111 MCP (Model Context Protocol) tools. You can build AI agents that
+          118 MCP (Model Context Protocol) tools. You can build AI agents that
           monitor, analyze, and optimize factory operations.
         </p>
       </WikiSection>
@@ -38,7 +38,7 @@ export function GettingStartedContent() {
           <Link href="/chat" className="text-accent hover:underline">
             AI Chat
           </Link>
-          . The chat assistant has access to all 111 MCP tools and can answer
+          . The chat assistant has access to all 118 MCP tools and can answer
           questions about your factory in real time:
         </p>
         <ul className="list-disc list-inside space-y-2 mt-2">

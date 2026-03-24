@@ -23,7 +23,7 @@ export default function AboutPage() {
             <Card title="What is OpenShopFloor?">
               <p>
                 OpenShopFloor is an open source sandbox for manufacturing AI. It provides
-                a live factory simulation with 111 MCP tools, a visual Node-RED flow editor,
+                a live factory simulation with 118 MCP tools, a visual Node-RED flow editor,
                 a TypeScript agent SDK, and pre-built multi-agent analysis systems.
               </p>
               <p className="mt-3">
@@ -137,7 +137,7 @@ export default function AboutPage() {
               <ul className="space-y-2">
                 <li className="flex gap-3">
                   <span className="text-accent font-bold shrink-0">01</span>
-                  <span><strong className="text-text">Explore</strong> &mdash; Browse the live factory dashboard, query data through the chat, inspect all 111 MCP tools.</span>
+                  <span><strong className="text-text">Explore</strong> &mdash; Browse the live factory dashboard, query data through the chat, inspect all 118 MCP tools.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="text-accent font-bold shrink-0">02</span>

@@ -20,7 +20,7 @@ export function CodeAgentsContent() {
       <WikiSection title="What are Code Agents?">
         <p>
           Code Agents let you write custom TypeScript functions that have full
-          access to all 111 MCP tools, an LLM for analysis, and persistent
+          access to all 118 MCP tools, an LLM for analysis, and persistent
           key-value storage. Your code runs in a secure V8 sandbox with no file
           system or network access &mdash; all external calls go through the SDK.
         </p>
@@ -286,7 +286,7 @@ return [
 
         <h4 className="font-semibold text-sm mt-6 mb-2">Daily Quality Report</h4>
         <Code filename="src/main.ts">{`export default async function main(ctx) {
-  const defects = await ctx.mcp.call('quality_get_defect_summary');
+  const defects = await ctx.mcp.call('factory_get_quality_notifications');
   const previous = await ctx.storage.get('last_defects');
 
   const report = await ctx.llm.chat(\`

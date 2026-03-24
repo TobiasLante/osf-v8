@@ -102,38 +102,27 @@ npm run dev
               <td className="p-3 font-mono text-xs text-accent">
                 MCP_ERP_URL
               </td>
-              <td className="p-3 text-text-muted">ERP MCP server URL</td>
+              <td className="p-3 text-text-muted">Factory Simulator MCP URL (ERP tools)</td>
               <td className="p-3 text-text-dim text-xs">
-                http://mcp-erp:8021
+                http://factory-sim:8020
               </td>
             </tr>
             <tr className="border-t border-border">
               <td className="p-3 font-mono text-xs text-accent">
-                MCP_WMS_URL
+                MCP_UNS_URL
               </td>
-              <td className="p-3 text-text-muted">WMS MCP server URL</td>
+              <td className="p-3 text-text-muted">UNS MQTT MCP server URL</td>
               <td className="p-3 text-text-dim text-xs">
-                http://mcp-wms:8022
+                http://mqtt-uns:8025
               </td>
             </tr>
             <tr className="border-t border-border">
               <td className="p-3 font-mono text-xs text-accent">
-                MCP_QMS_URL
+                MCP_KG_URL
               </td>
-              <td className="p-3 text-text-muted">QMS MCP server URL</td>
+              <td className="p-3 text-text-muted">Knowledge Graph MCP server URL</td>
               <td className="p-3 text-text-dim text-xs">
-                http://mcp-qms:8023
-              </td>
-            </tr>
-            <tr className="border-t border-border">
-              <td className="p-3 font-mono text-xs text-accent">
-                MCP_MFG_URL
-              </td>
-              <td className="p-3 text-text-muted">
-                Manufacturing MCP server URL
-              </td>
-              <td className="p-3 text-text-dim text-xs">
-                http://mcp-fertigung:8024
+                http://kg-server:8035
               </td>
             </tr>
             <tr className="border-t border-border">
@@ -188,30 +177,23 @@ services:
       - "3001:3001"
     env_file: .env
     depends_on:
-      - mcp-erp
-      - mcp-fertigung
-      - mcp-qms
-      - mcp-wms
+      - factory-sim
+      - mqtt-uns
 
-  mcp-erp:
-    image: ghcr.io/zeroguess/mcp-erp:latest
+  factory-sim:
+    image: ghcr.io/zeroguess/factory-sim:latest
     ports:
-      - "8021:8021"
+      - "8020:8020"
 
-  mcp-wms:
-    image: ghcr.io/zeroguess/mcp-wms:latest
+  mqtt-uns:
+    image: ghcr.io/zeroguess/mqtt-uns:latest
     ports:
-      - "8022:8022"
+      - "8025:8025"
 
-  mcp-qms:
-    image: ghcr.io/zeroguess/mcp-qms:latest
+  kg-server:
+    image: ghcr.io/zeroguess/kg-server:latest
     ports:
-      - "8023:8023"
-
-  mcp-fertigung:
-    image: ghcr.io/zeroguess/mcp-fertigung:latest
-    ports:
-      - "8024:8024"`}</Code>
+      - "8035:8035"`}</Code>
         <WikiCallout type="info">
           You&apos;ll also need an LLM server. Use any OpenAI-compatible endpoint
           (vLLM, text-generation-inference, Ollama, or a cloud API).

@@ -25,16 +25,16 @@ export function ArchitectureContent() {
           <div className="text-text-dim">{"    ├── Node-RED Editor (embedded)"}</div>
           <div className="text-text-dim">{"    ▼"}</div>
           <div>
-            <span className="text-orange-400">MCP Servers</span> (4 domains)
+            <span className="text-orange-400">MCP Servers</span> (7 domains)
           </div>
           <div className="text-text-dim">{"    │"}</div>
-          <div className="text-text-dim">{"    ├── ERP    (port 8021)"}</div>
-          <div className="text-text-dim">{"    ├── WMS    (port 8022)"}</div>
-          <div className="text-text-dim">{"    ├── QMS    (port 8023)"}</div>
-          <div className="text-text-dim">{"    ├── MFG    (port 8024)"}</div>
+          <div className="text-text-dim">{"    ├── Factory (port 8020) — ERP, OEE, MRP, Capacity, TMS, SGM, Assembly, Energy"}</div>
+          <div className="text-text-dim">{"    ├── UNS     (port 8025) — Live MQTT machine data"}</div>
+          <div className="text-text-dim">{"    ├── KG      (port 8035) — Knowledge Graph, semantic search, charts"}</div>
+          <div className="text-text-dim">{"    ├── History  (port 8030) — Time-series analytics"}</div>
           <div className="text-text-dim">{"    ▼"}</div>
           <div>
-            <span className="text-purple-400">Factory Simulation</span> (SQLite databases)
+            <span className="text-purple-400">Factory Simulation</span> (PostgreSQL databases)
           </div>
         </div>
       </WikiSection>
@@ -107,36 +107,38 @@ export function ArchitectureContent() {
 
       <WikiSection title="MCP Servers">
         <p>
-          Four MCP servers expose the factory simulation data via the Model Context
-          Protocol. Each server owns a specific domain:
+          Multiple MCP servers expose factory data via the Model Context Protocol:
         </p>
         <div className="mt-3 space-y-3">
           <div className="p-3 rounded border border-border bg-bg-surface-2">
-            <code className="text-accent text-xs font-mono">mcp-erp:8021</code>
+            <code className="text-accent text-xs font-mono">factory-sim:8020</code>
             <p className="mt-1">
-              Enterprise Resource Planning &mdash; production orders, customer data,
-              delivery schedules, material management, BOM
+              Factory Simulator &mdash; ERP, OEE, capacity, MRP, maintenance, energy,
+              stock, purchasing, subcontracting, TMS, SGM (injection molding), assembly,
+              pre-assembly, and test field. Prefix: <code>factory_</code>, <code>tms_</code>,
+              <code>sgm_</code>, <code>montage_</code>
             </p>
           </div>
           <div className="p-3 rounded border border-border bg-bg-surface-2">
-            <code className="text-accent text-xs font-mono">mcp-wms:8022</code>
+            <code className="text-accent text-xs font-mono">mqtt-uns:8025</code>
             <p className="mt-1">
-              Warehouse Management &mdash; inventory levels, stock movements,
-              storage locations, material reservations
+              UNS (Unified Namespace) &mdash; live machine data via MQTT, topic search,
+              alerts, cross-machine comparisons. Prefix: <code>uns_</code>
             </p>
           </div>
           <div className="p-3 rounded border border-border bg-bg-surface-2">
-            <code className="text-accent text-xs font-mono">mcp-qms:8023</code>
+            <code className="text-accent text-xs font-mono">kg-server:8035</code>
             <p className="mt-1">
-              Quality Management &mdash; defect reports, quality metrics, audit data,
-              inspection results
+              Knowledge Graph &mdash; Neo4j graph queries, impact analysis, semantic
+              search (vector embeddings), chart generation, delivery snapshots.
+              Prefix: <code>kg_</code>
             </p>
           </div>
           <div className="p-3 rounded border border-border bg-bg-surface-2">
-            <code className="text-accent text-xs font-mono">mcp-fertigung:8024</code>
+            <code className="text-accent text-xs font-mono">historian:8030</code>
             <p className="mt-1">
-              Manufacturing &mdash; machine status, OEE metrics, production history,
-              capacity overview, tool management
+              Time-series analytics &mdash; trends, comparisons, aggregations,
+              anomaly detection. Prefix: <code>history_</code>
             </p>
           </div>
         </div>
@@ -145,7 +147,7 @@ export function ArchitectureContent() {
           <Link href="/docs#tools" className="text-accent hover:underline">
             MCP Tools Reference
           </Link>{" "}
-          for a complete list of all 91 tools with parameters.
+          for a complete list of all 118 tools with parameters.
         </WikiCallout>
       </WikiSection>
 
@@ -174,7 +176,7 @@ export function ArchitectureContent() {
           </li>
         </ul>
         <p>
-          Data is stored in SQLite databases and updated by simulation routines. The
+          Data is stored in PostgreSQL databases and updated by simulation routines. The
           simulation runs continuously, generating realistic production events,
           machine states, quality data, and order progress.
         </p>

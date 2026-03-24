@@ -216,7 +216,7 @@ export function ChatWindow({ sessionId, onSessionCreated }: ChatWindowProps) {
             </h1>
             <p className="text-base text-text-muted max-w-[500px] mb-10">
               Chat with a real factory. Query live production data, analyze OEE,
-              manage orders, and optimize operations with 111 MCP tools.
+              manage orders, and optimize operations with 118 MCP tools.
             </p>
 
             {/* Quick actions */}
