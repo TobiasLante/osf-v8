@@ -129,7 +129,7 @@ const BUILT_IN_AGENTS: AgentDef[] = [
   {
     id: 'delivery-quick',
     name: 'Delivery Quick Check',
-    type: 'operational',
+    type: 'strategic',
     category: 'Delivery',
     description: 'Schneller Lieferfaehigkeits-Check — gleiche 4 Spezialisten wie Full Check, aber ohne Moderator-Diskussion. Report in 2 Minuten statt 10.',
     systemPrompt: loadAgentPrompt('delivery-check'),
