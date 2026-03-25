@@ -94,18 +94,18 @@ export function edgeCypher(
 
 export interface BulkNode {
   label: string;
-  id: string;
+  id: string | number;
   idProp?: string; // Neo4j property to MERGE on (default: 'id')
   props: Record<string, any>;
 }
 
 export interface BulkEdge {
   fromLabel: string;
-  fromId: string;
+  fromId: string | number;
   fromIdProp?: string;
   edgeLabel: string;
   toLabels: string[];  // All labels that have the target idProp (resolved from profiles)
-  toId: string;
+  toId: string | number;
   toIdProp: string;    // Neo4j property to match target on
   props?: Record<string, any>;
 }
@@ -118,10 +118,11 @@ export async function bulkMergeNodes(nodes: BulkNode[]): Promise<{ success: numb
   if (nodes.length === 0) return { success: 0, failed: 0 };
 
   // Group by label+idProp (nodes of the same label always share the same idProp)
-  const byLabel = new Map<string, { idProp: string; items: Array<{ id: string; props: Record<string, any> }> }>();
+  const byLabel = new Map<string, { idProp: string; items: Array<{ id: string | number; props: Record<string, any> }> }>();
   for (const n of nodes) {
     const idProp = n.idProp || 'id';
     const entry = byLabel.get(n.label) || { idProp, items: [] };
+    // Preserve original type (string or number) so MERGE and later edge MATCH use the same type
     entry.items.push({ id: n.id, props: { [idProp]: n.id, ...n.props } });
     byLabel.set(n.label, entry);
   }
@@ -166,7 +167,7 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
 
   // Group by (fromLabel, edgeLabel, toLabels-key, fromIdProp, toIdProp)
   const key = (e: BulkEdge) => `${e.fromLabel}|${e.edgeLabel}|${e.toLabels.sort().join(',')}|${e.fromIdProp || 'id'}|${e.toIdProp}`;
-  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabels: string[]; fromIdProp: string; toIdProp: string; pairs: Array<{ fromId: string; toId: string; props?: Record<string, any> }> }>();
+  const byType = new Map<string, { fromLabel: string; edgeLabel: string; toLabels: string[]; fromIdProp: string; toIdProp: string; pairs: Array<{ fromId: string | number; toId: string | number; props?: Record<string, any> }> }>();
   for (const e of edges) {
     const k = key(e);
     if (!byType.has(k)) byType.set(k, { fromLabel: e.fromLabel, edgeLabel: e.edgeLabel, toLabels: e.toLabels, fromIdProp: e.fromIdProp || 'id', toIdProp: e.toIdProp, pairs: [] });

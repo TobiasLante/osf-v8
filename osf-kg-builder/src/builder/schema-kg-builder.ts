@@ -375,8 +375,10 @@ async function loadPgSource(
 
     for (const row of result.rows) {
       const idColKey = colAliases.get(idCol.column) || idCol.column;
-      const id = String(row[idColKey] || '');
-      if (!id) continue;
+      const rawId = row[idColKey];
+      if (rawId === null || rawId === undefined || rawId === '') continue;
+      // Preserve original type (string or number) — Neo4j must store the same type for MATCH to work
+      const id: string | number = typeof rawId === 'number' ? rawId : String(rawId);
 
       const props: Record<string, any> = {};
       for (const cm of src.columnMappings!) {
@@ -394,16 +396,18 @@ async function loadPgSource(
       if (src.edges) {
         for (const edge of src.edges) {
           const fkValue = row[edge.fkColumn];
-          if (!fkValue) continue;
+          if (fkValue === null || fkValue === undefined || fkValue === '') continue;
           const targetIdProp = edge.targetIdProp || 'id';
           const toLabels = idPropToLabels?.get(targetIdProp) || [];
           if (toLabels.length === 0) continue; // No profile with this idProp
+          // Preserve original type — must match the type stored on the target node
+          const toId: string | number = typeof fkValue === 'number' ? fkValue : String(fkValue);
           edges.push({
             fromLabel: profile.kgNodeLabel, fromId: id,
             fromIdProp: profile.kgIdProperty,
             edgeLabel: edge.type,
             toLabels,
-            toId: String(fkValue),
+            toId,
             toIdProp: targetIdProp,
           });
         }
@@ -848,9 +852,12 @@ export async function buildInstancesFromMcp(
       const seen = new Set<string>();
 
       for (const row of rows) {
-        const id = String(row[idProp] || '');
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
+        const rawId = row[idProp];
+        if (rawId === null || rawId === undefined || rawId === '') continue;
+        const id: string | number = typeof rawId === 'number' ? rawId : String(rawId);
+        const idKey = String(id);
+        if (seen.has(idKey)) continue;
+        seen.add(idKey);
 
         const props: Record<string, any> = {};
         if (src.columnMappings) {
@@ -872,16 +879,17 @@ export async function buildInstancesFromMcp(
         if (src.edges) {
           for (const edge of src.edges) {
             const fkValue = row[edge.fkColumn];
-            if (!fkValue) continue;
+            if (fkValue === null || fkValue === undefined || fkValue === '') continue;
             const targetIdProp = edge.targetIdProp || 'id';
             const toLabels = idPropToLabels.get(targetIdProp) || [];
             if (toLabels.length === 0) continue;
+            const toId: string | number = typeof fkValue === 'number' ? fkValue : String(fkValue);
             allEdges.push({
               fromLabel: profile.kgNodeLabel, fromId: id,
               fromIdProp: profile.kgIdProperty,
               edgeLabel: edge.type,
               toLabels,
-              toId: String(fkValue),
+              toId,
               toIdProp: targetIdProp,
               props: currentRunTimestamp ? { _lastSeen: currentRunTimestamp } : undefined,
             });
