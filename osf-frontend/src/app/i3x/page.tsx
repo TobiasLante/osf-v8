@@ -51,9 +51,40 @@ export default function I3xPage() {
   const [tab, setTab] = useState<"overview" | "graph" | "api">("overview");
   const graphRef = useRef<any>(null);
 
+  // Load types + build overview graph on mount
   useEffect(() => {
-    apiFetch<I3xObjectType[]>("/objecttypes").then(setTypes).catch(e => setError(e.message)).finally(() => setLoading(false));
+    apiFetch<I3xObjectType[]>("/objecttypes")
+      .then(t => {
+        setTypes(t);
+        buildOverviewGraph(t);
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
+
+  // Overview graph: each type = node, relationship types = edges
+  async function buildOverviewGraph(typeList: I3xObjectType[]) {
+    const nodes: GraphNode[] = typeList.map(t => {
+      const name = t.elementId.replace("type:", "");
+      return { id: name, name: t.displayName, type: name, color: getColor(name), val: t.parentTypeId ? 4 : 8 };
+    });
+    // Add parent→child links from type hierarchy
+    const links: GraphLink[] = [];
+    for (const t of typeList) {
+      if (t.parentTypeId) {
+        const parent = t.parentTypeId.replace("type:", "");
+        const child = t.elementId.replace("type:", "");
+        links.push({ source: parent, target: child, label: "PARENT_OF" });
+      }
+    }
+    // Fetch relationship types and add as edges between type nodes
+    try {
+      const rels = await apiFetch<any[]>("/relationshiptypes");
+      // We don't know which types are connected — skip for now, hierarchy is enough
+    } catch {}
+    setGraphData({ nodes, links });
+    setTimeout(() => { graphRef.current?.zoomToFit(400, 60); }, 500);
+  }
 
   useEffect(() => {
     if (!selectedType) return;
@@ -67,7 +98,11 @@ export default function I3xPage() {
   }, [selectedObject]);
 
   const buildGraph = useCallback(async () => {
-    if (objects.length === 0) return;
+    if (objects.length === 0) {
+      // No type selected — show overview if we have types
+      if (types.length > 0 && !selectedType) buildOverviewGraph(types);
+      return;
+    }
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
     const seen = new Set<string>();
@@ -347,7 +382,7 @@ export default function I3xPage() {
                   />
                 ) : (
                   <div className="h-full flex items-center justify-center text-text-dim text-sm">
-                    {loading ? "Loading types..." : selectedType ? "Loading objects..." : "Select a type to explore the Knowledge Graph"}
+                    {loading ? "Loading types..." : selectedType ? "Loading objects..." : "Loading type overview..."}
                   </div>
                 )}
               </div>
