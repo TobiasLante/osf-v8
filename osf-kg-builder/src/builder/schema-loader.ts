@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { SMProfile, SourceSchema, SyncSchema } from '../shared/schema-types';
+import { SMProfile, SourceSchema, SyncSchema, KPISchema } from '../shared/schema-types';
 import { logger } from '../shared/logger';
 
 // ── Load all schemas from a synced repo directory ────────────────
@@ -67,6 +67,15 @@ function inheritFromParent(profiles: SMProfile[]): void {
       inheritedRels = inheritedRelsArr.length;
     }
 
+    // Merge kpiRefs: combine parent + child (deduplicated)
+    if (parent.kpiRefs && parent.kpiRefs.length > 0) {
+      const childKpis = new Set(profile.kpiRefs || []);
+      const inheritedKpis = parent.kpiRefs.filter(k => !childKpis.has(k));
+      if (inheritedKpis.length > 0) {
+        profile.kpiRefs = [...inheritedKpis, ...(profile.kpiRefs || [])];
+      }
+    }
+
     if (inheritedAttrs > 0 || inheritedRels > 0) {
       logger.info(
         { child: profile.profileId, parent: parent.profileId, inheritedAttrs, inheritedRels },
@@ -117,6 +126,11 @@ export function loadAllSyncs(basePath: string): SyncSchema[] {
     if (!s.syncId && s.mappingId) s.syncId = s.mappingId;
     return s as SyncSchema;
   }).filter((s): s is SyncSchema => s !== null);
+}
+
+export function loadAllKpis(basePath: string): KPISchema[] {
+  const kpiDir = join(basePath, 'kpis');
+  return loadJsonDirRecursive<KPISchema>(kpiDir);
 }
 
 // Backward-compat aliases
@@ -179,6 +193,7 @@ export function validateSchemaRefs(
   profiles: SMProfile[],
   sources: SourceSchema[],
   syncs: SyncSchema[],
+  kpis?: KPISchema[],
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const profileIds = new Set(profiles.map(p => p.profileId));
@@ -251,6 +266,24 @@ export function validateSchemaRefs(
     }
   }
 
+  // Validate kpiRefs on profiles reference valid KPI IDs
+  if (kpis && kpis.length > 0) {
+    const kpiIds = new Set(kpis.map(k => k.kpiId));
+    for (const p of profiles) {
+      if (p.kpiRefs) {
+        for (const ref of p.kpiRefs) {
+          if (!kpiIds.has(ref)) {
+            errors.push({
+              file: `profiles/${p.profileId}`,
+              field: 'kpiRefs',
+              message: `KPI "${ref}" not found. Available: ${[...kpiIds].join(', ')}`,
+            });
+          }
+        }
+      }
+    }
+  }
+
   if (errors.length > 0) {
     logger.warn({ errorCount: errors.length }, '[SchemaLoader] Schema validation errors found');
     for (const e of errors) {
@@ -258,7 +291,7 @@ export function validateSchemaRefs(
     }
   } else {
     logger.info(
-      { profiles: profiles.length, sources: sources.length, syncs: syncs.length },
+      { profiles: profiles.length, sources: sources.length, syncs: syncs.length, kpis: kpis?.length || 0 },
       '[SchemaLoader] All schema cross-references valid',
     );
   }

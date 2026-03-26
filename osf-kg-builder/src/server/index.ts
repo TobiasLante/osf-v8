@@ -9,7 +9,7 @@ import { createRouter, setSchemaSync } from './routes';
 import { loadDomainTools } from './kg-tools';
 import { registerWithGateway, deregisterFromGateway } from './register-mcp';
 import { SchemaSync } from '../builder/schema-sync';
-import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
+import { loadAllProfiles, loadAllSources, loadAllSyncs, loadAllKpis, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas, stopLiveUpdates } from '../builder/schema-kg-builder';
 
 /**
@@ -52,19 +52,20 @@ async function main() {
       const profiles = loadAllProfiles(basePath);
       const sources = loadAllSources(basePath);
       const syncs = loadAllSyncs(basePath);
+      const kpis = loadAllKpis(basePath);
 
       if (profiles.length === 0) {
         logger.warn('[SchemaSync] No profiles found — skipping build');
         return;
       }
 
-      const errors = validateSchemaRefs(profiles, sources, syncs);
+      const errors = validateSchemaRefs(profiles, sources, syncs, kpis);
       if (errors.length > 0) {
         logger.warn({ errorCount: errors.length }, '[SchemaSync] Schema validation errors — skipping build');
         return;
       }
 
-      await buildFromSchemas(profiles, sources, syncs);
+      await buildFromSchemas(profiles, sources, syncs, kpis);
     } catch (err) {
       logger.error({ err: (err as Error).message }, '[SchemaSync] Auto-rebuild failed');
     }

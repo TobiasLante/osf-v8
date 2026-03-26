@@ -1,6 +1,6 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { Pool } from 'pg';
-import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef } from '../shared/schema-types';
+import { SMProfile, SourceSchema, SyncSchema, SchemaBuildReport, PollSourceRef, KPISchema } from '../shared/schema-types';
 import { vertexCypher, edgeCypher, batchCypher, executeBatched, escapeValue, escapeId, getDriver, validateLabel, BulkNode, BulkEdge, executeBulkNodes, executeBulkEdges, cypherQuery } from '../shared/cypher-utils';
 import { generateEmbeddings, nodeToText } from '../shared/embedding-service';
 import { sampleMcpTool } from './tool-discovery';
@@ -954,12 +954,86 @@ async function tombstoneSweep(runTimestamp: string, labels: Set<string>): Promis
   return totalDeleted;
 }
 
+// ── Phase 7: KPI Calculation ────────────────────────────────────
+
+async function buildKpiNodes(
+  kpis: KPISchema[],
+  profiles: SMProfile[],
+): Promise<{ kpiNodes: number; kpiEdges: number }> {
+  let totalNodes = 0;
+  let totalEdges = 0;
+
+  for (const kpi of kpis) {
+    // Find labels this KPI applies to (via appliesTo or profile kpiRefs)
+    const targetLabels = new Set<string>();
+    for (const p of profiles) {
+      if (p.abstract) continue;
+      // Profile references this KPI
+      if (p.kpiRefs?.includes(kpi.kpiId)) {
+        targetLabels.add(p.kgNodeLabel);
+      }
+      // KPI targets this profile
+      if (kpi.appliesTo.includes(p.profileId) || kpi.appliesTo.includes(p.kgNodeLabel)) {
+        targetLabels.add(p.kgNodeLabel);
+      }
+    }
+
+    if (targetLabels.size === 0) continue;
+
+    for (const label of targetLabels) {
+      try {
+        validateLabel(label);
+        const idProp = profiles.find(p => p.kgNodeLabel === label)?.kgIdProperty || 'id';
+
+        // Sanitize KPI fields for Cypher (no user input, all from trusted schema files)
+        const kpiId = kpi.kpiId.replace(/[^a-zA-Z0-9_-]/g, '');
+        const displayName = kpi.displayName.replace(/'/g, "\\'");
+        const unit = kpi.unit.replace(/'/g, "\\'");
+        const category = kpi.category.replace(/'/g, "\\'");
+
+        const result = await cypherQuery(`
+          MATCH (m:${label}) WHERE m.${idProp} IS NOT NULL
+          WITH m, (${kpi.calculation.cypher}) AS kpi_value
+          WHERE kpi_value IS NOT NULL
+          MERGE (k:KPI {id: m.${idProp} + '/${kpiId}'})
+          SET k.kpi_type = '${kpiId}',
+              k.name = '${displayName}',
+              k.value = kpi_value,
+              k.unit = '${unit}',
+              k.category = '${category}',
+              k.target = ${kpi.thresholds?.target ?? 'null'},
+              k.warning = ${kpi.thresholds?.warning ?? 'null'},
+              k.critical = ${kpi.thresholds?.critical ?? 'null'},
+              k.machine_id = m.${idProp},
+              k.last_calculated = datetime()
+          MERGE (m)-[:HAS_KPI]->(k)
+          RETURN count(k) AS cnt
+        `);
+
+        const cnt = result[0]?.cnt || result[0] || 0;
+        const count = typeof cnt === 'number' ? cnt : 0;
+        totalNodes += count;
+        totalEdges += count;
+
+        if (count > 0) {
+          logger.info({ kpiId: kpi.kpiId, label, count }, '[SchemaBuild] KPI nodes created');
+        }
+      } catch (err) {
+        logger.warn({ kpiId: kpi.kpiId, label, err: (err as Error).message }, '[SchemaBuild] KPI calculation failed for label');
+      }
+    }
+  }
+
+  return { kpiNodes: totalNodes, kpiEdges: totalEdges };
+}
+
 // ── Main Build Orchestrator ─────────────────────────────────────
 
 export async function buildFromSchemas(
   profiles: SMProfile[],
   sources: SourceSchema[],
   syncs: SyncSchema[],
+  kpis?: KPISchema[],
 ): Promise<SchemaBuildReport> {
   const start = Date.now();
   const errors: string[] = [];
@@ -1166,13 +1240,29 @@ export async function buildFromSchemas(
     logger.warn({ err: (err as Error).message }, '[SchemaBuild] Sensor node creation skipped');
   }
 
+  // Phase 7: Calculate KPIs from node properties
+  let kpisCalculated = 0;
+  if (kpis && kpis.length > 0) {
+    try {
+      const result = await buildKpiNodes(kpis, profiles);
+      kpisCalculated = result.kpiNodes;
+      nodesMerged += result.kpiNodes;
+      edgesCreated += result.kpiEdges;
+      logger.info({ kpiNodes: result.kpiNodes, kpiEdges: result.kpiEdges }, '[SchemaBuild] Phase 7: KPI nodes created');
+    } catch (err) {
+      errors.push(`Phase 7 (KPI): ${(err as Error).message}`);
+    }
+  }
+
   const report: SchemaBuildReport = {
     profiles: profiles.length,
     sources: { opcua: opcuaSources.length, postgresql: pgSources.length, rest: 0, mcp: mcpSources.length },
     syncs: { mqtt: mqttSubscriptions, polling: pollingJobs, kafka: kafkaSyncs.length, webhook: webhookSyncs.length, manual: manualSyncs.length },
+    kpis: kpis?.length || 0,
     constraintsCreated,
     nodesMerged,
     edgesCreated,
+    kpisCalculated,
     mqttSubscriptions,
     pollingJobs,
     errors,

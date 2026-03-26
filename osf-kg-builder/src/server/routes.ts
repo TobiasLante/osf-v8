@@ -14,7 +14,7 @@ import { deterministicExtract } from '../builder/deterministic-extractor';
 import { executeRelationshipBuilding } from '../builder/relationship-builder';
 import { runValidation, formatValidationReport } from '../builder/validator';
 import { saveSchemaRun } from '../builder/schema-planner';
-import { loadAllProfiles, loadAllSources, loadAllSyncs, validateSchemaRefs } from '../builder/schema-loader';
+import { loadAllProfiles, loadAllSources, loadAllSyncs, loadAllKpis, validateSchemaRefs } from '../builder/schema-loader';
 import { buildFromSchemas } from '../builder/schema-kg-builder';
 import { SchemaSync } from '../builder/schema-sync';
 
@@ -392,12 +392,13 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
       const profiles = loadAllProfiles(basePath);
       const sources = loadAllSources(basePath);
       const syncs = loadAllSyncs(basePath);
+      const kpis = loadAllKpis(basePath);
 
       if (profiles.length === 0) {
         throw new Error('No profiles found in schema repo. Check osf-schemas repository.');
       }
 
-      const validationErrors = validateSchemaRefs(profiles, sources, syncs);
+      const validationErrors = validateSchemaRefs(profiles, sources, syncs, kpis);
       if (validationErrors.length > 0) {
         emitSSE(res, { type: 'progress', phase: 1, step: `${validationErrors.length} validation warnings` });
         for (const err of validationErrors) {
@@ -405,12 +406,12 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
         }
       }
 
-      emitSSE(res, { type: 'progress', phase: 1, step: `${profiles.length} profiles, ${sources.length} sources, ${syncs.length} syncs` });
+      emitSSE(res, { type: 'progress', phase: 1, step: `${profiles.length} profiles, ${sources.length} sources, ${syncs.length} syncs, ${kpis.length} KPIs` });
 
       // Phase 2: Build type system + instances
       emitSSE(res, { type: 'progress', phase: 2, step: 'Building type system and extracting instances...' });
 
-      const report = await buildFromSchemas(profiles, sources, syncs);
+      const report = await buildFromSchemas(profiles, sources, syncs, kpis);
 
       emitSSE(res, { type: 'progress', phase: 2, step: `${report.nodesMerged} nodes, ${report.edgesCreated} edges` });
 

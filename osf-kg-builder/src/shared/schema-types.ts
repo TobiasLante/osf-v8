@@ -11,6 +11,7 @@ export interface SMProfile {
   description?: string;
   parentType: string | null;
   abstract?: boolean;          // Abstract parent profiles — no direct instances, skip index creation
+  kpiRefs?: string[];          // KPI profile IDs that apply to this type (inherited from parent)
   attributes: SMProfileAttribute[];
   relationships: SMProfileRelationship[];
   kgNodeLabel: string;
@@ -178,15 +179,38 @@ export interface UnsAttributeMapping {
   smAttribute: string;
 }
 
+// ── KPI Schema (kpis/ directory) ────────────────────────────────
+
+export interface KPISchema {
+  kpiId: string;                // "KPI-OEE"
+  version: string;
+  displayName: string;          // "Overall Equipment Effectiveness"
+  description?: string;
+  unit: string;                 // "%", "hours", "kWh"
+  category: 'efficiency' | 'quality' | 'maintenance' | 'energy' | 'cost';
+  calculation: {
+    inputs: string[];           // SM attribute names needed for calculation
+    cypher: string;             // Cypher expression computing value from node alias `m`
+  };
+  thresholds?: {
+    target?: number;
+    warning?: number;
+    critical?: number;
+  };
+  appliesTo: string[];          // Profile IDs or kgNodeLabels this KPI targets
+}
+
 // ── Schema Build Report ─────────────────────────────────────────
 
 export interface SchemaBuildReport {
   profiles: number;
   sources: { opcua: number; postgresql: number; rest: number; mcp: number };
   syncs: { mqtt: number; polling: number; kafka: number; webhook: number; manual: number };
+  kpis: number;
   constraintsCreated: number;
   nodesMerged: number;
   edgesCreated: number;
+  kpisCalculated: number;
   mqttSubscriptions: number;
   pollingJobs: number;
   errors: string[];

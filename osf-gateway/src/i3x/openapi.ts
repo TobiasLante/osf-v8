@@ -120,6 +120,23 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         },
       },
     },
+    '/objects/{id}/kpis': {
+      get: {
+        tags: ['Objects'],
+        summary: 'KPI values for an object',
+        description: 'Returns all calculated KPIs (OEE, Quality Rate, Energy/Part, etc.) for the given object. KPIs are calculated by the KG Builder from live machine data.',
+        ...auth,
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Object elementId', example: 'SGM-004' },
+        ],
+        responses: {
+          '200': {
+            description: 'Array of KPI values',
+            content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/KPI' } } } },
+          },
+        },
+      },
+    },
     '/objects/related': {
       post: {
         tags: ['Graph'],
@@ -286,6 +303,23 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
               Temp_Melting: 234.5,
             },
           },
+        },
+      },
+      KPI: {
+        type: 'object',
+        required: ['kpiId', 'name', 'value', 'unit'],
+        description: 'A calculated KPI value for a machine or entity. Computed by the KG Builder from live data.',
+        properties: {
+          kpiId: { type: 'string', example: 'KPI-OEE' },
+          name: { type: 'string', example: 'Overall Equipment Effectiveness' },
+          value: { type: 'number', example: 87.3 },
+          unit: { type: 'string', example: '%' },
+          category: { type: 'string', enum: ['efficiency', 'quality', 'maintenance', 'energy', 'cost'] },
+          target: { type: 'number', example: 85, description: 'Target value (green)' },
+          warning: { type: 'number', example: 75, description: 'Warning threshold (yellow)' },
+          critical: { type: 'number', example: 60, description: 'Critical threshold (red)' },
+          lastCalculated: { type: 'string', format: 'date-time' },
+          status: { type: 'string', enum: ['good', 'warning', 'critical'], description: 'Derived from value vs thresholds' },
         },
       },
     },

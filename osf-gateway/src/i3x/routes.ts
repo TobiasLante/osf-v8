@@ -63,15 +63,57 @@ router.get('/docs', (_req: Request, res: Response) => {
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>OSF i3X API — Swagger UI</title>
+  <title>OSF i3X API</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"/>
   <style>
-    body { margin: 0; background: #1a1a2e; }
+    body { margin: 0; background: #0a0a0f; font-family: -apple-system, system-ui, sans-serif; }
+    /* Hide default topbar */
     .swagger-ui .topbar { display: none; }
-    .swagger-ui .info .title { color: #e94560; }
+    /* OSF branded header */
+    .osf-header {
+      background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+      border-bottom: 1px solid rgba(255,149,0,0.2);
+      padding: 16px 24px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .osf-logo { width: 32px; height: 32px; border-radius: 4px; background: linear-gradient(135deg, #ff9500, #ff6b00); display: flex; align-items: center; justify-content: center; color: #0a0a0f; font-weight: 800; font-size: 14px; }
+    .osf-title { color: #fff; font-size: 18px; font-weight: 600; }
+    .osf-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(255,149,0,0.15); color: #ff9500; border: 1px solid rgba(255,149,0,0.3); letter-spacing: 0.5px; }
+    /* Dark theme overrides */
+    .swagger-ui { background: #0a0a0f; }
+    .swagger-ui .info .title { color: #ff9500; }
+    .swagger-ui .info { margin: 20px 0; }
+    .swagger-ui .scheme-container { background: #0f0f1a; box-shadow: none; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .swagger-ui .opblock-tag { color: #e0e0e0; border-bottom-color: rgba(255,255,255,0.08); }
+    .swagger-ui .opblock .opblock-summary { border-color: rgba(255,255,255,0.08); }
+    .swagger-ui .opblock .opblock-summary-description { color: #999; }
+    .swagger-ui .opblock.opblock-get { background: rgba(97,175,254,0.05); border-color: rgba(97,175,254,0.3); }
+    .swagger-ui .opblock.opblock-post { background: rgba(73,204,144,0.05); border-color: rgba(73,204,144,0.3); }
+    .swagger-ui .opblock-body { background: #0a0a0f; }
+    .swagger-ui table thead tr td, .swagger-ui table thead tr th { color: #ccc; border-bottom-color: rgba(255,255,255,0.1); }
+    .swagger-ui .model-title { color: #ff9500; }
+    .swagger-ui .model { color: #ccc; }
+    .swagger-ui .prop-type { color: #ff9500; }
+    .swagger-ui .parameter__name { color: #e0e0e0; }
+    .swagger-ui .parameter__type { color: #999; }
+    .swagger-ui .response-col_status { color: #ff9500; }
+    .swagger-ui .responses-inner { background: #0f0f1a; }
+    .swagger-ui select { background: #1a1a2e; color: #e0e0e0; border-color: rgba(255,255,255,0.15); }
+    .swagger-ui input[type=text] { background: #1a1a2e; color: #e0e0e0; border-color: rgba(255,255,255,0.15); }
+    .swagger-ui textarea { background: #1a1a2e; color: #e0e0e0; border-color: rgba(255,255,255,0.15); }
+    .swagger-ui .btn { border-color: rgba(255,255,255,0.15); }
+    .swagger-ui .btn.authorize { color: #ff9500; border-color: #ff9500; }
+    .swagger-ui .markdown p, .swagger-ui .markdown li { color: #bbb; }
+    .swagger-ui .info .description .markdown p { color: #999; }
+    .swagger-ui .info a { color: #ff9500; }
   </style>
 </head>
 <body>
+  <div class="osf-header">
+    <div class="osf-logo">OS</div>
+    <span class="osf-title">OpenShopFloor i3X API</span>
+    <span class="osf-badge">CESMII SM Profile Compatible</span>
+  </div>
   <div id="swagger-ui"></div>
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script>
@@ -79,8 +121,11 @@ router.get('/docs', (_req: Request, res: Response) => {
       url: './openapi.json',
       dom_id: '#swagger-ui',
       deepLinking: true,
+      persistAuthorization: true,
       presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
       layout: 'BaseLayout',
+      defaultModelsExpandDepth: 2,
+      docExpansion: 'list',
     });
   </script>
 </body>
@@ -397,6 +442,49 @@ router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) =
   } catch (err: any) {
     logger.error({ err: err.message }, '[i3x] subscriptions query failed');
     res.status(500).json({ error: 'Failed to query subscriptions' });
+  }
+});
+
+// ── GET /objects/:id/kpis — KPI values for an object ────────────
+
+router.get('/objects/:id/kpis', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!id || id.length > 200) {
+      res.status(400).json({ error: 'Invalid object ID' });
+      return;
+    }
+    const safe = safeEscape(id);
+    const rows = await cypherQuery(`
+      MATCH (m)-[:HAS_KPI]->(k:KPI)
+      WHERE m.id = '${safe}' OR m.machine_id = '${safe}' OR m.order_no = '${safe}'
+      RETURN properties(k) AS props
+    `);
+
+    const kpis = rows.map((row: any) => {
+      const p = typeof row === 'object' && row !== null ? (row.props || row) : {};
+      return {
+        kpiId: p.kpi_type || p.id,
+        name: p.name,
+        value: p.value,
+        unit: p.unit,
+        category: p.category,
+        target: p.target,
+        warning: p.warning,
+        critical: p.critical,
+        lastCalculated: p.last_calculated,
+        status: p.value != null && p.critical != null && p.warning != null
+          ? p.value >= (p.target || Infinity) ? 'good'
+            : p.value >= p.warning ? 'warning'
+            : 'critical'
+          : undefined,
+      };
+    });
+
+    res.json(kpis);
+  } catch (err: any) {
+    logger.error({ err: err.message }, '[i3x] kpis query failed');
+    res.status(500).json({ error: 'Failed to query KPIs' });
   }
 });
 
