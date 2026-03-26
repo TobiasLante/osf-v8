@@ -966,6 +966,9 @@ export async function buildFromSchemas(
   const mcpSources = sources.filter(s => s.sourceType === 'mcp');
   const mqttSyncs = syncs.filter(s => s.syncType === 'mqtt');
   const pollSyncs = syncs.filter(s => s.syncType === 'polling');
+  const kafkaSyncs = syncs.filter(s => s.syncType === 'kafka');
+  const webhookSyncs = syncs.filter(s => s.syncType === 'rest-webhook');
+  const manualSyncs = syncs.filter(s => s.syncType === 'manual');
 
   logger.info({
     profiles: profiles.length,
@@ -974,6 +977,9 @@ export async function buildFromSchemas(
     mcp: mcpSources.length,
     mqtt: mqttSyncs.length,
     polling: pollSyncs.length,
+    kafka: kafkaSyncs.length,
+    webhook: webhookSyncs.length,
+    manual: manualSyncs.length,
   }, '[SchemaBuild] Starting schema-driven KG build...');
 
   // Phase 1: Type System
@@ -1043,6 +1049,31 @@ export async function buildFromSchemas(
     pgNotifyChannels = await startPgNotifySync(pgNotifySyncs, sources, profiles);
   } catch (err) {
     errors.push(`Phase 3c (PG Notify): ${(err as Error).message}`);
+  }
+
+  // Phase 3d: Kafka Sync (recognized, handler not yet implemented)
+  if (kafkaSyncs.length > 0) {
+    logger.info({ count: kafkaSyncs.length }, '[SchemaBuild] Kafka syncs registered (consumer not yet implemented — schema validated)');
+    for (const ks of kafkaSyncs) {
+      const topicCount = ks.kafka?.topics?.length || 0;
+      logger.info({ syncId: ks.syncId, topics: topicCount, bootstrapServers: ks.kafka?.bootstrapServers }, '[SchemaBuild] Kafka sync config loaded');
+    }
+  }
+
+  // Phase 3e: REST-Webhook Sync (recognized, handler not yet implemented)
+  if (webhookSyncs.length > 0) {
+    logger.info({ count: webhookSyncs.length }, '[SchemaBuild] REST-Webhook syncs registered (endpoint not yet implemented — schema validated)');
+    for (const ws of webhookSyncs) {
+      logger.info({ syncId: ws.syncId, path: ws.webhook?.webhookPath, profileRef: ws.webhook?.profileRef }, '[SchemaBuild] Webhook sync config loaded');
+    }
+  }
+
+  // Phase 3f: Manual Import Sync (recognized, handler not yet implemented)
+  if (manualSyncs.length > 0) {
+    logger.info({ count: manualSyncs.length }, '[SchemaBuild] Manual import syncs registered (trigger not yet implemented — schema validated)');
+    for (const ms of manualSyncs) {
+      logger.info({ syncId: ms.syncId, trigger: ms.manual?.trigger, format: ms.manual?.format }, '[SchemaBuild] Manual sync config loaded');
+    }
   }
 
   // Phase 4: Tombstone sweep — remove nodes not touched in this run
@@ -1120,7 +1151,7 @@ export async function buildFromSchemas(
   const report: SchemaBuildReport = {
     profiles: profiles.length,
     sources: { opcua: opcuaSources.length, postgresql: pgSources.length, rest: 0, mcp: mcpSources.length },
-    syncs: { mqtt: mqttSubscriptions, polling: pollingJobs },
+    syncs: { mqtt: mqttSubscriptions, polling: pollingJobs, kafka: kafkaSyncs.length, webhook: webhookSyncs.length, manual: manualSyncs.length },
     constraintsCreated,
     nodesMerged,
     edgesCreated,

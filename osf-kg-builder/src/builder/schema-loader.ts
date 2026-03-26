@@ -7,7 +7,53 @@ import { logger } from '../shared/logger';
 
 export function loadAllProfiles(basePath: string): SMProfile[] {
   const profileDir = join(basePath, 'profiles');
-  return loadJsonDirRecursive<SMProfile>(profileDir);
+  const profiles = loadJsonDirRecursive<SMProfile>(profileDir);
+  inheritAttributes(profiles);
+  return profiles;
+}
+
+/**
+ * Merge parent attributes into child profiles.
+ * Child attributes override parent attributes with the same name.
+ * Supports multi-level inheritance (grandparent → parent → child).
+ */
+function inheritAttributes(profiles: SMProfile[]): void {
+  const byId = new Map<string, SMProfile>();
+  const byLabel = new Map<string, SMProfile>();
+  for (const p of profiles) {
+    byId.set(p.profileId, p);
+    byLabel.set(p.kgNodeLabel, p);
+  }
+
+  // Track resolved profiles to handle multi-level inheritance + cycles
+  const resolved = new Set<string>();
+
+  function resolve(profile: SMProfile): void {
+    if (resolved.has(profile.profileId)) return;
+    resolved.add(profile.profileId); // Mark early to prevent cycles
+
+    const parentType = profile.parentType;
+    if (!parentType || parentType === 'null' || parentType === 'None') return;
+
+    const parent = byId.get(parentType) || byLabel.get(parentType);
+    if (!parent) return;
+
+    // Resolve parent first (multi-level)
+    resolve(parent);
+
+    // Merge: child attributes win on name collision
+    const childNames = new Set(profile.attributes.map(a => a.name));
+    const inherited = parent.attributes.filter(a => !childNames.has(a.name));
+    if (inherited.length > 0) {
+      profile.attributes = [...inherited, ...profile.attributes];
+      logger.info(
+        { child: profile.profileId, parent: parent.profileId, inherited: inherited.length },
+        '[SchemaLoader] Inherited attributes from parent',
+      );
+    }
+  }
+
+  for (const p of profiles) resolve(p);
 }
 
 export function loadAllSources(basePath: string): SourceSchema[] {
@@ -30,7 +76,21 @@ export function loadAllSources(basePath: string): SourceSchema[] {
 
 export function loadAllSyncs(basePath: string): SyncSchema[] {
   const syncDir = join(basePath, 'sync');
-  return loadJsonDirRecursive<SyncSchema>(syncDir);
+  const raw = loadJsonDirWithPaths(syncDir);
+  return raw.map(({ data, filePath }) => {
+    const s = data as any;
+    // Infer syncType from directory name if missing
+    if (!s.syncType) {
+      if (filePath.includes('/mqtt/')) s.syncType = 'mqtt';
+      else if (filePath.includes('/polling/')) s.syncType = 'polling';
+      else if (filePath.includes('/kafka/')) s.syncType = 'kafka';
+      else if (filePath.includes('/webhook/')) s.syncType = 'rest-webhook';
+      else if (filePath.includes('/manual/')) s.syncType = 'manual';
+    }
+    // Accept mappingId as fallback for syncId
+    if (!s.syncId && s.mappingId) s.syncId = s.mappingId;
+    return s as SyncSchema;
+  });
 }
 
 // Backward-compat aliases
@@ -126,6 +186,41 @@ export function validateSchemaRefs(
             message: `Source "${ref.sourceRef}" not found.`,
           });
         }
+      }
+    }
+
+    // Validate kafka topic profileRefs
+    if (sync.syncType === 'kafka' && sync.kafka?.topics) {
+      for (const topic of sync.kafka.topics) {
+        if (!profileIds.has(topic.profileRef)) {
+          errors.push({
+            file: `sync/kafka/${sync.syncId}`,
+            field: `kafka.topics[${topic.topic}].profileRef`,
+            message: `Profile "${topic.profileRef}" not found.`,
+          });
+        }
+      }
+    }
+
+    // Validate webhook profileRef
+    if (sync.syncType === 'rest-webhook' && sync.webhook?.profileRef) {
+      if (!profileIds.has(sync.webhook.profileRef)) {
+        errors.push({
+          file: `sync/webhook/${sync.syncId}`,
+          field: 'webhook.profileRef',
+          message: `Profile "${sync.webhook.profileRef}" not found.`,
+        });
+      }
+    }
+
+    // Validate manual profileRef
+    if (sync.syncType === 'manual' && sync.manual?.profileRef) {
+      if (!profileIds.has(sync.manual.profileRef)) {
+        errors.push({
+          file: `sync/manual/${sync.syncId}`,
+          field: 'manual.profileRef',
+          message: `Profile "${sync.manual.profileRef}" not found.`,
+        });
       }
     }
   }

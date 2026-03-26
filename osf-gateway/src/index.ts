@@ -24,6 +24,7 @@ import groupRoutes from './admin/group-routes';
 import newsRoutes from './news/routes';
 import marketplaceRoutes from './marketplace/routes';
 import healthAgentRoutes from './health-agent/routes';
+import i3xRoutes from './i3x/routes';
 import { initNodeRedProxy } from './nodered/proxy';
 import { NrPodManager } from './nodered/pod-manager';
 import internalApiRoutes from './nodered/internal-api';
@@ -658,6 +659,8 @@ async function main() {
   app.use('/news', newsRoutes);
   app.use('/marketplace', marketplaceRoutes);
   app.use('/health-agent', healthAgentRoutes);
+  app.use('/i3x', i3xRoutes);
+  app.use('/api/i3x', i3xRoutes);
 
   // API Versioning — same routes under /v1/ prefix (backward compat preserved above)
   app.use('/v1', createVersionedRouter([

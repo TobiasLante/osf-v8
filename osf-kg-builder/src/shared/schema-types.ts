@@ -82,7 +82,7 @@ export interface EdgeMapping {
 export interface SyncSchema {
   syncId: string;
   version: string;
-  syncType: 'mqtt' | 'polling' | 'pg-notify';
+  syncType: 'mqtt' | 'polling' | 'pg-notify' | 'kafka' | 'rest-webhook' | 'manual';
   // MQTT specific
   broker?: { host: string; port: number };
   topicStructure?: {
@@ -113,6 +113,39 @@ export interface SyncSchema {
   // Polling specific
   pollIntervalMs?: number;
   sources?: PollSourceRef[];
+  // Kafka specific
+  kafka?: {
+    bootstrapServers: string;
+    consumerGroup: string;
+    topics: KafkaTopicConfig[];
+    securityProtocol?: 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SSL' | 'SASL_SSL';
+    schemaRegistry?: string;
+  };
+  // REST-Webhook specific
+  webhook?: {
+    webhookPath: string;
+    secret?: string;
+    verifySignature?: boolean;
+    profileRef: string;
+    idField: string;
+    payloadMapping?: Record<string, string>;
+  };
+  // Manual import specific
+  manual?: {
+    trigger: 'ui' | 'api' | 'schedule';
+    format: 'csv' | 'json';
+    profileRef: string;
+    idField: string;
+    scheduleIntervalMs?: number;
+  };
+}
+
+export interface KafkaTopicConfig {
+  topic: string;
+  profileRef: string;
+  keyIdProp: string;
+  payloadMapping: Record<string, string>;
+  consumerGroup?: string;
 }
 
 export interface PollSourceRef {
@@ -149,7 +182,7 @@ export interface UnsAttributeMapping {
 export interface SchemaBuildReport {
   profiles: number;
   sources: { opcua: number; postgresql: number; rest: number; mcp: number };
-  syncs: { mqtt: number; polling: number };
+  syncs: { mqtt: number; polling: number; kafka: number; webhook: number; manual: number };
   constraintsCreated: number;
   nodesMerged: number;
   edgesCreated: number;
