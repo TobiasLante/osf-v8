@@ -37,7 +37,8 @@ interface KGTypeEntry {
   color: string;
 }
 
-const KG_TYPES: KGTypeEntry[] = [
+// Default KG types (static fallback — replaced with live data from i3X API)
+const DEFAULT_KG_TYPES: KGTypeEntry[] = [
   { id: "machine", label: "Machine", color: "#d03a8c" },
   { id: "sensor", label: "Sensor", color: "#f59e0b" },
   { id: "order", label: "Order", color: "#10b981" },
@@ -48,6 +49,13 @@ const KG_TYPES: KGTypeEntry[] = [
   { id: "process", label: "Process", color: "#a855f7" },
   { id: "alternative", label: "Alternative", color: "#22c55e" },
 ];
+
+const TYPE_COLORS: Record<string, string> = {
+  Machine: "#d03a8c", InjectionMoldingMachine: "#d03a8c", CNC_Machine: "#3b82f6",
+  Sensor: "#f59e0b", ProductionOrder: "#10b981", CustomerOrder: "#10b981",
+  Article: "#3b82f6", Customer: "#06b6d4", Material: "#ec4899",
+  Tool: "#eab308", Site: "#6366f1", Area: "#8b5cf6", KPI: "#ef4444",
+};
 
 function matchToolToSources(toolName: string): string[] {
   const t = toolName.toLowerCase();
@@ -445,8 +453,24 @@ export default function FomiPage() {
   }, []);
 
   /* ── i3X Panel state ───────────────────────────────────────────────── */
+  const [kgTypes, setKgTypes] = useState<KGTypeEntry[]>(DEFAULT_KG_TYPES);
   const [activeSources, setActiveSources] = useState<Set<string>>(new Set());
   const [activeKgTypes, setActiveKgTypes] = useState<Set<string>>(new Set());
+
+  // Load KG types from i3X API on mount
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_URL || "";
+    fetch(`${API}/i3x/objecttypes`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((types: any[] | null) => {
+        if (!types || types.length === 0) return;
+        setKgTypes(types.map(t => {
+          const name = t.elementId?.replace("type:", "") || t.displayName || "Unknown";
+          return { id: name.toLowerCase(), label: name.replace(/_/g, " "), color: TYPE_COLORS[name] || "#64748b" };
+        }));
+      })
+      .catch(() => {}); // Fallback to DEFAULT_KG_TYPES
+  }, []);
   const [kgNodes, setKgNodes] = useState<KGNode[]>([]);
   const [kgEdges, setKgEdges] = useState<KGEdge[]>([]);
   const [kgCenter, setKgCenter] = useState<string | undefined>();
@@ -1155,7 +1179,7 @@ export default function FomiPage() {
                   <span className="text-xs text-white/40">— Knowledge Graph Types</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {KG_TYPES.map((t) => {
+                  {kgTypes.map((t) => {
                     const isActive = activeKgTypes.has(t.id);
                     return (
                       <div
