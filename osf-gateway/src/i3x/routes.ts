@@ -14,14 +14,15 @@ const router = Router();
 
 const NEO4J_URL = process.env.NEO4J_URL || 'bolt://osf-neo4j.osf.svc.cluster.local:7687';
 const NEO4J_USER = process.env.NEO4J_USER || 'neo4j';
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || 'neo4j';
+const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || '';
 const NEO4J_DATABASE = process.env.NEO4J_DATABASE || 'neo4j';
 
 let driver: Driver | null = null;
 
 function getDriver(): Driver {
   if (!driver) {
-    driver = neo4j.driver(NEO4J_URL, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD));
+    const auth = NEO4J_PASSWORD ? neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD) : undefined;
+    driver = neo4j.driver(NEO4J_URL, auth);
   }
   return driver;
 }

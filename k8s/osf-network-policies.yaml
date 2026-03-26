@@ -106,6 +106,14 @@ spec:
         - podSelector:
             matchLabels:
               app: osf-chat-ui
+    # Neo4j (i3X API direct queries via Bolt)
+    - ports:
+        - port: 7687
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              app: osf-neo4j
     # KG Builder / MCP Server (kg_* tools)
     - ports:
         - port: 8035
