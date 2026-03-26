@@ -99,6 +99,13 @@ export default function I3xPage() {
       }
     } catch {}
     setGraphData({ nodes, links });
+
+    // Auto-zoom to fit after graph loads
+    setTimeout(() => {
+      if (graphRef.current) {
+        graphRef.current.zoomToFit(400, 60);
+      }
+    }, 500);
   }, [objects]);
 
   useEffect(() => { buildGraph(); }, [buildGraph]);
