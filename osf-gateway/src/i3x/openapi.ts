@@ -40,7 +40,14 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         responses: {
           '200': {
             description: 'Array of namespaces',
-            content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Namespace' } } } },
+            content: { 'application/json': {
+              schema: { type: 'array', items: { $ref: '#/components/schemas/Namespace' } },
+              example: [
+                { uri: 'urn:osf:site:Hauptwerk', displayName: 'Hauptwerk' },
+                { uri: 'urn:osf:area:Spritzgusshalle', displayName: 'Spritzgusshalle' },
+                { uri: 'urn:osf:area:Mechanische_Bearbeitung', displayName: 'Mechanische Bearbeitung' },
+              ],
+            } },
           },
         },
       },
@@ -54,7 +61,16 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         responses: {
           '200': {
             description: 'Array of object types',
-            content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/ObjectType' } } } },
+            content: { 'application/json': {
+              schema: { type: 'array', items: { $ref: '#/components/schemas/ObjectType' } },
+              example: [
+                { elementId: 'type:InjectionMoldingMachine', displayName: 'InjectionMoldingMachine', parentTypeId: 'type:Machine', namespaceUri: 'urn:osf:smprofile:InjectionMoldingMachine' },
+                { elementId: 'type:CNC_Machine', displayName: 'CNC_Machine', parentTypeId: 'type:Machine', namespaceUri: 'urn:osf:smprofile:CNC_Machine' },
+                { elementId: 'type:Article', displayName: 'Article', namespaceUri: 'urn:osf:smprofile:Article' },
+                { elementId: 'type:CustomerOrder', displayName: 'CustomerOrder', parentTypeId: 'type:Order', namespaceUri: 'urn:osf:smprofile:CustomerOrder' },
+                { elementId: 'type:Machine', displayName: 'Machine', namespaceUri: 'urn:osf:smprofile:Machine' },
+              ],
+            } },
           },
         },
       },
@@ -86,7 +102,13 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         responses: {
           '200': {
             description: 'Array of objects',
-            content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Object' } } } },
+            content: { 'application/json': {
+              schema: { type: 'array', items: { $ref: '#/components/schemas/Object' } },
+              example: [
+                { elementId: 'SGM-004', displayName: 'Spritzgussmaschine 4', typeId: 'type:InjectionMoldingMachine', isComposition: true, namespaceUri: 'urn:osf:injectionmoldingmachine', properties: { machine_id: 'SGM-004', name: 'Spritzgussmaschine 4', Machine_Status: 1, Good_Parts: 15670, Scrap_Parts: 234, OEE: 0.87, Temp_Melting: 234.5 } },
+                { elementId: 'SGM-007', displayName: 'Spritzgussmaschine 7', typeId: 'type:InjectionMoldingMachine', properties: { machine_id: 'SGM-007', Machine_Status: 1, Good_Parts: 8920, OEE: 0.91 } },
+              ],
+            } },
           },
         },
       },
@@ -132,7 +154,15 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         responses: {
           '200': {
             description: 'Array of KPI values',
-            content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/KPI' } } } },
+            content: { 'application/json': {
+              schema: { type: 'array', items: { $ref: '#/components/schemas/KPI' } },
+              example: [
+                { kpiId: 'KPI-OEE', name: 'Overall Equipment Effectiveness', value: 87.3, unit: '%', category: 'efficiency', target: 85, warning: 75, critical: 60, status: 'good' },
+                { kpiId: 'KPI-Quality-Rate', name: 'Quality Rate', value: 98.5, unit: '%', category: 'quality', target: 99, warning: 95, critical: 90, status: 'warning' },
+                { kpiId: 'KPI-Energy-Per-Part', name: 'Energy per Good Part', value: 0.42, unit: 'kWh/part', category: 'energy', target: 0.5, warning: 1.0, critical: 2.0, status: 'good' },
+                { kpiId: 'KPI-Scrap-Rate', name: 'Scrap Rate', value: 1.5, unit: '%', category: 'quality', target: 1, warning: 3, critical: 5, status: 'warning' },
+              ],
+            } },
           },
         },
       },
