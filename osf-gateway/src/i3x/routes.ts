@@ -134,7 +134,7 @@ router.get('/docs', (_req: Request, res: Response) => {
 
 // ── GET /namespaces — ISA-95 hierarchy (distinct domains/sites/areas) ──
 
-router.get('/namespaces', requireAuth, async (_req: Request, res: Response) => {
+router.get('/namespaces', async (_req: Request, res: Response) => {
   try {
     const sites = await cypherQuery(`MATCH (s:Site) RETURN s.name AS name`);
     const areas = await cypherQuery(`MATCH (a:Area) RETURN a.name AS name`);
@@ -175,7 +175,7 @@ const TYPE_HIERARCHY: Record<string, string> = {
   MaintenanceOrder: 'Order',
 };
 
-router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => {
+router.get('/objecttypes', async (_req: Request, res: Response) => {
   try {
     const rows = await cypherQuery(`
       MATCH (n)
@@ -204,7 +204,7 @@ router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => 
 
 // ── GET /objects — Instances from KG (with optional typeId filter) ──
 
-router.get('/objects', requireAuth, async (req: Request, res: Response) => {
+router.get('/objects', async (req: Request, res: Response) => {
   try {
     const typeId = req.query.typeId as string | undefined;
     const limit = Math.min(parseInt(req.query.limit as string) || 500, 2000);
@@ -231,7 +231,7 @@ router.get('/objects', requireAuth, async (req: Request, res: Response) => {
 
 // ── GET /objects/:id — Single object by elementId ───────────────
 
-router.get('/objects/:id', requireAuth, async (req: Request, res: Response) => {
+router.get('/objects/:id', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
     if (!id || id.length > 200) {
@@ -272,7 +272,7 @@ router.get('/objects/:id', requireAuth, async (req: Request, res: Response) => {
 
 // ── GET /objects/:id/children — Composition children ────────────
 
-router.get('/objects/:id/children', requireAuth, async (req: Request, res: Response) => {
+router.get('/objects/:id/children', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
     if (!id || id.length > 200) {
@@ -294,7 +294,7 @@ router.get('/objects/:id/children', requireAuth, async (req: Request, res: Respo
 
 // ── GET /relationshiptypes — Distinct edge labels from KG ───────
 
-router.get('/relationshiptypes', requireAuth, async (_req: Request, res: Response) => {
+router.get('/relationshiptypes', async (_req: Request, res: Response) => {
   try {
     const rows = await cypherQuery(`
       MATCH ()-[r]->()
@@ -427,7 +427,7 @@ router.post('/objects/related', requireAuth, async (req: Request, res: Response)
 
 // ── GET /subscriptions — Active sync channels (from config) ─────
 
-router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) => {
+router.get('/subscriptions', async (_req: Request, res: Response) => {
   try {
     const mqttBroker = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
     const subscriptions = [
@@ -447,7 +447,7 @@ router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) =
 
 // ── GET /objects/:id/kpis — KPI values for an object ────────────
 
-router.get('/objects/:id/kpis', requireAuth, async (req: Request, res: Response) => {
+router.get('/objects/:id/kpis', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
     if (!id || id.length > 200) {
