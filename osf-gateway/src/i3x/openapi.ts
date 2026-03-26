@@ -1,6 +1,8 @@
 // OSF i3X API — OpenAPI 3.0.3 Specification
 // Full request/response schemas for Swagger UI compatibility
 
+const auth = { security: [{ bearerAuth: [] }, { cookieAuth: [] }] };
+
 export const openApiSpec = {
   openapi: '3.0.3',
   info: {
@@ -34,6 +36,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Discovery'],
         summary: 'ISA-95 hierarchy namespaces',
         description: 'Returns Sites and Areas from the Knowledge Graph as i3X namespaces.',
+        ...auth,
         responses: {
           '200': {
             description: 'Array of namespaces',
@@ -47,6 +50,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Discovery'],
         summary: 'SM Profile types',
         description: 'Returns all distinct node labels from the KG as object types, with parent type hierarchy from SM Profiles.',
+        ...auth,
         responses: {
           '200': {
             description: 'Array of object types',
@@ -60,6 +64,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Discovery'],
         summary: 'Edge types from KG',
         description: 'Returns all distinct edge labels with inverse names where known.',
+        ...auth,
         responses: {
           '200': {
             description: 'Array of relationship types',
@@ -73,6 +78,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Objects'],
         summary: 'List objects',
         description: 'Returns object instances from the KG. Optionally filter by type.',
+        ...auth,
         parameters: [
           { name: 'typeId', in: 'query', schema: { type: 'string' }, description: 'Filter by type (e.g. `type:CNC_Machine`)', example: 'type:InjectionMoldingMachine' },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 500, maximum: 2000 }, description: 'Max results' },
@@ -90,6 +96,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Objects'],
         summary: 'Get single object',
         description: 'Returns one object by elementId. Also resolves parentId via PART_OF edges.',
+        ...auth,
         parameters: [
           { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Object elementId (machine_id, order_no, etc.)', example: 'SGM-004' },
         ],
@@ -104,6 +111,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Graph'],
         summary: 'Composition children',
         description: 'Returns child objects connected via PART_OF edges (ISA-95 hierarchy drill-down).',
+        ...auth,
         parameters: [
           { name: 'id', in: 'path', required: true, schema: { type: 'string' }, example: 'Hauptwerk' },
         ],
@@ -117,6 +125,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Graph'],
         summary: 'Related objects',
         description: 'Returns objects related to the given elementIds. Optionally filter by relationship type. This is the core graph traversal endpoint.',
+        ...auth,
         requestBody: {
           required: true,
           content: {
@@ -159,6 +168,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Objects'],
         summary: 'Current property values',
         description: 'Returns all current properties for the given elementIds. Includes live MQTT-synced values (Machine_Status, OEE, etc.).',
+        ...auth,
         requestBody: {
           required: true,
           content: {
@@ -199,6 +209,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
         tags: ['Sync'],
         summary: 'Active sync channels',
         description: 'Returns configured MQTT subscriptions and polling jobs that keep the KG updated in real-time.',
+        ...auth,
         responses: {
           '200': {
             description: 'Array of active subscriptions',
@@ -227,6 +238,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
     schemas: {
       Namespace: {
         type: 'object',
+        required: ['uri', 'displayName'],
         properties: {
           uri: { type: 'string', example: 'urn:osf:site:Hauptwerk' },
           displayName: { type: 'string', example: 'Hauptwerk' },
@@ -234,6 +246,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
       },
       ObjectType: {
         type: 'object',
+        required: ['elementId', 'displayName', 'namespaceUri'],
         properties: {
           elementId: { type: 'string', example: 'type:InjectionMoldingMachine' },
           displayName: { type: 'string', example: 'Injection Molding Machine' },
@@ -243,6 +256,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
       },
       RelationshipType: {
         type: 'object',
+        required: ['elementId', 'displayName'],
         properties: {
           elementId: { type: 'string', example: 'rel:WORKS_ON' },
           displayName: { type: 'string', example: 'WORKS ON' },
@@ -251,6 +265,7 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
       },
       Object: {
         type: 'object',
+        required: ['elementId', 'displayName'],
         description: 'A node from the Knowledge Graph. Properties include SM Profile attributes and live MQTT-synced values.',
         properties: {
           elementId: { type: 'string', example: 'SGM-004' },
@@ -289,5 +304,6 @@ The graph is built automatically from SM Profile schemas on GitHub. 45 node type
       },
     },
   },
-  security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+  // No global security — /openapi.json and /docs are public.
+  // All data endpoints have security set individually via requireAuth middleware.
 };

@@ -8,7 +8,7 @@ const COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
 const AGENTS = [
   {
-    id: 'otd-optimize',
+    id: 'otd-deep-analyzer',
     label: 'OTD Deep',
     description: 'On-Time Delivery optimization — 4 specialists + moderator discussion + synthesis',
     duration: '~2-3 min',

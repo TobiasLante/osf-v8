@@ -134,6 +134,7 @@ export async function buildInstances(
 
     const label = profile.kgNodeLabel;
     const idProp = profile.kgIdProperty;
+    builtLabels.add(label);
 
     // Build properties from static props + machine metadata
     const machineId = m.machineId || m.sourceId || '';
