@@ -38,8 +38,13 @@ function validateLabel(label: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(label) && label.length <= 100;
 }
 
+/** Escape user input for Cypher string literals — matches cypher-utils.ts escapeId() */
 function safeEscape(id: string): string {
-  return id.replace(/'/g, "\\'");
+  return String(id || '')
+    .replace(/\\/g, '\\\\')   // backslash first (before other escapes add backslashes)
+    .replace(/'/g, "\\'")     // single quotes
+    .replace(/\$/g, '')       // strip dollar signs (AGE parameter syntax)
+    .substring(0, 200);
 }
 
 // ── GET /openapi.json — OpenAPI spec for i3X discovery ──────────
@@ -93,6 +98,22 @@ router.get('/namespaces', requireAuth, async (_req: Request, res: Response) => {
 
 // ── GET /objecttypes — SM Profiles (node labels as types) ───────
 
+/** Known type hierarchy from SM Profile parentType — authoritative source of truth */
+const TYPE_HIERARCHY: Record<string, string> = {
+  CNC_Machine: 'Machine',
+  MillingMachine: 'Machine',
+  FiveAxisMillingMachine: 'Machine',
+  Lathe: 'Machine',
+  GrindingMachine: 'Machine',
+  InjectionMoldingMachine: 'Machine',
+  FFS_Cell: 'Machine',
+  AssemblyLine: 'Machine',
+  CustomerOrder: 'Order',
+  ProductionOrder: 'Order',
+  PurchaseOrder: 'Order',
+  MaintenanceOrder: 'Order',
+};
+
 router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => {
   try {
     const rows = await cypherQuery(`
@@ -102,28 +123,13 @@ router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => 
       RETURN DISTINCT lbl
     `);
 
-    // Build parent lookup: child label → parent label (from nodes with multiple labels)
-    const parentLookup = new Map<string, string>();
-    const multiLabelRows = await cypherQuery(`
-      MATCH (n) WHERE size(labels(n)) > 1
-      RETURN DISTINCT labels(n) AS lbls LIMIT 200
-    `);
-    for (const row of multiLabelRows) {
-      const lbls = Array.isArray(row) ? row : row?.lbls || [];
-      if (lbls.length >= 2) {
-        // First label is the specific type, subsequent are parent types
-        for (let i = 0; i < lbls.length - 1; i++) {
-          parentLookup.set(lbls[i], lbls[lbls.length - 1]);
-        }
-      }
-    }
-
     const objectTypes = rows.map((label: any) => {
       const name = typeof label === 'string' ? label : String(label);
+      const parentLabel = TYPE_HIERARCHY[name];
       return {
         elementId: `type:${name}`,
         displayName: name.replace(/_/g, ' '),
-        parentTypeId: parentLookup.has(name) ? `type:${parentLookup.get(name)}` : undefined,
+        parentTypeId: parentLabel ? `type:${parentLabel}` : undefined,
         namespaceUri: `urn:osf:smprofile:${name}`,
       };
     });
@@ -172,6 +178,7 @@ router.get('/objects/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
     const safe = safeEscape(id);
+    // Main node
     const rows = await cypherQuery(`
       MATCH (n) WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
       RETURN id(n) AS eid, properties(n) AS props, labels(n) AS lbls LIMIT 1
@@ -180,7 +187,22 @@ router.get('/objects/:id', requireAuth, async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Object not found' });
       return;
     }
-    res.json(formatObject(rows[0]));
+    // Resolve parentId via PART_OF edge
+    let parentId: string | undefined;
+    try {
+      const parentRows = await cypherQuery(`
+        MATCH (n)-[:PART_OF]->(parent)
+        WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
+        RETURN parent.id AS pid, parent.name AS pname LIMIT 1
+      `);
+      if (parentRows.length > 0) {
+        const pr = parentRows[0];
+        parentId = typeof pr === 'string' ? pr : pr?.pid || pr?.pname;
+      }
+    } catch { /* parent lookup is optional */ }
+    const obj = formatObject(rows[0]);
+    if (parentId) obj.parentId = parentId;
+    res.json(obj);
   } catch (err: any) {
     logger.error({ err: err.message }, '[i3x] object query failed');
     res.status(500).json({ error: 'Failed to query object' });
@@ -302,9 +324,15 @@ router.post('/objects/related', requireAuth, async (req: Request, res: Response)
       return;
     }
 
-    const relFilter = relationshipTypeId
-      ? `:${relationshipTypeId.replace(/^rel:/, '').replace(/[^a-zA-Z0-9_]/g, '')}`
-      : '';
+    let relFilter = '';
+    if (relationshipTypeId && typeof relationshipTypeId === 'string') {
+      const relLabel = relationshipTypeId.replace(/^rel:/, '');
+      if (!validateLabel(relLabel)) {
+        res.status(400).json({ error: 'Invalid relationshipTypeId' });
+        return;
+      }
+      relFilter = `:${relLabel}`;
+    }
 
     const results: any[] = [];
     for (const oid of elementIds) {
@@ -358,27 +386,25 @@ router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) =
 
 // ── Shared object formatter ─────────────────────────────────────
 
+/** Composition label set — ISA-95 hierarchy types that contain children */
+const COMPOSITION_LABELS = new Set(['Site', 'Area', 'ProductionLine', 'Enterprise', 'Machine']);
+
 function formatObject(row: any): any {
   const props = typeof row === 'object' && row !== null ? row : {};
   const nodeProps = props.props || props;
-  const labels = props.lbls || [];
-  const primaryLabel = Array.isArray(labels) && labels.length > 0 ? labels[0] : 'Unknown';
+  const labels = Array.isArray(props.lbls) ? props.lbls : [];
+  const primaryLabel = labels.length > 0 ? labels[0] : undefined;
 
-  // Detect parentId from PART_OF edges (if available in properties)
-  const parentId = nodeProps._parentId || undefined;
+  const isComposition = labels.some((l: string) => COMPOSITION_LABELS.has(l));
 
-  // Composition: nodes connected via PART_OF are compositions
-  const isComposition = Array.isArray(labels) && labels.some((l: string) =>
-    ['Site', 'Area', 'ProductionLine', 'Enterprise'].includes(l)
-  );
+  const elementId = String(nodeProps.id || nodeProps.machine_id || nodeProps.order_no || props.eid || '');
 
   return {
-    elementId: String(nodeProps.id || nodeProps.machine_id || nodeProps.order_no || props.eid || ''),
-    displayName: nodeProps.name || nodeProps.displayName || nodeProps.id || String(props.eid || ''),
-    typeId: `type:${primaryLabel}`,
-    parentId,
-    isComposition,
-    namespaceUri: `urn:osf:${primaryLabel.toLowerCase()}`,
+    elementId,
+    displayName: nodeProps.name || nodeProps.displayName || nodeProps.id || elementId,
+    typeId: primaryLabel ? `type:${primaryLabel}` : undefined,
+    isComposition: isComposition || undefined,
+    namespaceUri: primaryLabel ? `urn:osf:${primaryLabel.toLowerCase()}` : undefined,
     properties: nodeProps,
   };
 }

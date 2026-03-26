@@ -41,6 +41,12 @@ export async function buildTypeSystem(profiles: SMProfile[]): Promise<number> {
 
   try {
     for (const profile of profiles) {
+      // Skip abstract parent profiles — no direct instances, index would be empty
+      if (profile.abstract) {
+        logger.debug({ label: profile.kgNodeLabel }, '[SchemaBuild] Skipping index for abstract profile');
+        continue;
+      }
+
       const label = profile.kgNodeLabel;
       const idProp = profile.kgIdProperty;
 
@@ -1022,6 +1028,17 @@ export async function buildFromSchemas(
   // Phase 2d: Apply parent labels (e.g. InjectionMoldingMachine → also :Machine)
   try {
     await applyParentLabels(profiles);
+    // Track parent labels for tombstone sweep
+    for (const profile of profiles) {
+      const pt = profile.parentType;
+      if (pt && pt !== 'null' && pt !== 'None') {
+        // parentType can be a label ("Machine") or profileId ("SMProfile-Machine")
+        const parentLabel = pt.startsWith('SMProfile-')
+          ? profiles.find(p => p.profileId === pt)?.kgNodeLabel
+          : pt;
+        if (parentLabel) builtLabels.add(parentLabel);
+      }
+    }
   } catch (err) {
     errors.push(`Phase 2d (Parent Labels): ${(err as Error).message}`);
   }

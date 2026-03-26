@@ -10,6 +10,7 @@ export interface SMProfile {
   displayName: string;
   description?: string;
   parentType: string | null;
+  abstract?: boolean;          // Abstract parent profiles — no direct instances, skip index creation
   attributes: SMProfileAttribute[];
   relationships: SMProfileRelationship[];
   kgNodeLabel: string;

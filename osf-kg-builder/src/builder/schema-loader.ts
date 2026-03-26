@@ -37,7 +37,13 @@ function inheritFromParent(profiles: SMProfile[]): void {
     if (!parentType || parentType === 'null' || parentType === 'None') return;
 
     const parent = byId.get(parentType) || byLabel.get(parentType);
-    if (!parent) return;
+    if (!parent) {
+      logger.warn(
+        { child: profile.profileId, parentType },
+        '[SchemaLoader] Parent profile not found — inheritance skipped',
+      );
+      return;
+    }
 
     // Resolve parent first (multi-level)
     resolve(parent);
