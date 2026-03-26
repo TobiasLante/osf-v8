@@ -49,7 +49,22 @@ export default function I3xPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"overview" | "graph" | "api">("overview");
+  const [liveMachines, setLiveMachines] = useState<I3xObject[]>([]);
   const graphRef = useRef<any>(null);
+
+  // Poll live machine data every 10s for the Architecture tab ticker
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const machines = await apiFetch<I3xObject[]>("/objects?typeId=type:InjectionMoldingMachine&limit=6");
+        if (active) setLiveMachines(machines);
+      } catch {}
+    }
+    poll();
+    const iv = setInterval(poll, 10000);
+    return () => { active = false; clearInterval(iv); };
+  }, []);
 
   // Load types + build overview graph on mount
   useEffect(() => {
@@ -222,6 +237,36 @@ export default function I3xPage() {
               </div>
             ))}
           </div>
+
+          {/* Live Machine Data Ticker */}
+          {liveMachines.length > 0 && (
+            <div className="rounded-md border border-accent/20 bg-bg-surface p-5 mb-12">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <h3 className="text-sm font-semibold">Live Machine Data</h3>
+                <span className="text-[10px] text-text-dim ml-auto">via i3X API &middot; refreshed every 10s</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {liveMachines.map(m => {
+                  const p = m.properties || {};
+                  const status = p.Machine_Status === 1 ? "Production" : p.Machine_Status === 2 ? "Idle" : p.Machine_Status === 3 ? "Setup" : p.Machine_Status === 4 ? "Maintenance" : p.Machine_Status === 5 ? "Fault" : "Unknown";
+                  const statusColor = p.Machine_Status === 1 ? "text-emerald-400" : p.Machine_Status === 5 ? "text-red-400" : "text-amber-400";
+                  return (
+                    <div key={m.elementId} className="rounded border border-border bg-bg-surface-2 p-3">
+                      <div className="text-xs font-mono font-bold text-accent mb-1">{m.elementId}</div>
+                      <div className={`text-[10px] font-semibold ${statusColor} mb-2`}>{status}</div>
+                      <div className="space-y-1 text-[10px]">
+                        {p.Good_Parts != null && <div className="flex justify-between"><span className="text-text-dim">Good Parts</span><span className="text-text font-mono">{Number(p.Good_Parts).toLocaleString()}</span></div>}
+                        {p.OEE != null && <div className="flex justify-between"><span className="text-text-dim">OEE</span><span className="text-text font-mono">{(p.OEE * 100).toFixed(1)}%</span></div>}
+                        {p.Temp_Melting != null && <div className="flex justify-between"><span className="text-text-dim">Temp</span><span className="text-text font-mono">{Number(p.Temp_Melting).toFixed(1)}&deg;C</span></div>}
+                        {p.Energy_kWh != null && <div className="flex justify-between"><span className="text-text-dim">Energy</span><span className="text-text font-mono">{Number(p.Energy_kWh).toFixed(0)} kWh</span></div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* OSF vs CESMII */}
           <div className="rounded-md border border-border bg-bg-surface p-6 mb-12">
