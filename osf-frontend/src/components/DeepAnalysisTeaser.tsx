@@ -30,9 +30,9 @@ const AGENTS = [
   },
   {
     id: 'impact-analysis',
-    label: 'Impact Analysis',
-    description: 'Knowledge Graph bottleneck & dependency analysis — cascade effects, critical paths',
-    duration: '~1-2 min',
+    label: 'Impact Fast',
+    description: 'KG bottleneck & cascade analysis — affected orders, customers, alternatives',
+    duration: '~30-60s',
     color: 'purple',
   },
 ];

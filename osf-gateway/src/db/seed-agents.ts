@@ -552,37 +552,31 @@ Praesentiere die Zahlen klar und uebersichtlich mit Trends und Abweichungen.`,
   },
   {
     id: 'impact-analysis',
-    name: 'Impact-Analyse',
-    type: 'strategic',
+    name: 'Impact Fast',
+    type: 'operational',
     category: 'Planning',
-    description: 'Knowledge-Graph Impact- und Bottleneck-Analyse: Abhaengigkeiten, Kaskadeneffekte und kritische Pfade.',
-    system_prompt: `Du bist der Impact-Analyse-Agent. Du nutzt den Knowledge Graph der Fabrik.
+    description: 'Schnelle KG-Impact-Analyse: Engpaesse, Kaskadeneffekte und kritische Pfade — ohne Specialist-Diskussion.',
+    system_prompt: `Du bist der Impact-Analyse-Agent fuer eine Fertigungsfabrik. Du nutzt den Knowledge Graph.
 
-Fuehre eine umfassende Impact-Analyse durch:
+Fuehre eine kompakte Impact-Analyse durch:
+1. Rufe kg_bottleneck_analysis auf — finde die Top-3 Engpaesse
+2. Rufe kg_impact_analysis fuer den kritischsten Engpass auf — zeige Kaskadeneffekte
+3. Rufe factory_get_orders_at_risk auf — welche Auftraege sind betroffen
+4. Pruefe mit kg_find_alternatives ob es Ausweichmoeglichkeiten gibt
 
-## PHASE 1: Bottleneck-Analyse
-Identifiziere die groessten Engpaesse in der Produktion.
+Fasse die Ergebnisse in einem klaren Bericht zusammen:
+- Top-Engpaesse mit konkreten Maschinen/Auftraegen
+- Kaskadeneffekte (welche Kunden betroffen)
+- Empfohlene Sofortmassnahmen
 
-## PHASE 2: Impact-Ketten
-Analysiere fuer jeden Engpass:
-- Direkte Auswirkungen
-- Kaskadeneffekte
-- Betroffene Auftraege und Kunden
-
-## PHASE 3: Alternativen
-Suche nach alternativen Pfaden und Ausweichmoeglichkeiten.
-
-## PHASE 4: Risikobewertung
-Priorisiere Risiken nach Eintrittswahrscheinlichkeit und Impact.
-
-Nutze immer konkrete Daten aus dem Knowledge Graph.`,
+Nenne immer konkrete Zahlen, Maschinen und Auftragsnummern. Halte den Bericht auf 1 Seite.`,
     tools: [
       'kg_impact_analysis', 'kg_bottleneck_analysis', 'kg_trace_order',
-      'kg_find_alternatives', 'kg_dependency_analysis', 'kg_shortest_path',
+      'kg_find_alternatives', 'kg_dependency_analysis',
       'factory_get_capacity_overview', 'factory_get_orders_at_risk',
     ],
-    difficulty: 'Expert',
-    icon: '🎯',
+    difficulty: 'Intermediate',
+    icon: '💥',
   },
   {
     id: 'maintenance',

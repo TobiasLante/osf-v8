@@ -320,11 +320,11 @@
 
         <button class="agent-btn" onclick="run('impact-analysis')" id="btn-impact">
             <span class="agent-icon">💥</span>
-            <span class="agent-name">Impact Analysis</span>
-            <span class="agent-desc">Machine breakdown impact — affected orders, customers, rerouting alternatives</span>
+            <span class="agent-name">Impact Fast</span>
+            <span class="agent-desc">KG bottleneck & cascade analysis — affected orders, customers, alternatives</span>
             <div class="agent-meta">
-                <span class="agent-badge badge-strategic">Strategic</span>
-                <span class="agent-duration">~2-3 min</span>
+                <span class="agent-badge badge-fast">Fast</span>
+                <span class="agent-duration">~30-60s</span>
             </div>
         </button>
     </div>
@@ -359,7 +359,7 @@
     };
 
     // Agents that have KG visualization
-    const KG_AGENTS = new Set(['otd-deep-analyzer', 'impact-analysis']);
+    const KG_AGENTS = new Set(['otd-deep-analyzer']);
 
     async function run(agentId) {
         if (running) return;
