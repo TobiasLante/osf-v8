@@ -100,8 +100,8 @@ async function main() {
     next();
   });
   app.use((req, res, next) => {
-    if (req.path.startsWith('/demo-ui')) {
-      return next(); // Skip helmet for proxied chat-ui (needs iframe embedding)
+    if (req.path.startsWith('/demo-ui') || req.path.startsWith('/i3x/docs')) {
+      return next(); // Skip helmet for proxied chat-ui and Swagger UI (needs iframe embedding)
     } else if (req.path.startsWith('/flows/editor')) {
       editorHelmet(req, res, next);
     } else {
