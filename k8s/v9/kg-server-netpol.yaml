@@ -28,7 +28,24 @@ spec:
         - port: 8035
           protocol: TCP
 ---
-# Neo4j: allow ingress from KG Builder only
+# KG Server (separate deployment): allow ingress from NodePort + Gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: osf-kg-server-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: osf-kg-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8035
+          protocol: TCP
+---
+# Neo4j: allow ingress from KG Builder + KG Server + Gateway
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -45,6 +62,12 @@ spec:
         - podSelector:
             matchLabels:
               app: osf-kg-builder
+        - podSelector:
+            matchLabels:
+              app: osf-kg-server
+        - podSelector:
+            matchLabels:
+              app: osf-gateway
       ports:
         - port: 7687
           protocol: TCP
