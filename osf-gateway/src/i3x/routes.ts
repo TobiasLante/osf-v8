@@ -3,36 +3,71 @@
 // Response formats match CESMII i3X / i3x-client.ts interfaces
 
 import { Router, Request, Response } from 'express';
+import neo4j, { Driver } from 'neo4j-driver';
 import { requireAuth } from '../auth/middleware';
-import { kgPool } from '../kg-agent/index';
 import { logger } from '../logger';
 import { openApiSpec } from './openapi';
 
 const router = Router();
 
-const DB_SCHEMA = process.env.DB_SCHEMA || 'llm_test_v3';
-const GRAPH_NAME = 'factory_graph';
+// ── Neo4j connection (same graph as KG Builder) ─────────────────
 
-// ── Cypher query helper (same pattern as kg-agent/tools.ts) ─────
+const NEO4J_URL = process.env.NEO4J_URL || 'bolt://osf-neo4j.osf.svc.cluster.local:7687';
+const NEO4J_USER = process.env.NEO4J_USER || 'neo4j';
+const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || 'neo4j';
+const NEO4J_DATABASE = process.env.NEO4J_DATABASE || 'neo4j';
 
-async function cypherQuery(cypher: string): Promise<any[]> {
-  const client = await kgPool.connect();
+let driver: Driver | null = null;
+
+function getDriver(): Driver {
+  if (!driver) {
+    driver = neo4j.driver(NEO4J_URL, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD));
+  }
+  return driver;
+}
+
+async function cypherQuery(cypher: string, params?: Record<string, any>): Promise<any[]> {
+  const session = getDriver().session({ database: NEO4J_DATABASE });
   try {
-    await client.query("LOAD 'age'");
-    await client.query(`SET search_path = ag_catalog, "${DB_SCHEMA}", public`);
-    const result = await client.query(
-      `SELECT * FROM cypher('${GRAPH_NAME}', $$ ${cypher} $$) AS (r agtype)`
-    );
-    return result.rows.map((r: any) => {
-      try {
-        return JSON.parse(r.r);
-      } catch {
-        return r.r;
+    const result = await session.run(cypher, params || {});
+    return result.records.map(r => {
+      if (r.keys.length === 1) {
+        return toJS(r.get(r.keys[0]));
       }
+      const obj: any = {};
+      for (const key of r.keys) {
+        obj[key] = toJS(r.get(key));
+      }
+      return obj;
     });
   } finally {
-    client.release();
+    await session.close();
   }
+}
+
+/** Convert Neo4j types (Integer, Node, etc.) to plain JS */
+function toJS(val: any): any {
+  if (val === null || val === undefined) return val;
+  if (neo4j.isInt(val)) return val.toNumber();
+  if (val.properties && val.labels) {
+    // Node
+    return { ...toJSProps(val.properties), _labels: val.labels };
+  }
+  if (val.properties && val.type) {
+    // Relationship
+    return { ...toJSProps(val.properties), _type: val.type };
+  }
+  if (Array.isArray(val)) return val.map(toJS);
+  if (typeof val === 'object') return toJSProps(val);
+  return val;
+}
+
+function toJSProps(props: Record<string, any>): Record<string, any> {
+  const out: any = {};
+  for (const [k, v] of Object.entries(props)) {
+    out[k] = neo4j.isInt(v) ? v.toNumber() : v;
+  }
+  return out;
 }
 
 function validateLabel(label: string): boolean {
@@ -216,9 +251,9 @@ router.get('/objects', async (req: Request, res: Response) => {
         res.status(400).json({ error: 'Invalid typeId' });
         return;
       }
-      cypher = `MATCH (n:${label}) RETURN id(n) AS eid, properties(n) AS props, labels(n) AS lbls LIMIT ${limit}`;
+      cypher = `MATCH (n:${label}) RETURN n LIMIT ${limit}`;
     } else {
-      cypher = `MATCH (n) RETURN id(n) AS eid, properties(n) AS props, labels(n) AS lbls LIMIT ${limit}`;
+      cypher = `MATCH (n) RETURN n LIMIT ${limit}`;
     }
 
     const rows = await cypherQuery(cypher);
@@ -242,7 +277,7 @@ router.get('/objects/:id', async (req: Request, res: Response) => {
     // Main node
     const rows = await cypherQuery(`
       MATCH (n) WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
-      RETURN id(n) AS eid, properties(n) AS props, labels(n) AS lbls LIMIT 1
+      RETURN n LIMIT 1
     `);
     if (rows.length === 0) {
       res.status(404).json({ error: 'Object not found' });
@@ -283,7 +318,7 @@ router.get('/objects/:id/children', async (req: Request, res: Response) => {
     const rows = await cypherQuery(`
       MATCH (parent)<-[:PART_OF]-(child)
       WHERE parent.id = '${safe}' OR parent.name = '${safe}'
-      RETURN id(child) AS eid, properties(child) AS props, labels(child) AS lbls LIMIT 200
+      RETURN child LIMIT 200
     `);
     res.json(rows.map(formatObject));
   } catch (err: any) {
@@ -354,10 +389,11 @@ router.post('/objects/value', requireAuth, async (req: Request, res: Response) =
       try {
         const rows = await cypherQuery(`
           MATCH (n) WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
-          RETURN properties(n) AS props LIMIT 1
+          RETURN n LIMIT 1
         `);
         if (rows.length > 0) {
-          results.push({ elementId: oid, values: rows[0] });
+          const { _labels, ...props } = rows[0] || {};
+          results.push({ elementId: oid, values: props });
         }
       } catch (err: any) {
         logger.debug({ elementId: oid, err: err.message }, '[i3x] value lookup failed');
@@ -403,14 +439,14 @@ router.post('/objects/related', requireAuth, async (req: Request, res: Response)
         const rows = await cypherQuery(`
           MATCH (n)-[r${relFilter}]-(m)
           WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
-          RETURN type(r) AS relType, id(m) AS eid, properties(m) AS props, labels(m) AS lbls LIMIT 100
+          RETURN type(r) AS relType, m LIMIT 100
         `);
 
         for (const row of rows) {
           results.push({
             sourceElementId: oid,
             relationshipType: row?.relType || 'UNKNOWN',
-            object: formatObject(row),
+            object: formatObject(row?.m),
           });
         }
       } catch (err: any) {
@@ -458,11 +494,11 @@ router.get('/objects/:id/kpis', async (req: Request, res: Response) => {
     const rows = await cypherQuery(`
       MATCH (m)-[:HAS_KPI]->(k:KPI)
       WHERE m.id = '${safe}' OR m.machine_id = '${safe}' OR m.order_no = '${safe}'
-      RETURN properties(k) AS props
+      RETURN k
     `);
 
     const kpis = rows.map((row: any) => {
-      const p = typeof row === 'object' && row !== null ? (row.props || row) : {};
+      const p = typeof row === 'object' && row !== null ? row : {};
       return {
         kpiId: p.kpi_type || p.id,
         name: p.name,
@@ -494,14 +530,14 @@ router.get('/objects/:id/kpis', async (req: Request, res: Response) => {
 const COMPOSITION_LABELS = new Set(['Site', 'Area', 'ProductionLine', 'Enterprise', 'Machine']);
 
 function formatObject(row: any): any {
-  const props = typeof row === 'object' && row !== null ? row : {};
-  const nodeProps = props.props || props;
-  const labels = Array.isArray(props.lbls) ? props.lbls : [];
+  if (!row || typeof row !== 'object') return { elementId: '', displayName: '' };
+
+  // Neo4j node: { ...props, _labels: [...] }  (via toJS conversion)
+  const labels = Array.isArray(row._labels) ? row._labels : [];
+  const { _labels, ...nodeProps } = row;
   const primaryLabel = labels.length > 0 ? labels[0] : undefined;
-
   const isComposition = labels.some((l: string) => COMPOSITION_LABELS.has(l));
-
-  const elementId = String(nodeProps.id || nodeProps.machine_id || nodeProps.order_no || props.eid || '');
+  const elementId = String(nodeProps.id || nodeProps.machine_id || nodeProps.order_no || '');
 
   return {
     elementId,
