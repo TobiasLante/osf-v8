@@ -1,6 +1,6 @@
 // i3X Gateway Routes — OSF as i3X Server (Read-Only)
 // REST facade on the Knowledge Graph (Apache AGE)
-// Response formats match i3x-client.ts interfaces
+// Response formats match CESMII i3X / i3x-client.ts interfaces
 
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
@@ -34,24 +34,52 @@ async function cypherQuery(cypher: string): Promise<any[]> {
   }
 }
 
+function validateLabel(label: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(label) && label.length <= 100;
+}
+
+function safeEscape(id: string): string {
+  return id.replace(/'/g, "\\'");
+}
+
+// ── GET /openapi.json — OpenAPI spec for i3X discovery ──────────
+
+router.get('/openapi.json', (_req: Request, res: Response) => {
+  res.json({
+    openapi: '3.0.3',
+    info: {
+      title: 'OSF i3X API',
+      version: '1.0.0',
+      description: 'CESMII i3X-compatible REST API on the OSF Knowledge Graph',
+    },
+    paths: {
+      '/namespaces': { get: { summary: 'ISA-95 hierarchy namespaces (Sites, Areas)' } },
+      '/objecttypes': { get: { summary: 'SM Profile types (distinct KG labels)' } },
+      '/objects': { get: { summary: 'Object instances, optional ?typeId= filter' } },
+      '/objects/{id}': { get: { summary: 'Single object by elementId' } },
+      '/objects/related': { post: { summary: 'Related objects for given elementIds' } },
+      '/objects/value': { post: { summary: 'Current property values for elementIds' } },
+      '/objects/{id}/children': { get: { summary: 'Child objects (composition)' } },
+      '/relationshiptypes': { get: { summary: 'Distinct edge types from KG' } },
+      '/subscriptions': { get: { summary: 'Active sync channels (MQTT, Polling)' } },
+    },
+  });
+});
+
 // ── GET /namespaces — ISA-95 hierarchy (distinct domains/sites/areas) ──
 
 router.get('/namespaces', requireAuth, async (_req: Request, res: Response) => {
   try {
-    const sites = await cypherQuery(`
-      MATCH (s:Site) RETURN s.name AS name
-    `);
-    const areas = await cypherQuery(`
-      MATCH (a:Area) RETURN a.name AS name
-    `);
+    const sites = await cypherQuery(`MATCH (s:Site) RETURN s.name AS name`);
+    const areas = await cypherQuery(`MATCH (a:Area) RETURN a.name AS name`);
 
     const namespaces = [
       ...sites.map((s: any) => ({
-        uri: `urn:osf:site:${s}`,
+        uri: `urn:osf:site:${typeof s === 'string' ? s : s?.name || s}`,
         displayName: typeof s === 'string' ? s : s?.name || String(s),
       })),
       ...areas.map((a: any) => ({
-        uri: `urn:osf:area:${a}`,
+        uri: `urn:osf:area:${typeof a === 'string' ? a : a?.name || a}`,
         displayName: typeof a === 'string' ? a : a?.name || String(a),
       })),
     ];
@@ -67,7 +95,6 @@ router.get('/namespaces', requireAuth, async (_req: Request, res: Response) => {
 
 router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => {
   try {
-    // Get distinct labels from the graph
     const rows = await cypherQuery(`
       MATCH (n)
       WITH labels(n) AS lbls
@@ -75,11 +102,28 @@ router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => 
       RETURN DISTINCT lbl
     `);
 
+    // Build parent lookup: child label → parent label (from nodes with multiple labels)
+    const parentLookup = new Map<string, string>();
+    const multiLabelRows = await cypherQuery(`
+      MATCH (n) WHERE size(labels(n)) > 1
+      RETURN DISTINCT labels(n) AS lbls LIMIT 200
+    `);
+    for (const row of multiLabelRows) {
+      const lbls = Array.isArray(row) ? row : row?.lbls || [];
+      if (lbls.length >= 2) {
+        // First label is the specific type, subsequent are parent types
+        for (let i = 0; i < lbls.length - 1; i++) {
+          parentLookup.set(lbls[i], lbls[lbls.length - 1]);
+        }
+      }
+    }
+
     const objectTypes = rows.map((label: any) => {
       const name = typeof label === 'string' ? label : String(label);
       return {
         elementId: `type:${name}`,
         displayName: name.replace(/_/g, ' '),
+        parentTypeId: parentLookup.has(name) ? `type:${parentLookup.get(name)}` : undefined,
         namespaceUri: `urn:osf:smprofile:${name}`,
       };
     });
@@ -93,10 +137,6 @@ router.get('/objecttypes', requireAuth, async (_req: Request, res: Response) => 
 
 // ── GET /objects — Instances from KG (with optional typeId filter) ──
 
-function validateLabel(label: string): boolean {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(label) && label.length <= 100;
-}
-
 router.get('/objects', requireAuth, async (req: Request, res: Response) => {
   try {
     const typeId = req.query.typeId as string | undefined;
@@ -104,7 +144,6 @@ router.get('/objects', requireAuth, async (req: Request, res: Response) => {
 
     let cypher: string;
     if (typeId) {
-      // Strip "type:" prefix if present
       const label = typeId.replace(/^type:/, '');
       if (!validateLabel(label)) {
         res.status(400).json({ error: 'Invalid typeId' });
@@ -116,26 +155,57 @@ router.get('/objects', requireAuth, async (req: Request, res: Response) => {
     }
 
     const rows = await cypherQuery(cypher);
-
-    const objects = rows.map((row: any) => {
-      const props = typeof row === 'object' && row !== null ? row : {};
-      // Apache AGE returns {eid, props, lbls} or just the properties depending on the query
-      const nodeProps = props.props || props;
-      const labels = props.lbls || [];
-      const primaryLabel = Array.isArray(labels) && labels.length > 0 ? labels[0] : 'Unknown';
-
-      return {
-        elementId: String(nodeProps.id || nodeProps.machine_id || nodeProps.order_no || props.eid || ''),
-        displayName: nodeProps.name || nodeProps.displayName || nodeProps.id || String(props.eid || ''),
-        typeId: `type:${primaryLabel}`,
-        properties: nodeProps,
-      };
-    });
-
-    res.json(objects);
+    res.json(rows.map(formatObject));
   } catch (err: any) {
     logger.error({ err: err.message }, '[i3x] objects query failed');
     res.status(500).json({ error: 'Failed to query objects' });
+  }
+});
+
+// ── GET /objects/:id — Single object by elementId ───────────────
+
+router.get('/objects/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!id || id.length > 200) {
+      res.status(400).json({ error: 'Invalid object ID' });
+      return;
+    }
+    const safe = safeEscape(id);
+    const rows = await cypherQuery(`
+      MATCH (n) WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
+      RETURN id(n) AS eid, properties(n) AS props, labels(n) AS lbls LIMIT 1
+    `);
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Object not found' });
+      return;
+    }
+    res.json(formatObject(rows[0]));
+  } catch (err: any) {
+    logger.error({ err: err.message }, '[i3x] object query failed');
+    res.status(500).json({ error: 'Failed to query object' });
+  }
+});
+
+// ── GET /objects/:id/children — Composition children ────────────
+
+router.get('/objects/:id/children', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!id || id.length > 200) {
+      res.status(400).json({ error: 'Invalid object ID' });
+      return;
+    }
+    const safe = safeEscape(id);
+    const rows = await cypherQuery(`
+      MATCH (parent)<-[:PART_OF]-(child)
+      WHERE parent.id = '${safe}' OR parent.name = '${safe}'
+      RETURN id(child) AS eid, properties(child) AS props, labels(child) AS lbls LIMIT 200
+    `);
+    res.json(rows.map(formatObject));
+  } catch (err: any) {
+    logger.error({ err: err.message }, '[i3x] children query failed');
+    res.status(500).json({ error: 'Failed to query children' });
   }
 });
 
@@ -148,11 +218,28 @@ router.get('/relationshiptypes', requireAuth, async (_req: Request, res: Respons
       RETURN DISTINCT type(r) AS relType
     `);
 
+    // Build inverse lookup from known pairs
+    const inverseMap: Record<string, string> = {
+      PART_OF: 'CONTAINS',
+      CONTAINS: 'PART_OF',
+      PRODUCES: 'PRODUCED_BY',
+      EXECUTES: 'EXECUTED_BY',
+      HAS_SENSOR: 'SENSOR_OF',
+      HAS_BOM: 'BOM_OF',
+      FOR_ARTICLE: 'ORDERED_IN',
+      TRIGGERS: 'TRIGGERED_BY',
+      RUNS_ON: 'RUNS',
+      FROM_SUPPLIER: 'SUPPLIES',
+      USES_MOULD: 'USED_BY',
+      FOR_MACHINE: 'HAS_MAINTENANCE',
+    };
+
     const relTypes = rows.map((rt: any) => {
       const name = typeof rt === 'string' ? rt : String(rt);
       return {
         elementId: `rel:${name}`,
         displayName: name.replace(/_/g, ' '),
+        inverseDisplayName: inverseMap[name]?.replace(/_/g, ' '),
       };
     });
 
@@ -167,34 +254,30 @@ router.get('/relationshiptypes', requireAuth, async (_req: Request, res: Respons
 
 router.post('/objects/value', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { objectIds } = req.body;
-    if (!Array.isArray(objectIds) || objectIds.length === 0) {
-      res.status(400).json({ error: 'objectIds array required' });
+    const { elementIds } = req.body;
+    if (!Array.isArray(elementIds) || elementIds.length === 0) {
+      res.status(400).json({ error: 'elementIds array required' });
       return;
     }
-    if (objectIds.length > 100) {
-      res.status(400).json({ error: 'Max 100 objectIds per request' });
+    if (elementIds.length > 100) {
+      res.status(400).json({ error: 'Max 100 elementIds per request' });
       return;
     }
 
     const results: any[] = [];
-    for (const oid of objectIds) {
+    for (const oid of elementIds) {
       if (typeof oid !== 'string' || oid.length > 200) continue;
-      // Escape single quotes in the ID to prevent Cypher injection
-      const safeId = oid.replace(/'/g, "\\'");
+      const safe = safeEscape(oid);
       try {
         const rows = await cypherQuery(`
-          MATCH (n) WHERE n.id = '${safeId}' OR n.machine_id = '${safeId}' OR n.order_no = '${safeId}'
+          MATCH (n) WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
           RETURN properties(n) AS props LIMIT 1
         `);
         if (rows.length > 0) {
-          results.push({
-            objectId: oid,
-            values: rows[0],
-          });
+          results.push({ elementId: oid, values: rows[0] });
         }
       } catch (err: any) {
-        logger.debug({ objectId: oid, err: err.message }, '[i3x] value lookup failed for object');
+        logger.debug({ elementId: oid, err: err.message }, '[i3x] value lookup failed');
       }
     }
 
@@ -205,12 +288,58 @@ router.post('/objects/value', requireAuth, async (req: Request, res: Response) =
   }
 });
 
+// ── POST /objects/related — Related objects (i3X standard) ──────
+
+router.post('/objects/related', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { elementIds, relationshipTypeId } = req.body;
+    if (!Array.isArray(elementIds) || elementIds.length === 0) {
+      res.status(400).json({ error: 'elementIds array required' });
+      return;
+    }
+    if (elementIds.length > 50) {
+      res.status(400).json({ error: 'Max 50 elementIds per request' });
+      return;
+    }
+
+    const relFilter = relationshipTypeId
+      ? `:${relationshipTypeId.replace(/^rel:/, '').replace(/[^a-zA-Z0-9_]/g, '')}`
+      : '';
+
+    const results: any[] = [];
+    for (const oid of elementIds) {
+      if (typeof oid !== 'string' || oid.length > 200) continue;
+      const safe = safeEscape(oid);
+      try {
+        const rows = await cypherQuery(`
+          MATCH (n)-[r${relFilter}]-(m)
+          WHERE n.id = '${safe}' OR n.machine_id = '${safe}' OR n.order_no = '${safe}'
+          RETURN type(r) AS relType, id(m) AS eid, properties(m) AS props, labels(m) AS lbls LIMIT 100
+        `);
+
+        for (const row of rows) {
+          results.push({
+            sourceElementId: oid,
+            relationshipType: row?.relType || 'UNKNOWN',
+            object: formatObject(row),
+          });
+        }
+      } catch (err: any) {
+        logger.debug({ elementId: oid, err: err.message }, '[i3x] related query failed');
+      }
+    }
+
+    res.json(results);
+  } catch (err: any) {
+    logger.error({ err: err.message }, '[i3x] objects/related query failed');
+    res.status(500).json({ error: 'Failed to query related objects' });
+  }
+});
+
 // ── GET /subscriptions — Active sync channels (from config) ─────
 
 router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) => {
   try {
-    // Return MQTT topic subscriptions and polling jobs from the KG builder
-    // These are runtime state — we return what's configured, not live state
     const mqttBroker = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
     const subscriptions = [
       {
@@ -220,7 +349,6 @@ router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) =
         description: 'Factory UNS — all machine telemetry',
       },
     ];
-
     res.json(subscriptions);
   } catch (err: any) {
     logger.error({ err: err.message }, '[i3x] subscriptions query failed');
@@ -228,44 +356,31 @@ router.get('/subscriptions', requireAuth, async (_req: Request, res: Response) =
   }
 });
 
-// ── GET /objects/:id/related — Related objects via edges ─────────
+// ── Shared object formatter ─────────────────────────────────────
 
-router.get('/objects/:id/related', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const id = req.params.id;
-    if (!id || id.length > 200) {
-      res.status(400).json({ error: 'Invalid object ID' });
-      return;
-    }
-    const safeId = id.replace(/'/g, "\\'");
-    const direction = req.query.direction as string || 'both';
+function formatObject(row: any): any {
+  const props = typeof row === 'object' && row !== null ? row : {};
+  const nodeProps = props.props || props;
+  const labels = props.lbls || [];
+  const primaryLabel = Array.isArray(labels) && labels.length > 0 ? labels[0] : 'Unknown';
 
-    let cypher: string;
-    if (direction === 'outgoing') {
-      cypher = `MATCH (n)-[r]->(m) WHERE n.id = '${safeId}' OR n.machine_id = '${safeId}' RETURN type(r) AS relType, properties(m) AS props, labels(m) AS lbls LIMIT 100`;
-    } else if (direction === 'incoming') {
-      cypher = `MATCH (n)<-[r]-(m) WHERE n.id = '${safeId}' OR n.machine_id = '${safeId}' RETURN type(r) AS relType, properties(m) AS props, labels(m) AS lbls LIMIT 100`;
-    } else {
-      cypher = `MATCH (n)-[r]-(m) WHERE n.id = '${safeId}' OR n.machine_id = '${safeId}' RETURN type(r) AS relType, properties(m) AS props, labels(m) AS lbls LIMIT 100`;
-    }
+  // Detect parentId from PART_OF edges (if available in properties)
+  const parentId = nodeProps._parentId || undefined;
 
-    const rows = await cypherQuery(cypher);
+  // Composition: nodes connected via PART_OF are compositions
+  const isComposition = Array.isArray(labels) && labels.some((l: string) =>
+    ['Site', 'Area', 'ProductionLine', 'Enterprise'].includes(l)
+  );
 
-    const related = rows.map((row: any) => ({
-      relationshipType: row?.relType || 'UNKNOWN',
-      object: {
-        elementId: row?.props?.id || row?.props?.machine_id || '',
-        displayName: row?.props?.name || row?.props?.id || '',
-        typeId: `type:${Array.isArray(row?.lbls) && row.lbls.length > 0 ? row.lbls[0] : 'Unknown'}`,
-        properties: row?.props || {},
-      },
-    }));
-
-    res.json(related);
-  } catch (err: any) {
-    logger.error({ err: err.message }, '[i3x] related objects query failed');
-    res.status(500).json({ error: 'Failed to query related objects' });
-  }
-});
+  return {
+    elementId: String(nodeProps.id || nodeProps.machine_id || nodeProps.order_no || props.eid || ''),
+    displayName: nodeProps.name || nodeProps.displayName || nodeProps.id || String(props.eid || ''),
+    typeId: `type:${primaryLabel}`,
+    parentId,
+    isComposition,
+    namespaceUri: `urn:osf:${primaryLabel.toLowerCase()}`,
+    properties: nodeProps,
+  };
+}
 
 export default router;

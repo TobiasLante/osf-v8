@@ -8,16 +8,17 @@ import { logger } from '../shared/logger';
 export function loadAllProfiles(basePath: string): SMProfile[] {
   const profileDir = join(basePath, 'profiles');
   const profiles = loadJsonDirRecursive<SMProfile>(profileDir);
-  inheritAttributes(profiles);
+  inheritFromParent(profiles);
   return profiles;
 }
 
 /**
- * Merge parent attributes into child profiles.
+ * Merge parent attributes AND relationships into child profiles.
  * Child attributes override parent attributes with the same name.
+ * Child relationships override parent relationships with the same type+target.
  * Supports multi-level inheritance (grandparent → parent → child).
  */
-function inheritAttributes(profiles: SMProfile[]): void {
+function inheritFromParent(profiles: SMProfile[]): void {
   const byId = new Map<string, SMProfile>();
   const byLabel = new Map<string, SMProfile>();
   for (const p of profiles) {
@@ -41,14 +42,29 @@ function inheritAttributes(profiles: SMProfile[]): void {
     // Resolve parent first (multi-level)
     resolve(parent);
 
-    // Merge: child attributes win on name collision
-    const childNames = new Set(profile.attributes.map(a => a.name));
-    const inherited = parent.attributes.filter(a => !childNames.has(a.name));
+    let inheritedAttrs = 0;
+    let inheritedRels = 0;
+
+    // Merge attributes: child wins on name collision
+    const childAttrNames = new Set(profile.attributes.map(a => a.name));
+    const inherited = parent.attributes.filter(a => !childAttrNames.has(a.name));
     if (inherited.length > 0) {
       profile.attributes = [...inherited, ...profile.attributes];
+      inheritedAttrs = inherited.length;
+    }
+
+    // Merge relationships: child wins on type+target collision
+    const childRelKeys = new Set(profile.relationships.map(r => `${r.type}→${r.target}`));
+    const inheritedRelsArr = parent.relationships.filter(r => !childRelKeys.has(`${r.type}→${r.target}`));
+    if (inheritedRelsArr.length > 0) {
+      profile.relationships = [...inheritedRelsArr, ...profile.relationships];
+      inheritedRels = inheritedRelsArr.length;
+    }
+
+    if (inheritedAttrs > 0 || inheritedRels > 0) {
       logger.info(
-        { child: profile.profileId, parent: parent.profileId, inherited: inherited.length },
-        '[SchemaLoader] Inherited attributes from parent',
+        { child: profile.profileId, parent: parent.profileId, inheritedAttrs, inheritedRels },
+        '[SchemaLoader] Inherited from parent',
       );
     }
   }
@@ -86,11 +102,15 @@ export function loadAllSyncs(basePath: string): SyncSchema[] {
       else if (filePath.includes('/kafka/')) s.syncType = 'kafka';
       else if (filePath.includes('/webhook/')) s.syncType = 'rest-webhook';
       else if (filePath.includes('/manual/')) s.syncType = 'manual';
+      else if (filePath.includes('/bridge/')) {
+        logger.debug({ file: filePath }, '[SchemaLoader] Skipping bridge config (reference-only)');
+        return null;
+      }
     }
     // Accept mappingId as fallback for syncId
     if (!s.syncId && s.mappingId) s.syncId = s.mappingId;
     return s as SyncSchema;
-  });
+  }).filter((s): s is SyncSchema => s !== null);
 }
 
 // Backward-compat aliases
