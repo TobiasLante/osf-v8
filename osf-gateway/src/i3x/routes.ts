@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware';
 import { kgPool } from '../kg-agent/index';
 import { logger } from '../logger';
+import { openApiSpec } from './openapi';
 
 const router = Router();
 
@@ -47,28 +48,10 @@ function safeEscape(id: string): string {
     .substring(0, 200);
 }
 
-// ── GET /openapi.json — OpenAPI spec for i3X discovery ──────────
+// ── GET /openapi.json — Full OpenAPI 3.0.3 spec ─────────────────
 
 router.get('/openapi.json', (_req: Request, res: Response) => {
-  res.json({
-    openapi: '3.0.3',
-    info: {
-      title: 'OSF i3X API',
-      version: '1.0.0',
-      description: 'CESMII i3X-compatible REST API on the OSF Knowledge Graph',
-    },
-    paths: {
-      '/namespaces': { get: { summary: 'ISA-95 hierarchy namespaces (Sites, Areas)' } },
-      '/objecttypes': { get: { summary: 'SM Profile types (distinct KG labels)' } },
-      '/objects': { get: { summary: 'Object instances, optional ?typeId= filter' } },
-      '/objects/{id}': { get: { summary: 'Single object by elementId' } },
-      '/objects/related': { post: { summary: 'Related objects for given elementIds' } },
-      '/objects/value': { post: { summary: 'Current property values for elementIds' } },
-      '/objects/{id}/children': { get: { summary: 'Child objects (composition)' } },
-      '/relationshiptypes': { get: { summary: 'Distinct edge types from KG' } },
-      '/subscriptions': { get: { summary: 'Active sync channels (MQTT, Polling)' } },
-    },
-  });
+  res.json(openApiSpec);
 });
 
 // ── GET /namespaces — ISA-95 hierarchy (distinct domains/sites/areas) ──
