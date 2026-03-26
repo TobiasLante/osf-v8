@@ -51,6 +51,22 @@ export default function I3xPage() {
   const [tab, setTab] = useState<"overview" | "graph" | "api">("overview");
   const [liveMachines, setLiveMachines] = useState<I3xObject[]>([]);
   const graphRef = useRef<any>(null);
+  const graphContainerRef = useRef<HTMLDivElement>(null);
+  const [graphWidth, setGraphWidth] = useState(800);
+
+  // Measure graph container width
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setGraphWidth(entry.contentRect.width);
+      }
+    });
+    ro.observe(el);
+    setGraphWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, [tab]);
 
   // Poll live machine data every 10s for the Architecture tab ticker
   useEffect(() => {
@@ -415,14 +431,14 @@ export default function I3xPage() {
 
             {/* 3D Graph */}
             <div className="lg:col-span-3">
-              <div className="rounded-md border border-border bg-[#050507] overflow-hidden" style={{ height: 600 }}>
-                {graphData.nodes.length > 0 ? (
+              <div ref={graphContainerRef} className="rounded-md border border-border bg-[#050507] overflow-hidden" style={{ height: 600 }}>
+                {graphData.nodes.length > 0 && graphWidth > 100 ? (
                   <ForceGraph3D ref={graphRef} graphData={graphData}
                     nodeLabel={(n: any) => `${n.name} (${n.type})`}
                     nodeColor={(n: any) => n.color} nodeVal={(n: any) => n.val} nodeOpacity={0.9}
                     linkLabel={(l: any) => l.label} linkColor={() => "rgba(255,255,255,0.15)"} linkWidth={0.5}
                     linkDirectionalArrowLength={3} linkDirectionalArrowRelPos={0.9}
-                    backgroundColor="#050507" height={600}
+                    backgroundColor="#050507" width={graphWidth} height={600}
                     cooldownTicks={100}
                     onEngineStop={() => graphRef.current?.zoomToFit(400, 80)}
                     onNodeClick={(n: any) => { const obj = objects.find(o => o.elementId === n.id); if (obj) setSelectedObject(obj); }}
