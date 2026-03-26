@@ -9,6 +9,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 COPY --from=builder /app/out /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
   CMD wget -qO- http://localhost:80/ || exit 1
 EXPOSE 80
