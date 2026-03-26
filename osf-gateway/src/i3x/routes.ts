@@ -21,8 +21,7 @@ let driver: Driver | null = null;
 
 function getDriver(): Driver {
   if (!driver) {
-    const auth = NEO4J_PASSWORD ? neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD) : undefined;
-    driver = neo4j.driver(NEO4J_URL, auth);
+    driver = neo4j.driver(NEO4J_URL, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD));
   }
   return driver;
 }
