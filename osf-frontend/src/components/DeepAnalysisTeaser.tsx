@@ -28,6 +28,13 @@ const AGENTS = [
     duration: '~30-60s',
     color: 'emerald',
   },
+  {
+    id: 'impact-analysis',
+    label: 'Impact Analysis',
+    description: 'Knowledge Graph bottleneck & dependency analysis — cascade effects, critical paths',
+    duration: '~1-2 min',
+    color: 'purple',
+  },
 ];
 
 function getCooldownRemaining(): number {
@@ -113,7 +120,7 @@ export function DeepAnalysisTeaser() {
                 </div>
 
                 {/* Agent Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
                   {AGENTS.map((agent) => (
                     <div
                       key={agent.id}
@@ -122,7 +129,8 @@ export function DeepAnalysisTeaser() {
                       <div className="flex items-center gap-2 mb-2">
                         <span className={`w-2 h-2 rounded-full ${
                           agent.color === 'orange' ? 'bg-amber-400' :
-                          agent.color === 'blue' ? 'bg-blue-400' : 'bg-emerald-400'
+                          agent.color === 'blue' ? 'bg-blue-400' :
+                          agent.color === 'purple' ? 'bg-purple-400' : 'bg-emerald-400'
                         }`} />
                         <span className="font-semibold text-sm text-text">{agent.label}</span>
                         <span className="ml-auto text-[10px] text-text-dim font-mono">{agent.duration}</span>

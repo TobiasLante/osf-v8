@@ -50,7 +50,7 @@ export const config = {
     specialistKpi: int('TRUNCATION_SPECIALIST_KPI', 2_000),
     debateDraft: int('TRUNCATION_DEBATE_DRAFT', 6_000),
     followUpToolResult: int('TRUNCATION_FOLLOWUP_TOOL_RESULT', 1_200),
-    agentToolResult: int('TRUNCATION_AGENT_TOOL_RESULT', 24_000),
+    agentToolResult: int('TRUNCATION_AGENT_TOOL_RESULT', 6_000),
   },
   mcp: {
     perAttemptTimeoutMs: int('MCP_PER_ATTEMPT_TIMEOUT_MS', 60_000),
