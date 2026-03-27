@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: 192.168.178.150:32000/osf-frontend:1.25.0
+        image: 192.168.178.150:32000/osf-frontend:1.27.0
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
