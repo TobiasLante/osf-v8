@@ -14,6 +14,20 @@ import { mdClasses } from "@/components/chat/v7/types";
 import { useAuth } from "@/lib/auth-context";
 
 /* ═══════════════════════════════════════════════════════════════════════
+   i3X API CALL TRACKING
+   ═══════════════════════════════════════════════════════════════════════ */
+
+interface I3xApiCall {
+  id: string;
+  method: string;
+  endpoint: string;
+  status: "running" | "done" | "error";
+  startTime: number;
+  duration?: number;
+  resultSummary?: string;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    i3X DATA SOURCE & SM PROFILE MAPPING
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -334,9 +348,9 @@ export default function FomiPage() {
   const [act, setAct] = useState<"impact" | "discussion">("impact");
   const [splitPct, setSplitPct] = useState(50);
   const [lightMode, setLightMode] = useState(false);
-  const bg = lightMode ? "#ffffff" : "#050507";
-  const bgCard = lightMode ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.02)";
-  const borderCard = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.06)";
+  const bg = lightMode ? "#ffffff" : "#0a060d";
+  const bgCard = lightMode ? "rgba(0,0,0,0.04)" : "rgba(208,58,140,0.03)";
+  const borderCard = lightMode ? "rgba(0,0,0,0.1)" : "rgba(208,58,140,0.12)";
 
   /* ── Recording mode (admin only) ───────────────────────────────────── */
   const [recording, setRecording] = useState(false);
@@ -460,16 +474,19 @@ export default function FomiPage() {
   // Load KG types from i3X API on mount
   useEffect(() => {
     const API = process.env.NEXT_PUBLIC_API_URL || "";
+    const callId = trackI3xCall("GET", "/i3x/objecttypes");
     fetch(`${API}/i3x/objecttypes`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((types: any[] | null) => {
-        if (!types || types.length === 0) return;
+        if (!types || types.length === 0) { completeI3xCall(callId, "0 types"); return; }
+        completeI3xCall(callId, `${types.length} types`);
         setKgTypes(types.map(t => {
           const name = t.elementId?.replace("type:", "") || t.displayName || "Unknown";
           return { id: name.toLowerCase(), label: name.replace(/_/g, " "), color: TYPE_COLORS[name] || "#64748b" };
         }));
       })
-      .catch(() => {}); // Fallback to DEFAULT_KG_TYPES
+      .catch(() => { completeI3xCall(callId, "failed", true); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load full KG from Neo4j on mount
@@ -491,6 +508,19 @@ export default function FomiPage() {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setKgPopup(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* ── i3X API call tracking ────────────────────────────────────────── */
+  const [i3xCalls, setI3xCalls] = useState<I3xApiCall[]>([]);
+
+  const trackI3xCall = useCallback((method: string, endpoint: string): string => {
+    const id = `${method}-${endpoint}-${Date.now()}`;
+    setI3xCalls(prev => [...prev, { id, method, endpoint, status: "running", startTime: Date.now() }]);
+    return id;
+  }, []);
+
+  const completeI3xCall = useCallback((id: string, summary: string, error = false) => {
+    setI3xCalls(prev => prev.map(c => c.id === id ? { ...c, status: error ? "error" : "done", duration: Date.now() - c.startTime, resultSummary: summary } : c));
   }, []);
 
   /* ── LLM provider toggle (click version badge) ──────────────────── */
@@ -543,10 +573,12 @@ export default function FomiPage() {
   useEffect(() => {
     if (kgLoaded) return;
     const API = process.env.NEXT_PUBLIC_API_URL || "";
+    const callId = trackI3xCall("GET", "/i3x/graph?limit=500");
     fetch(`${API}/i3x/graph?limit=500`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((data: { nodes: KGNode[]; edges: KGEdge[] } | null) => {
-        if (!data || data.nodes.length === 0) return;
+        if (!data || data.nodes.length === 0) { completeI3xCall(callId, "empty"); return; }
+        completeI3xCall(callId, `${data.nodes.length}n / ${data.edges.length}e`);
         setKgNodes(data.nodes);
         setKgEdges(data.edges);
         setKgStatus("done");
@@ -556,7 +588,8 @@ export default function FomiPage() {
         setKgLoaded(true);
         console.log(`[FoMI] Neo4j graph loaded: ${data.nodes.length} nodes, ${data.edges.length} edges`);
       })
-      .catch((err) => console.warn("[FoMI] Neo4j graph load failed:", err));
+      .catch((err) => { completeI3xCall(callId, "failed", true); console.warn("[FoMI] Neo4j graph load failed:", err); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kgLoaded, activateSource]);
 
   /* ── Extract impact stats from assistant content ───────────────────── */
@@ -600,6 +633,11 @@ export default function FomiPage() {
           pendingToolCalls.push({ name: event.name, arguments: event.arguments, status: "running" });
           upsert({ toolCalls: [...pendingToolCalls] });
           processToolForI3X(event.name);
+          // Track KG-related tool calls as i3X API calls
+          if (/^kg_/.test(event.name)) {
+            const args = event.arguments ? Object.entries(event.arguments).map(([k, v]) => `${k}=${v}`).join("&") : "";
+            trackI3xCall("POST", `/i3x/${event.name}${args ? "?" + args : ""}`);
+          }
           break;
 
         case "tool_result": {
@@ -608,6 +646,11 @@ export default function FomiPage() {
           collectedSources.push({ name: event.name, resultSize: event.result ? JSON.stringify(event.result).length : 0, duration: event.duration });
           setChatSources([...collectedSources]);
           upsert({ toolCalls: [...pendingToolCalls], sources: [...collectedSources] });
+          // Complete KG-related i3X call
+          if (/^kg_/.test(event.name)) {
+            const resultLen = event.result ? JSON.stringify(event.result).length : 0;
+            setI3xCalls(prev => prev.map(c => c.endpoint.includes(`/i3x/${event.name}`) && c.status === "running" ? { ...c, status: "done", duration: Date.now() - c.startTime, resultSummary: resultLen > 1024 ? `${(resultLen / 1024).toFixed(1)}KB` : `${resultLen}B` } : c));
+          }
           break;
         }
 
@@ -660,18 +703,22 @@ export default function FomiPage() {
           }
           break;
 
-        case "kg_traversal_start":
+        case "kg_traversal_start": {
           setKgStatus("traversing");
-          setKgCenter(event.centerEntityId || event.entityId);
+          const centerId = event.centerEntityId || event.entityId;
+          setKgCenter(centerId);
           if (Array.isArray(event.kgTools)) {
             setKgToolsList(event.kgTools);
             setKgToolStatuses(new Map(event.kgTools.map((t: string) => [t, { status: 'running' }])));
           }
+          // Track as i3X API call
+          trackI3xCall("SSE", `/i3x/traversal?center=${centerId || "?"}`);
           // Light up ALL data sources — KG queries span the entire factory
           ["uns", "erp", "bde", "mrp"].forEach(activateSource);
           // Activate base KG types
           setActiveKgTypes((prev) => { const n = new Set(prev); n.add("machine"); n.add("sensor"); return n; });
           break;
+        }
 
         case "kg_tool_status":
           if (event.toolName) {
@@ -698,6 +745,8 @@ export default function FomiPage() {
 
         case "kg_traversal_end":
           setKgStatus("done");
+          // Complete the traversal i3X call
+          setI3xCalls(prev => prev.map(c => c.endpoint.includes("/i3x/traversal") && c.status === "running" ? { ...c, status: "done", duration: Date.now() - c.startTime, resultSummary: `${kgNodes.length}n` } : c));
           break;
 
         case "kg_summary": {
@@ -815,11 +864,34 @@ export default function FomiPage() {
      ═════════════════════════════════════════════════════════════════════ */
 
   return (
-    <div className={`fixed inset-0 ${lightMode ? "text-gray-900 fomi-light" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
+    <div className={`fixed inset-0 fomi-glass ${lightMode ? "text-gray-900 fomi-light" : "text-white"} overflow-hidden flex flex-col`} style={{ backgroundColor: bg }}>
+      {/* Google Fonts */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Noto+Sans+Display:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      {/* Glass Morphism base styles */}
+      <style>{`
+        .fomi-glass { font-family: 'Noto Sans Display', system-ui, sans-serif; }
+        .fomi-glass h1, .fomi-glass h2, .fomi-glass h3, .fomi-glass h4, .fomi-glass .heading-font { font-family: 'Montserrat', system-ui, sans-serif; }
+        .fomi-glass .glass-card { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .fomi-glass .glass-header { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); background: rgba(10,6,13,0.8); }
+        .fomi-glass .logo-glow { box-shadow: 0 0 20px rgba(208,58,140,0.3); }
+        .fomi-glass .bg-glow::before { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.08) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(123,45,133,0.06) 0%, transparent 60%); }
+        .fomi-glass .i3x-call-row { transition: all 0.3s; }
+        .fomi-glass .i3x-call-row:last-child { border-bottom: none; }
+      `}</style>
       {lightMode && (
         <style>{`
-          .fomi-light .border-white\\/\\[0\\.06\\], .fomi-light .border-white\\/\\[0\\.08\\], .fomi-light .border-white\\/\\[0\\.04\\], .fomi-light .border-white\\/10, .fomi-light .border-white\\/15, .fomi-light .border-white\\/20 { border-color: rgba(208,58,140,0.2) !important; }
+          .fomi-light .border-white\\/\\[0\\.06\\], .fomi-light .border-white\\/\\[0\\.08\\], .fomi-light .border-white\\/\\[0\\.04\\], .fomi-light .border-white\\/10, .fomi-light .border-white\\/15, .fomi-light .border-white\\/20 { border-color: rgba(208,58,140,0.15) !important; }
           .fomi-light .bg-white\\/\\[0\\.02\\], .fomi-light .bg-white\\/\\[0\\.03\\], .fomi-light .bg-white\\/\\[0\\.04\\], .fomi-light .bg-white\\/\\[0\\.05\\] { background-color: rgba(208,58,140,0.04) !important; }
+          .fomi-light .glass-header { background: rgba(255,255,255,0.9) !important; backdrop-filter: blur(20px) !important; }
+          .fomi-light .glass-card { backdrop-filter: blur(8px) !important; }
+          .fomi-light .bg-glow::before { background: radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.04) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(123,45,133,0.03) 0%, transparent 60%) !important; }
+          .fomi-light .border-\\[\\#d03a8c\\]\\/\\[0\\.12\\] { border-color: rgba(208,58,140,0.15) !important; }
+          .fomi-light .bg-\\[\\#d03a8c\\]\\/\\[0\\.03\\] { background-color: rgba(208,58,140,0.03) !important; }
+          .fomi-light .bg-\\[\\#d03a8c\\]\\/\\[0\\.04\\] { background-color: rgba(208,58,140,0.04) !important; }
+          .fomi-light .bg-\\[\\#d03a8c\\]\\/\\[0\\.05\\] { background-color: rgba(208,58,140,0.04) !important; }
+          .fomi-light .text-\\[\\#d03a8c\\]\\/60 { color: rgba(208,58,140,0.8) !important; }
+          .fomi-light .logo-glow { box-shadow: 0 0 15px rgba(208,58,140,0.2) !important; }
           .fomi-light .text-white\\/90 { color: #1a1a1a !important; }
           .fomi-light .text-white\\/80, .fomi-light .text-white\\/70, .fomi-light .text-white\\/60 { color: #2d2d2d !important; }
           .fomi-light .text-white\\/50, .fomi-light .text-white\\/45, .fomi-light .text-white\\/40 { color: #444 !important; }
@@ -842,27 +914,27 @@ export default function FomiPage() {
         `}</style>
       )}
       {/* ── Top Bar ──────────────────────────────────────────────────── */}
-      <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-white/[0.06]">
+      <header className={`h-14 shrink-0 flex items-center justify-between px-6 border-b ${lightMode ? "border-gray-200 bg-white" : "border-[#d03a8c]/[0.12]"} glass-header relative z-10`}>
         <div className="flex items-center gap-4">
           {/* Logo — triple-click activates fallback (Feature A) */}
-          <div className="flex items-center gap-2 select-none" onClick={handleLogoClick}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] grid place-items-center cursor-pointer">
-              <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <div className="flex items-center gap-3 select-none" onClick={handleLogoClick}>
+            <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] grid place-items-center cursor-pointer logo-glow">
+              <svg className="w-[18px] h-[18px] text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
             </div>
-            <span className="text-lg font-bold tracking-tight">OpenShopFloor</span>
+            <span className="text-lg font-extrabold tracking-tight heading-font">OpenShopFloor</span>
           </div>
           <button
             onClick={() => setLlmProvider(p => p === "local" ? "haiku" : "local")}
-            className="text-[10px] font-mono text-white/30 bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-0.5 hover:bg-white/[0.08] transition-colors cursor-pointer flex items-center gap-1"
+            className="text-[10px] font-mono text-white/30 bg-[#d03a8c]/[0.08] border border-[#d03a8c]/[0.15] rounded-md px-2 py-0.5 hover:bg-[#d03a8c]/[0.15] transition-colors cursor-pointer flex items-center gap-1"
             title={`LLM: ${llmProvider}`}
           >
             v{process.env.NEXT_PUBLIC_APP_VERSION}
             {llmProvider === "haiku" && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />}
           </button>
-          <span className={`text-sm ${lightMode ? "text-gray-400" : "text-white/40"}`}>|</span>
-          <span className={`text-sm font-medium ${lightMode ? "text-gray-600" : "text-white/60"}`}>FoMI 2026 Live Demo</span>
+          <span className={`text-sm ${lightMode ? "text-gray-400" : "text-[#d03a8c]/30"}`}>|</span>
+          <span className={`text-sm font-semibold ${lightMode ? "text-gray-600" : "text-white/50"}`}>FoMI 2026 Live Demo</span>
           <button
             onClick={() => setLightMode(m => !m)}
             className={`ml-2 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
@@ -896,8 +968,8 @@ export default function FomiPage() {
           )}
 
           {/* i3X badge */}
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03]">
-            <span className="text-[10px] font-bold text-[#d03a8c] tracking-wider">i3X</span>
+          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#d03a8c]/[0.15] bg-[#d03a8c]/[0.04]">
+            <span className="text-[10px] font-extrabold text-[#d03a8c] tracking-[3px] heading-font">i3X</span>
             <span className="text-[10px] text-white/30">|</span>
             <span className="text-[10px] text-white/50">CESMII SM Profiles</span>
           </div>
@@ -905,20 +977,20 @@ export default function FomiPage() {
       </header>
 
       {/* ── Content ──────────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 bg-glow">
           {/* ═══════════════════════════════════════════════════════════
              IMPACT ANALYSIS + INLINE DISCUSSION
              ═══════════════════════════════════════════════════════════ */}
-          <div className="h-full flex" style={{ position: 'relative' }}>
+          <div className="h-full flex relative" style={{ zIndex: 1 }}>
             {/* LEFT: Chat */}
-            <div style={{ width: `${splitPct}%` }} className="flex flex-col border-r border-white/[0.06]">
+            <div style={{ width: `${splitPct}%` }} className="flex flex-col border-r border-[#d03a8c]/[0.12]">
               {/* Chat messages */}
               <div ref={chatRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                 {messages.length === 0 && !streaming && (
                   <div className="flex flex-col items-center justify-center h-full text-center">
                     <div className="relative w-24 h-24 mb-6">
                       <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] opacity-20 animate-pulse" />
-                      <div className="absolute inset-2 rounded-full bg-[#050507]" />
+                      <div className="absolute inset-2 rounded-full bg-[#0a060d]" />
                       <div className="absolute inset-0 flex items-center justify-center">
                         <svg className="w-10 h-10 text-[#d03a8c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
@@ -934,7 +1006,8 @@ export default function FomiPage() {
                         setQuestion("What happens if SGM-004 goes down right now?");
                         setTimeout(() => handleSend(), 100);
                       }}
-                      className="px-5 py-3 rounded-lg bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-black font-semibold text-sm hover:opacity-90 transition-opacity"
+                      className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-white font-bold text-sm hover:opacity-90 transition-all heading-font"
+                      style={{ boxShadow: "0 4px 20px rgba(208,58,140,0.3)" }}
                     >
                       &quot;What happens if SGM-004 goes down?&quot;
                     </button>
@@ -952,7 +1025,7 @@ export default function FomiPage() {
                         {msg.toolCalls && msg.toolCalls.length > 0 && (
                           <div className="space-y-1">
                             {msg.toolCalls.map((tc, j) => (
-                              <div key={j} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm">
+                              <div key={j} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#d03a8c]/[0.04] border border-[#d03a8c]/[0.1] glass-card text-sm">
                                 {tc.status === "running" ? (
                                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
                                 ) : (
@@ -995,7 +1068,7 @@ export default function FomiPage() {
                   <div className="space-y-2">
                     <div className="text-xs font-bold text-white/50 uppercase tracking-widest">Specialists — {Array.from(v7State.specialists.values()).filter(s => s.status === "done").length}/{v7State.specialists.size}</div>
                     {Array.from(v7State.specialists.entries()).map(([key, spec]) => (
-                      <div key={key} className="rounded-lg bg-white/[0.04] border border-white/[0.08] overflow-hidden">
+                      <div key={key} className="rounded-xl bg-[#d03a8c]/[0.04] border border-[#d03a8c]/[0.1] glass-card overflow-hidden">
                         <button
                           onClick={() => setExpandedSpec(expandedSpec === key ? null : key)}
                           className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors text-sm"
@@ -1105,7 +1178,7 @@ export default function FomiPage() {
               </div>
 
               {/* Input */}
-              <div className="p-4 border-t border-white/[0.06]">
+              <div className="p-4 border-t border-[#d03a8c]/[0.12]">
                 {false && chatDone && !streaming ? (
                   <div /> // Act 2 button removed — discussion runs inline in Act 1
                 ) : (
@@ -1115,12 +1188,13 @@ export default function FomiPage() {
                       onChange={(e) => setQuestion(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSend()}
                       placeholder="What happens if SGM-004 goes down right now?"
-                      className="flex-1 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/10 text-base focus:outline-none focus:border-[#d03a8c]/50 transition-colors placeholder:text-white/20"
+                      className="flex-1 px-4 py-3 rounded-xl bg-[#d03a8c]/[0.05] border border-[#d03a8c]/[0.15] text-base focus:outline-none focus:border-[#d03a8c]/40 transition-colors placeholder:text-white/20"
                     />
                     <button
                       onClick={handleSend}
                       disabled={!question.trim() || streaming}
-                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-black font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity"
+                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-white font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity heading-font"
+                      style={{ boxShadow: "0 4px 20px rgba(208,58,140,0.3)" }}
                     >
                       Ask
                     </button>
@@ -1149,10 +1223,10 @@ export default function FomiPage() {
             {/* RIGHT: i3X Insight Panel */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4" style={{ height: 'calc(100vh - 56px)' }}>
               {/* ── Data Sources ──────────────────────────────────────── */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <div className="rounded-2xl border border-[#d03a8c]/[0.12] bg-[#d03a8c]/[0.03] p-5 glass-card">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Interoperability</span>
-                  <span className="text-xs text-white/40">— Data Sources</span>
+                  <span className="text-sm font-extrabold text-white/80 uppercase tracking-[3px] heading-font">Interoperability</span>
+                  <span className="text-xs text-white/30">— Data Sources</span>
                 </div>
                 <div className="grid grid-cols-4 gap-3">
                   {DATA_SOURCES.map((src) => {
@@ -1160,10 +1234,10 @@ export default function FomiPage() {
                     return (
                       <div
                         key={src.id}
-                        className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-500 ${
+                        className={`relative flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all duration-500 ${
                           isActive
                             ? "border-white/20 bg-white/[0.05]"
-                            : "border-white/[0.04] bg-white/[0.01]"
+                            : "border-[#d03a8c]/[0.06] bg-[#d03a8c]/[0.02]"
                         }`}
                       >
                         {isActive && (
@@ -1195,11 +1269,42 @@ export default function FomiPage() {
                 </div>
               </div>
 
+              {/* ── i3X API Calls ──────────────────────────────────────── */}
+              {i3xCalls.length > 0 && (
+                <div className="rounded-2xl border border-[#d03a8c]/[0.12] bg-[#d03a8c]/[0.03] p-5 glass-card">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-sm font-extrabold text-[#d03a8c] uppercase tracking-[3px] heading-font">i3X API</span>
+                    <span className="text-xs text-white/30">— Knowledge Graph</span>
+                    <span className="ml-auto text-[10px] font-mono text-white/30">
+                      {i3xCalls.filter(c => c.status === "done").length}/{i3xCalls.length} calls
+                      {i3xCalls.some(c => c.duration) && ` · avg ${Math.round(i3xCalls.filter(c => c.duration).reduce((s, c) => s + (c.duration || 0), 0) / i3xCalls.filter(c => c.duration).length)}ms`}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {i3xCalls.map((call) => (
+                      <div key={call.id} className="i3x-call-row flex items-center gap-2 px-3 py-2 rounded-xl bg-[#d03a8c]/[0.04] border border-[#d03a8c]/[0.08] text-[12px] font-mono">
+                        {call.status === "running" ? (
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                        ) : call.status === "error" ? (
+                          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                        )}
+                        <span className="text-[#d03a8c]/60 font-bold shrink-0">{call.method}</span>
+                        <span className="text-white/70 truncate flex-1">{call.endpoint}</span>
+                        {call.duration && <span className="text-white/25 shrink-0">{call.duration}ms</span>}
+                        {call.resultSummary && <span className="text-emerald-400/60 shrink-0">{call.resultSummary}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* ── KG Type System ────────────────────────────────────── */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <div className="rounded-2xl border border-[#d03a8c]/[0.12] bg-[#d03a8c]/[0.03] p-5 glass-card">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Integration</span>
-                  <span className="text-xs text-white/40">— Knowledge Graph Types</span>
+                  <span className="text-sm font-extrabold text-white/80 uppercase tracking-[3px] heading-font">Integration</span>
+                  <span className="text-xs text-white/30">— Knowledge Graph Types</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {kgTypes.map((t) => {
@@ -1227,10 +1332,10 @@ export default function FomiPage() {
 
               {/* ── KG Tools ──────────────────────────────────────────── */}
               {kgToolsList.length > 0 && (
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                <div className="rounded-2xl border border-[#d03a8c]/[0.12] bg-[#d03a8c]/[0.03] p-5 glass-card">
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">KG Queries</span>
-                    <span className="text-xs text-white/40">— {kgToolsList.length} tools</span>
+                    <span className="text-sm font-extrabold text-white/80 uppercase tracking-[3px] heading-font">KG Queries</span>
+                    <span className="text-xs text-white/30">— {kgToolsList.length} tools</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {kgToolsList.map((tool) => {
@@ -1259,10 +1364,10 @@ export default function FomiPage() {
 
               {/* ── Knowledge Graph (3D) ─────────────────────────────── */}
               {kgNodes.length > 0 && (
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-                    <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Intelligence</span>
-                    <span className="text-xs text-white/40">— Knowledge Graph</span>
+                <div className="rounded-2xl border border-[#d03a8c]/[0.12] bg-[#d03a8c]/[0.03] glass-card overflow-hidden">
+                  <div className="flex items-center gap-2 px-5 pt-4 pb-1">
+                    <span className="text-sm font-extrabold text-white/80 uppercase tracking-[3px] heading-font">Intelligence</span>
+                    <span className="text-xs text-white/30">— Knowledge Graph</span>
                     <span className="ml-auto text-xs text-white/50 mr-2">{kgNodes.length} nodes, {kgEdges.length} edges</span>
                     <button
                       onClick={() => setKgPopup(true)}
@@ -1281,7 +1386,7 @@ export default function FomiPage() {
               {/* ── Impact Summary Cards ───────────────────────────────── */}
               {(impactOrders.length > 0 || impactCustomers.length > 0 || impactCost) && (
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-red-500/20 bg-red-500/[0.05] p-4">
+                  <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.05] p-5 glass-card">
                     <div className="text-xs text-red-400/70 uppercase tracking-wider font-bold mb-2">Orders at Risk</div>
                     <div className="text-4xl font-black text-red-400 mb-1">{impactOrders.length}</div>
                     <div className="text-[10px] text-white/30 space-y-0.5">
@@ -1292,7 +1397,7 @@ export default function FomiPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-4">
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] p-5 glass-card">
                     <div className="text-xs text-amber-400/70 uppercase tracking-wider font-bold mb-2">Customers Hit</div>
                     <div className="text-4xl font-black text-amber-400 mb-1">{impactCustomers.length}</div>
                     <div className="text-[10px] text-white/30 space-y-0.5">
@@ -1302,7 +1407,7 @@ export default function FomiPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-[#d03a8c]/20 bg-[#d03a8c]/[0.05] p-4">
+                  <div className="rounded-2xl border border-[#d03a8c]/20 bg-[#d03a8c]/[0.05] p-5 glass-card">
                     <div className="text-xs text-[#d03a8c]/70 uppercase tracking-wider font-bold mb-2">Downtime Cost</div>
                     <div className="text-3xl font-black text-[#d03a8c]">{impactCost || "\u2014"}</div>
                   </div>
@@ -1326,7 +1431,8 @@ export default function FomiPage() {
 
       {/* ── KG Window ──────────────────────────────────────────── */}
       {kgPopup && kgNodes.length > 0 && (
-        <div className="fixed top-4 right-4 bottom-4 w-[55%] z-[100] bg-[#0a0a0f] border border-white/15 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden">
+        <div className="fixed top-4 right-4 bottom-4 w-[55%] z-[100] bg-[#0a060d] border border-[#d03a8c]/20 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden glass-card"
+          style={{ boxShadow: "0 8px 40px rgba(208,58,140,0.15), 0 25px 50px rgba(0,0,0,0.5)" }}>
           <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             <div className="flex items-center gap-3">
               <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Knowledge Graph</span>
