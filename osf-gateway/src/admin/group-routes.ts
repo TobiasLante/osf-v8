@@ -203,7 +203,7 @@ router.post('/:id/token-test', requireAuth, requireGroupAdmin, async (req: Reque
         url = `${baseUrl}/v1/chat/completions`;
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
-      body = JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Say "ok"' }] });
+      body = JSON.stringify({ model, ...(isAzure ? { max_completion_tokens: 16 } : { max_tokens: 16 }), messages: [{ role: 'user', content: 'Say "ok"' }] });
     }
 
     const controller = new AbortController();

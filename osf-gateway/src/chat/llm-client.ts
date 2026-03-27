@@ -414,7 +414,7 @@ export async function callLlm(
         model: config.model,
         messages,
         temperature: 0.3,
-        max_tokens: 4096,
+        ...(isAzure ? { max_completion_tokens: 4096 } : { max_tokens: 4096 }),
       };
       if (hasTools) {
         body.tools = tools;
@@ -567,19 +567,18 @@ export async function* streamLlm(
   }
 
   try {
+    const isAzure = config.provider === 'azure' || config.baseUrl.includes('.azure.com');
     const body: any = {
       model: config.model,
       messages,
       temperature: 0.3,
-      max_tokens: 4096,
+      ...(isAzure ? { max_completion_tokens: 4096 } : { max_tokens: 4096 }),
       stream: true,
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
       body.tool_choice = 'auto';
     }
-
-    const isAzure = config.provider === 'azure' || config.baseUrl.includes('.azure.com');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (config.apiKey) {
       if (isAzure) {
