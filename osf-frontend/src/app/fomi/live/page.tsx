@@ -471,6 +471,9 @@ export default function FomiPage() {
       })
       .catch(() => {}); // Fallback to DEFAULT_KG_TYPES
   }, []);
+
+  // Load full KG from Neo4j on mount
+  const [kgLoaded, setKgLoaded] = useState(false);
   const [kgNodes, setKgNodes] = useState<KGNode[]>([]);
   const [kgEdges, setKgEdges] = useState<KGEdge[]>([]);
   const [kgCenter, setKgCenter] = useState<string | undefined>();
@@ -535,6 +538,26 @@ export default function FomiPage() {
     const kgTypes = matchToolToKgTypes(toolName);
     kgTypes.forEach((t) => setActiveKgTypes((prev) => new Set(prev).add(t)));
   }, [activateSource]);
+
+  // Load KG graph from Neo4j via i3x/graph endpoint on mount
+  useEffect(() => {
+    if (kgLoaded) return;
+    const API = process.env.NEXT_PUBLIC_API_URL || "";
+    fetch(`${API}/i3x/graph?limit=500`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { nodes: KGNode[]; edges: KGEdge[] } | null) => {
+        if (!data || data.nodes.length === 0) return;
+        setKgNodes(data.nodes);
+        setKgEdges(data.edges);
+        setKgStatus("done");
+        const types = new Set(data.nodes.map(n => n.type.toLowerCase()));
+        setActiveKgTypes(types);
+        ["uns", "erp", "bde", "mrp"].forEach(activateSource);
+        setKgLoaded(true);
+        console.log(`[FoMI] Neo4j graph loaded: ${data.nodes.length} nodes, ${data.edges.length} edges`);
+      })
+      .catch((err) => console.warn("[FoMI] Neo4j graph load failed:", err));
+  }, [kgLoaded, activateSource]);
 
   /* ── Extract impact stats from assistant content ───────────────────── */
   const extractImpactStats = useCallback((content: string) => {

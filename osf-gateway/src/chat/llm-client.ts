@@ -241,6 +241,7 @@ export interface LlmConfig {
   baseUrl: string;
   model: string;
   apiKey?: string;
+  provider?: string;
 }
 
 const LLM_URLS: Record<string, string> = {
@@ -289,6 +290,7 @@ export async function getLlmConfig(userId: string, tier: string): Promise<LlmCon
         const groupConfig: LlmConfig = {
           baseUrl: group.llm_base_url || getPlatformConfig(tier).baseUrl,
           model: group.llm_model || getPlatformConfig(tier).model,
+          provider: group.llm_provider || undefined,
         };
         if (group.llm_api_key_encrypted) {
           groupConfig.apiKey = decryptApiKey(group.llm_api_key_encrypted);
@@ -311,6 +313,7 @@ export async function getLlmConfig(userId: string, tier: string): Promise<LlmCon
   const config: LlmConfig = {
     baseUrl: user.llm_base_url || getPlatformConfig(tier).baseUrl,
     model: user.llm_model || getPlatformConfig(tier).model,
+    provider: user.llm_provider || undefined,
   };
 
   if (user.llm_api_key_encrypted) {
@@ -376,6 +379,7 @@ export async function callLlm(
 
   try {
     const isAnthropic = config.baseUrl.includes('anthropic.com');
+    const isAzure = config.provider === 'azure' || config.baseUrl.includes('.azure.com');
 
     // Build request body + headers depending on provider
     let requestBody: string;
@@ -417,7 +421,11 @@ export async function callLlm(
         body.tool_choice = 'auto';
       }
       if (config.apiKey) {
-        headers['Authorization'] = `Bearer ${config.apiKey}`;
+        if (isAzure) {
+          headers['api-key'] = config.apiKey;
+        } else {
+          headers['Authorization'] = `Bearer ${config.apiKey}`;
+        }
       }
       requestBody = JSON.stringify(body);
       requestUrl = `${config.baseUrl}/v1/chat/completions`;
@@ -567,9 +575,14 @@ export async function* streamLlm(
       body.tool_choice = 'auto';
     }
 
+    const isAzure = config.provider === 'azure' || config.baseUrl.includes('.azure.com');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (config.apiKey) {
-      headers['Authorization'] = `Bearer ${config.apiKey}`;
+      if (isAzure) {
+        headers['api-key'] = config.apiKey;
+      } else {
+        headers['Authorization'] = `Bearer ${config.apiKey}`;
+      }
     }
 
     let resp: globalThis.Response;

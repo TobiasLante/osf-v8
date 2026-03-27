@@ -209,6 +209,7 @@ export default function GroupAdminPage() {
               <select value={provider} onChange={e => setProvider(e.target.value)} className="w-full bg-bg border border-border rounded px-3 py-2 text-sm">
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="openai">OpenAI</option>
+                <option value="azure">Azure AI Foundry</option>
                 <option value="local">Local (llama.cpp)</option>
               </select>
             </div>
@@ -218,11 +219,11 @@ export default function GroupAdminPage() {
             </div>
             <div>
               <label className="text-xs text-text-muted block mb-1">API Key</label>
-              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." className="w-full bg-bg border border-border rounded px-3 py-2 text-sm" />
+              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={provider === "azure" ? "your-api-key" : "sk-..."} className="w-full bg-bg border border-border rounded px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs text-text-muted block mb-1">Base URL (optional)</label>
-              <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.anthropic.com" className="w-full bg-bg border border-border rounded px-3 py-2 text-sm" />
+              <label className="text-xs text-text-muted block mb-1">Base URL {provider === "azure" ? "" : "(optional)"}</label>
+              <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={provider === "azure" ? "https://…azure.com/…/openai" : "https://api.anthropic.com"} className="w-full bg-bg border border-border rounded px-3 py-2 text-sm" />
             </div>
           </div>
           <button onClick={saveToken} disabled={!apiKey || saving} className="mt-3 px-4 py-2 bg-accent text-bg rounded text-sm font-medium disabled:opacity-50 hover:bg-accent-hover">

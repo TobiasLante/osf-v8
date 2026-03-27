@@ -18,7 +18,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: kg-builder
-          image: 192.168.178.150:32000/osf-kg-builder:8.9.0
+          image: 192.168.178.150:32000/osf-kg-builder:8.23.0
           imagePullPolicy: Always
           args: ["--domain", "discrete"]
           envFrom:

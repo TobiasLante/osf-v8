@@ -549,4 +549,47 @@ function formatObject(row: any): any {
   };
 }
 
+// ── GET /graph — Full KG as nodes + edges for 3D visualization ───
+
+router.get('/graph', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 500, 2000);
+
+    // Nodes: id, label, type (first Neo4j label)
+    const nodeRows = await cypherQuery(`
+      MATCH (n)
+      WHERE n.id IS NOT NULL
+      RETURN n.id AS id,
+             COALESCE(n.name, n.displayName, n.id) AS label,
+             labels(n)[0] AS type
+      LIMIT ${limit}
+    `);
+
+    // Edges: from, to, label (relationship type)
+    const edgeRows = await cypherQuery(`
+      MATCH (a)-[r]->(b)
+      WHERE a.id IS NOT NULL AND b.id IS NOT NULL
+      RETURN a.id AS from, b.id AS to, type(r) AS label
+      LIMIT ${limit * 3}
+    `);
+
+    const nodes = nodeRows.map((r: any) => ({
+      id: String(r.id),
+      label: String(r.label || r.id),
+      type: String(r.type || 'Entity'),
+    }));
+
+    const edges = edgeRows.map((r: any) => ({
+      from: String(r.from),
+      to: String(r.to),
+      label: String(r.label || ''),
+    }));
+
+    res.json({ nodes, edges });
+  } catch (err: any) {
+    logger.error({ err: err.message }, '[i3x] graph query failed');
+    res.status(500).json({ error: 'Failed to query graph', nodes: [], edges: [] });
+  }
+});
+
 export default router;
