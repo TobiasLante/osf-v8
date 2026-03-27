@@ -182,7 +182,7 @@ router.post('/:id/token-test', requireAuth, requireGroupAdmin, async (req: Reque
   const provider = group.llm_provider || 'anthropic';
   const isAnthropic = provider === 'anthropic';
   const isAzure = provider === 'azure';
-  const baseUrl = group.llm_base_url || (isAnthropic ? 'https://api.anthropic.com' : '');
+  const baseUrl = (group.llm_base_url || (isAnthropic ? 'https://api.anthropic.com' : '')).replace(/\/+$/, '');
   const model = group.llm_model || (isAnthropic ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini');
 
   try {

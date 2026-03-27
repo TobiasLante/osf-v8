@@ -288,7 +288,7 @@ export async function getLlmConfig(userId: string, tier: string): Promise<LlmCon
       const group = groupResult.rows[0];
       try {
         const groupConfig: LlmConfig = {
-          baseUrl: group.llm_base_url || getPlatformConfig(tier).baseUrl,
+          baseUrl: (group.llm_base_url || getPlatformConfig(tier).baseUrl).replace(/\/+$/, ''),
           model: group.llm_model || getPlatformConfig(tier).model,
           provider: group.llm_provider || undefined,
         };
