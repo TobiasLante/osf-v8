@@ -52,6 +52,8 @@ export default function GroupAdminPage() {
   const [model, setModel] = useState("");
   const [saving, setSaving] = useState(false);
   const [heating, setHeating] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; provider?: string; model?: string; reply?: string; error?: string; detail?: string } | null>(null);
 
   const loadGroup = useCallback(async () => {
     try {
@@ -113,6 +115,19 @@ export default function GroupAdminPage() {
       loadTokenStatus();
     } catch (err: any) { setError(err.message); }
     setSaving(false);
+  };
+
+  const testToken = async () => {
+    if (!group) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const data = await apiFetch<{ ok: boolean; provider?: string; model?: string; reply?: string; error?: string; detail?: string }>(
+        `/admin/groups/${group.id}/token-test`, { method: "POST" }
+      );
+      setTestResult(data);
+    } catch (err: any) { setTestResult({ ok: false, error: err.message }); }
+    setTesting(false);
   };
 
   const deleteToken = async () => {
@@ -197,11 +212,23 @@ export default function GroupAdminPage() {
         <div className="border border-border rounded-lg p-5 bg-bg-surface">
           <h2 className="text-sm font-semibold text-text mb-3">Shared API Token</h2>
           {tokenStatus?.has_key && (
-            <div className="flex items-center gap-2 mb-3 p-2 bg-green-500/10 border border-green-500/20 rounded text-sm">
-              <span className="text-green-400">Active:</span>
-              <span className="text-text-muted">{tokenStatus.llm_provider}{tokenStatus.llm_model ? ` / ${tokenStatus.llm_model}` : ""}</span>
-              <button onClick={deleteToken} className="ml-auto text-red-400 hover:text-red-300 text-xs">Remove</button>
-            </div>
+            <>
+              <div className="flex items-center gap-2 mb-2 p-2 bg-green-500/10 border border-green-500/20 rounded text-sm">
+                <span className="text-green-400">Active:</span>
+                <span className="text-text-muted">{tokenStatus.llm_provider}{tokenStatus.llm_model ? ` / ${tokenStatus.llm_model}` : ""}</span>
+                <button onClick={testToken} disabled={testing} className="ml-auto text-accent hover:text-accent-hover text-xs mr-2">
+                  {testing ? "Testing..." : "Test Connection"}
+                </button>
+                <button onClick={deleteToken} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+              </div>
+              {testResult && (
+                <div className={`mb-3 p-2 rounded text-sm border ${testResult.ok ? "bg-green-500/10 border-green-500/20" : "bg-red-500/10 border-red-500/20"}`}>
+                  {testResult.ok
+                    ? <span className="text-green-400">Connection OK — {testResult.provider} / {testResult.model}{testResult.reply ? ` → "${testResult.reply}"` : ""}</span>
+                    : <span className="text-red-400">Failed: {testResult.error}{testResult.detail ? <span className="block text-xs text-red-300/70 mt-1">{testResult.detail}</span> : null}</span>}
+                </div>
+              )}
+            </>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>

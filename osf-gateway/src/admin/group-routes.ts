@@ -4,7 +4,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pool } from '../db/pool';
 import { requireAuth, requireAdmin } from '../auth/middleware';
-import { encryptApiKey } from '../auth/crypto';
+import { encryptApiKey, decryptApiKey } from '../auth/crypto';
 import { logger } from '../logger';
 
 const router = Router();
@@ -163,6 +163,71 @@ router.get('/:id/token-status', requireAuth, requireGroupAdmin, async (req: Requ
   );
   if (result.rows.length === 0) { res.status(404).json({ error: 'Group not found' }); return; }
   res.json(result.rows[0]);
+});
+
+// POST /admin/groups/:id/token-test — test stored API token with a minimal LLM call
+router.post('/:id/token-test', requireAuth, requireGroupAdmin, async (req: Request, res: Response) => {
+  const result = await pool.query(
+    'SELECT llm_provider, llm_base_url, llm_model, llm_api_key_encrypted FROM learning_groups WHERE id = $1',
+    [req.params.id],
+  );
+  if (result.rows.length === 0) { res.status(404).json({ error: 'Group not found' }); return; }
+  const group = result.rows[0];
+  if (!group.llm_api_key_encrypted) { res.status(400).json({ error: 'No API token configured' }); return; }
+
+  let apiKey: string;
+  try { apiKey = decryptApiKey(group.llm_api_key_encrypted); }
+  catch { res.status(500).json({ error: 'Failed to decrypt API token' }); return; }
+
+  const provider = group.llm_provider || 'anthropic';
+  const isAnthropic = provider === 'anthropic';
+  const isAzure = provider === 'azure';
+  const baseUrl = group.llm_base_url || (isAnthropic ? 'https://api.anthropic.com' : '');
+  const model = group.llm_model || (isAnthropic ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini');
+
+  try {
+    let url: string;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    let body: string;
+
+    if (isAnthropic) {
+      url = `${baseUrl}/v1/messages`;
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+      body = JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Say "ok"' }] });
+    } else {
+      if (isAzure) {
+        url = `${baseUrl}/openai/deployments/${model}/chat/completions?api-version=2024-12-01-preview`;
+        headers['api-key'] = apiKey;
+      } else {
+        url = `${baseUrl}/v1/chat/completions`;
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      body = JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Say "ok"' }] });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    const resp = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      res.json({ ok: false, error: `${resp.status} ${resp.statusText}`, detail: text.slice(0, 500) });
+      return;
+    }
+
+    const data = await resp.json() as any;
+    const reply = isAnthropic
+      ? data.content?.[0]?.text
+      : data.choices?.[0]?.message?.content;
+    const modelUsed = data.model || model;
+
+    logger.info({ groupId: req.params.id, provider, model: modelUsed, testedBy: req.user!.userId }, 'Group token test succeeded');
+    res.json({ ok: true, provider, model: modelUsed, reply: (reply || '').slice(0, 100) });
+  } catch (err: any) {
+    res.json({ ok: false, error: err.message || 'Connection failed' });
+  }
 });
 
 // POST /admin/groups/:id/heat-up — scale warm pods for group session
