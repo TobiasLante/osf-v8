@@ -428,7 +428,11 @@ export async function callLlm(
         }
       }
       requestBody = JSON.stringify(body);
-      requestUrl = `${config.baseUrl}/v1/chat/completions`;
+      if (isAzure) {
+        requestUrl = `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-12-01-preview`;
+      } else {
+        requestUrl = `${config.baseUrl}/v1/chat/completions`;
+      }
     }
 
     // Combine caller signal with per-request timeout (5min)
@@ -585,9 +589,13 @@ export async function* streamLlm(
       }
     }
 
+    const streamUrl = isAzure
+      ? `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-12-01-preview`
+      : `${config.baseUrl}/v1/chat/completions`;
+
     let resp: globalThis.Response;
     try {
-      resp = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+      resp = await fetch(streamUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
