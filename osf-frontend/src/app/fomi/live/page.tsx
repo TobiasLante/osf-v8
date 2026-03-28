@@ -13,6 +13,9 @@ import { mdClasses } from "@/components/chat/v7/types";
 // LS_TOKEN used by streamSSE internally via api.ts
 import { useAuth } from "@/lib/auth-context";
 
+// i3X Connectivity Agent API (separate from osf-gateway)
+const I3X_API = process.env.NEXT_PUBLIC_I3X_API_URL || "http://192.168.178.150:30835";
+
 /* ═══════════════════════════════════════════════════════════════════════
    i3X API CALL TRACKING
    ═══════════════════════════════════════════════════════════════════════ */
@@ -473,9 +476,8 @@ export default function FomiPage() {
 
   // Load KG types from i3X API on mount
   useEffect(() => {
-    const API = process.env.NEXT_PUBLIC_API_URL || "";
-    const callId = trackI3xCall("GET", "/i3x/objecttypes");
-    fetch(`${API}/i3x/objecttypes`, { credentials: "include" })
+    const callId = trackI3xCall("GET", "/i3x/v0/objecttypes");
+    fetch(`${I3X_API}/i3x/v0/objecttypes`)
       .then(r => r.ok ? r.json() : null)
       .then((types: any[] | null) => {
         if (!types || types.length === 0) { completeI3xCall(callId, "0 types"); return; }
@@ -569,24 +571,30 @@ export default function FomiPage() {
     kgTypes.forEach((t) => setActiveKgTypes((prev) => new Set(prev).add(t)));
   }, [activateSource]);
 
-  // Load KG graph from Neo4j via i3x/graph endpoint on mount
+  // Load KG graph from Neo4j via i3x objects/related endpoint on mount
   useEffect(() => {
     if (kgLoaded) return;
-    const API = process.env.NEXT_PUBLIC_API_URL || "";
-    const callId = trackI3xCall("GET", "/i3x/graph?limit=500");
-    fetch(`${API}/i3x/graph?limit=500`, { credentials: "include" })
+    const callId = trackI3xCall("GET", "/i3x/v0/objects?limit=500");
+    fetch(`${I3X_API}/i3x/v0/objects?limit=500`)
       .then(r => r.ok ? r.json() : null)
-      .then((data: { nodes: KGNode[]; edges: KGEdge[] } | null) => {
-        if (!data || data.nodes.length === 0) { completeI3xCall(callId, "empty"); return; }
-        completeI3xCall(callId, `${data.nodes.length}n / ${data.edges.length}e`);
-        setKgNodes(data.nodes);
-        setKgEdges(data.edges);
+      .then((data: any) => {
+        // i3X v0 returns array of ObjectInstances — convert to KGNode/KGEdge format
+        const objects = Array.isArray(data) ? data : data?.nodes ? data.nodes : [];
+        if (objects.length === 0) { completeI3xCall(callId, "empty"); return; }
+        const nodes: KGNode[] = objects.map((o: any) => ({
+          id: o.elementId || o.id || '',
+          label: o.displayName || o.name || o.elementId || '',
+          type: (o.typeId || '').replace('type:', '') || 'Unknown',
+        }));
+        completeI3xCall(callId, `${nodes.length} objects`);
+        setKgNodes(nodes);
+        setKgEdges([]); // edges loaded separately if needed
         setKgStatus("done");
-        const types = new Set(data.nodes.map(n => n.type.toLowerCase()));
+        const types = new Set(nodes.map(n => n.type.toLowerCase()));
         setActiveKgTypes(types);
         ["uns", "erp", "bde", "mrp"].forEach(activateSource);
         setKgLoaded(true);
-        console.log(`[FoMI] Neo4j graph loaded: ${data.nodes.length} nodes, ${data.edges.length} edges`);
+        console.log(`[FoMI] i3X objects loaded: ${nodes.length} objects`);
       })
       .catch((err) => { completeI3xCall(callId, "failed", true); console.warn("[FoMI] Neo4j graph load failed:", err); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -875,7 +883,7 @@ export default function FomiPage() {
         .fomi-glass .glass-card { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
         .fomi-glass .glass-header { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); background: rgba(10,6,13,0.8); }
         .fomi-glass .logo-glow { box-shadow: 0 0 20px rgba(208,58,140,0.3); }
-        .fomi-glass .bg-glow::before { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.08) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(123,45,133,0.06) 0%, transparent 60%); }
+        .fomi-glass .bg-glow::before { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.08) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(168,85,247,0.06) 0%, transparent 60%); }
         .fomi-glass .i3x-call-row { transition: all 0.3s; }
         .fomi-glass .i3x-call-row:last-child { border-bottom: none; }
       `}</style>
@@ -885,7 +893,7 @@ export default function FomiPage() {
           .fomi-light .bg-white\\/\\[0\\.02\\], .fomi-light .bg-white\\/\\[0\\.03\\], .fomi-light .bg-white\\/\\[0\\.04\\], .fomi-light .bg-white\\/\\[0\\.05\\] { background-color: rgba(208,58,140,0.04) !important; }
           .fomi-light .glass-header { background: rgba(255,255,255,0.9) !important; backdrop-filter: blur(20px) !important; }
           .fomi-light .glass-card { backdrop-filter: blur(8px) !important; }
-          .fomi-light .bg-glow::before { background: radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.04) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(123,45,133,0.03) 0%, transparent 60%) !important; }
+          .fomi-light .bg-glow::before { background: radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.04) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(168,85,247,0.03) 0%, transparent 60%) !important; }
           .fomi-light .border-\\[\\#d03a8c\\]\\/\\[0\\.12\\] { border-color: rgba(208,58,140,0.15) !important; }
           .fomi-light .bg-\\[\\#d03a8c\\]\\/\\[0\\.03\\] { background-color: rgba(208,58,140,0.03) !important; }
           .fomi-light .bg-\\[\\#d03a8c\\]\\/\\[0\\.04\\] { background-color: rgba(208,58,140,0.04) !important; }
@@ -910,7 +918,7 @@ export default function FomiPage() {
           .fomi-light .bg-amber-500\\/\\[0\\.1\\] { background-color: rgba(180,83,9,0.08) !important; }
           .fomi-light .bg-cyan-500\\/10 { background-color: rgba(14,116,144,0.08) !important; }
           .fomi-light input { background-color: rgba(208,58,140,0.05) !important; color: #1a1a1a !important; border-color: rgba(208,58,140,0.2) !important; }
-          .fomi-light input::placeholder { color: rgba(123,45,133,0.4) !important; }
+          .fomi-light input::placeholder { color: rgba(168,85,247,0.4) !important; }
         `}</style>
       )}
       {/* ── Top Bar ──────────────────────────────────────────────────── */}
@@ -918,7 +926,7 @@ export default function FomiPage() {
         <div className="flex items-center gap-4">
           {/* Logo — triple-click activates fallback (Feature A) */}
           <div className="flex items-center gap-3 select-none" onClick={handleLogoClick}>
-            <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] grid place-items-center cursor-pointer logo-glow">
+            <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[#d03a8c] to-[#a855f7] grid place-items-center cursor-pointer logo-glow">
               <svg className="w-[18px] h-[18px] text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
@@ -937,7 +945,7 @@ export default function FomiPage() {
           <span className={`text-sm font-semibold ${lightMode ? "text-gray-600" : "text-white/50"}`}>FoMI 2026 Live Demo</span>
           <button
             onClick={() => setLightMode(m => !m)}
-            className={`ml-2 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${lightMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-white/20 text-gray-900"}`}
+            className={`ml-2 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${lightMode ? "bg-[#d03a8c]/10 border-[#d03a8c]/20 text-[#d03a8c]" : "bg-white/10 border-white/20 text-white/70"}`}
           >
             {lightMode ? "Dark" : "Light"}
           </button>
@@ -989,7 +997,7 @@ export default function FomiPage() {
                 {messages.length === 0 && !streaming && (
                   <div className="flex flex-col items-center justify-center h-full text-center">
                     <div className="relative w-24 h-24 mb-6">
-                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#d03a8c] to-[#7b2d85] opacity-20 animate-pulse" />
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#d03a8c] to-[#a855f7] opacity-20 animate-pulse" />
                       <div className="absolute inset-2 rounded-full bg-[#0a060d]" />
                       <div className="absolute inset-0 flex items-center justify-center">
                         <svg className="w-10 h-10 text-[#d03a8c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1006,7 +1014,7 @@ export default function FomiPage() {
                         setQuestion("What happens if SGM-004 goes down right now?");
                         setTimeout(() => handleSend(), 100);
                       }}
-                      className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-white font-bold text-sm hover:opacity-90 transition-all heading-font"
+                      className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#a855f7] text-white font-bold text-sm hover:opacity-90 transition-all heading-font"
                       style={{ boxShadow: "0 4px 20px rgba(208,58,140,0.3)" }}
                     >
                       &quot;What happens if SGM-004 goes down?&quot;
@@ -1017,7 +1025,7 @@ export default function FomiPage() {
                 {messages.map((msg, i) => (
                   <div key={i} className={`${msg.role === "user" ? "flex justify-end" : ""}`}>
                     {msg.role === "user" ? (
-                      <div className="max-w-[90%] rounded-xl px-4 py-3 bg-gradient-to-r from-[#d03a8c]/20 to-[#7b2d85]/10 border border-[#d03a8c]/20">
+                      <div className="max-w-[90%] rounded-xl px-4 py-3 bg-gradient-to-r from-[#d03a8c]/20 to-[#a855f7]/10 border border-[#d03a8c]/20">
                         <p className="text-base font-medium">{msg.content}</p>
                       </div>
                     ) : (
@@ -1193,7 +1201,7 @@ export default function FomiPage() {
                     <button
                       onClick={handleSend}
                       disabled={!question.trim() || streaming}
-                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#7b2d85] text-white font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity heading-font"
+                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#d03a8c] to-[#a855f7] text-white font-bold text-sm disabled:opacity-30 hover:opacity-90 transition-opacity heading-font"
                       style={{ boxShadow: "0 4px 20px rgba(208,58,140,0.3)" }}
                     >
                       Ask
