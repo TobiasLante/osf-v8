@@ -47,6 +47,10 @@ export interface SourceSchema {
   location?: { enterprise?: string; site?: string; area?: string; line?: string };
   nodeMappings?: OpcUaNodeMapping[];
   staticProperties?: Record<string, any>;
+  // Cross-platform fields (used by i-flow, Highbyte, Litmus, Ignition export scripts)
+  polling?: PollingConfig;
+  security?: SecurityConfig;
+  transforms?: TransformConfig[];
   // PostgreSQL specific
   connection?: PostgresConnection;
   columnMappings?: ColumnMapping[];
@@ -57,6 +61,44 @@ export interface SourceSchema {
   mcpEndpoint?: string;
   idProperty?: string;
 }
+
+// ── Polling / Subscription Config ──────────────────────────────
+export interface PollingConfig {
+  mode: 'scan' | 'subscribe' | 'on-change';
+  intervalMs?: number;  // Required for 'scan' mode (e.g. 5000 = 5s)
+}
+
+// ── OPC-UA Security Config ─────────────────────────────────────
+export interface SecurityConfig {
+  mode: 'None' | 'Sign' | 'SignAndEncrypt';
+  policy?: 'None' | 'Basic128Rsa15' | 'Basic256' | 'Basic256Sha256' | 'Aes128_Sha256_RsaOaep' | 'Aes256_Sha256_RsaPss';
+  auth: 'Anonymous' | 'Username' | 'Certificate';
+  username?: string;
+  password?: string;
+  certificatePath?: string;
+  privateKeyPath?: string;
+}
+
+// ── Per-Tag Transform (optional, for Highbyte JS / Litmus formula) ─
+export interface TransformConfig {
+  smAttribute: string;            // Which attribute this transform applies to
+  expression: string;             // Platform-agnostic expression, e.g. "(value - 32) * 0.5556"
+  outputDataType?: string;        // Override output data type after transform
+}
+
+// ── Datatype Mapping Table (osf-schema canonical → platform-specific) ─
+export const DATATYPE_MAP: Record<string, Record<string, string>> = {
+  //              osf (canonical)  → platform-specific
+  'Int32':   { iflow: 'Number',  highbyte: 'Int32',   litmus: 'int32',   ignition: 'Int4'    },
+  'Float':   { iflow: 'Number',  highbyte: 'Real32',  litmus: 'float32', ignition: 'Float4'  },
+  'Float64': { iflow: 'Number',  highbyte: 'Real64',  litmus: 'float64', ignition: 'Float8'  },
+  'String':  { iflow: 'String',  highbyte: 'String',  litmus: 'string',  ignition: 'String'  },
+  'Boolean': { iflow: 'Boolean', highbyte: 'Boolean', litmus: 'bool',    ignition: 'Boolean' },
+  'Int16':   { iflow: 'Number',  highbyte: 'Int16',   litmus: 'int16',   ignition: 'Int2'    },
+  'Int64':   { iflow: 'Number',  highbyte: 'Int64',   litmus: 'int64',   ignition: 'Int8'    },
+  'UInt16':  { iflow: 'Number',  highbyte: 'UInt16',  litmus: 'uint16',  ignition: 'Int2'    },
+  'UInt32':  { iflow: 'Number',  highbyte: 'UInt32',  litmus: 'uint32',  ignition: 'Int4'    },
+};
 
 export interface PostgresConnection {
   host: string;

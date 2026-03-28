@@ -298,6 +298,17 @@ One file per OPC-UA server (= one per machine in our setup).
     "line": "SGM-1300"
   },
 
+  "polling": {
+    "mode": "scan",
+    "intervalMs": 5000
+  },
+
+  "security": {
+    "mode": "None",
+    "policy": "None",
+    "auth": "Anonymous"
+  },
+
   "nodeMappings": [
     {
       "opcuaNodeId": "ns=1;s=Factory.Spritzgussmaschine 2.BDE.Good_Parts",
@@ -528,4 +539,79 @@ Step 3: Load all UNS mappings from schemas/mappings/uns/
         → On each message: parse topic + payload → SET property on KG node
 
 Result: A live Knowledge Graph that stays in sync with the shop floor.
+```
+
+---
+
+## Cross-Platform Compatibility
+
+osf-schemas is the **canonical format** (Single Source of Truth) for all target platforms.
+The KG Builder uses only the core fields; export scripts use the additional cross-platform fields.
+
+### New Fields in Schema 2 (OPC-UA Source)
+
+| Field | Type | Required | Default | Used By |
+|-------|------|----------|---------|---------|
+| `polling.mode` | `"scan"` \| `"subscribe"` \| `"on-change"` | Optional | `"scan"` | i-flow, Highbyte, Litmus, Ignition |
+| `polling.intervalMs` | number | Optional | `5000` | i-flow (`interval`), Highbyte (`subscriptionRate`), Ignition (`tagGroup`) |
+| `security.mode` | `"None"` \| `"Sign"` \| `"SignAndEncrypt"` | Optional | `"None"` | All platforms |
+| `security.policy` | `"None"` \| `"Basic256Sha256"` \| ... | Optional | `"None"` | All platforms |
+| `security.auth` | `"Anonymous"` \| `"Username"` \| `"Certificate"` | Optional | `"Anonymous"` | All platforms |
+| `security.username` | string | Optional | — | When auth = `"Username"` |
+| `security.password` | string | Optional | — | When auth = `"Username"` |
+| `transforms[]` | array | Optional | `[]` | Highbyte (JS expressions), Litmus (`tagFormula`) |
+
+### Datatype Mapping
+
+osf-schemas uses canonical type names. Export scripts translate using this table:
+
+| osf (canonical) | i-flow | Highbyte | Litmus | Ignition |
+|-----------------|--------|----------|--------|----------|
+| `Int32` | `Number` | `Int32` | `int32` | `Int4` |
+| `Float` | `Number` | `Real32` | `float32` | `Float4` |
+| `Float64` | `Number` | `Real64` | `float64` | `Float8` |
+| `String` | `String` | `String` | `string` | `String` |
+| `Boolean` | `Boolean` | `Boolean` | `bool` | `Boolean` |
+| `Int16` | `Number` | `Int16` | `int16` | `Int2` |
+| `Int64` | `Number` | `Int64` | `int64` | `Int8` |
+| `UInt16` | `Number` | `UInt16` | `uint16` | `Int2` |
+| `UInt32` | `Number` | `UInt32` | `uint32` | `Int4` |
+
+The mapping table is also available as `DATATYPE_MAP` in `src/shared/schema-types.ts`.
+
+### Field Mapping per Platform
+
+| osf-schema field | i-flow | Highbyte | Litmus | Ignition |
+|---|---|---|---|---|
+| `endpoint` | `configuration.uri` + `.port` (split) | `uri` (full) | `networkAddress` + `networkPort` | `system.opcua.addConnection(endpointUrl)` |
+| `nodeMappings[].opcuaNodeId` | `sourceDefinitions.tags[].address` | `qualifier.identifier` | `tags[].name` | `opcItemPath` |
+| `nodeMappings[].smAttribute` | `sourceDefinitions.tags[].name` | `inputs[].name` | `tagName` | `name` |
+| `polling.mode` | `sourceDefinitions.tags[].mode` | `subscriptions.subscriptionRate` | Device-level | `sampleMode` |
+| `polling.intervalMs` | `sourceDefinitions.tags[].interval` | `subscriptionRate.duration` | Device-level | `tagGroup` |
+| `security.mode` | `configuration.messageSecurityMode` | `settings.security` | Certificate auto | `securityMode` param |
+| `security.auth` | `configuration.authenticationEnabled` | `settings.authentication.type` | Basic Auth + Token | `settings` dict |
+| `location` | `context: {plant, line, area}` | Model attributes | `metadata` | Tag folder hierarchy |
+| `transforms[].expression` | N/A | `expression.expression` (JS) | `tagFormula` | Expression tag |
+
+### KG Builder Impact
+
+The KG Builder **ignores** `polling`, `security`, and `transforms` — these fields are only read by
+platform-specific export scripts. No changes to the build pipeline are needed.
+
+### Export Architecture
+
+```
+osf-schemas (GitHub repo, Single Source of Truth)
+    │
+    ├── KG Builder ──→ reads profiles + sources + sync → builds Neo4j graph
+    │                   (ignores polling, security, transforms)
+    │
+    ├── export-iflow.ts ──→ POST /api/processors + /api/datamodels + /api/processors (AssetMapping)
+    │                        (reads polling, security, transforms, uses DATATYPE_MAP)
+    │
+    ├── export-highbyte.ts ──→ Project Import JSON (connections + inputs + models + instances + pipelines)
+    │
+    ├── export-litmus.ts ──→ POST Device + Tags via REST API
+    │
+    └── export-ignition.ts ──→ Tag Import JSON (UDT definitions + tag instances)
 ```
