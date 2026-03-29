@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { loadLlmConfig, mcpListTools, chatWithLlm, McpTool, StreamCallbacks } from "@/lib/api";
+import { loadLlmConfig, sendChat, getTools } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
-  toolCalls?: ToolCall[];
+  toolCalls?: ToolCallUI[];
 }
 
-interface ToolCall {
+interface ToolCallUI {
   name: string;
   args?: Record<string, any>;
   result?: string;
@@ -25,22 +25,22 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [tools, setTools] = useState<McpTool[]>([]);
+  const [toolCount, setToolCount] = useState(0);
   const [toolsError, setToolsError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load MCP tools on mount
+  // Load tool count on mount
   useEffect(() => {
-    mcpListTools()
-      .then(setTools)
-      .catch(e => setToolsError(`Could not reach MCP server: ${e.message}`));
+    getTools()
+      .then(tools => setToolCount(tools.length))
+      .catch(e => setToolsError(`Could not reach gateway: ${e.message}`));
   }, []);
 
   // Handle external prompt from quick actions
   useEffect(() => {
     if (externalPrompt && !isLoading) {
-      sendMessage(externalPrompt);
+      handleSend(externalPrompt);
       onPromptConsumed();
     }
   }, [externalPrompt]);
@@ -52,7 +52,7 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
     }
   }, [messages, isLoading]);
 
-  const sendMessage = async (text: string) => {
+  const handleSend = async (text: string) => {
     if (!text.trim() || isLoading) return;
 
     const config = loadLlmConfig();
@@ -72,60 +72,56 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
 
-    const pendingToolCalls: ToolCall[] = [];
+    const pendingToolCalls: ToolCallUI[] = [];
     let assistantContent = "";
 
-    const callbacks: StreamCallbacks = {
-      onToolStart: (name, args) => {
-        pendingToolCalls.push({ name, args, status: "running" });
-        setMessages(prev => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, toolCalls: [...pendingToolCalls] };
-          } else {
-            updated.push({ role: "assistant", content: "", toolCalls: [...pendingToolCalls] });
-          }
-          return updated;
-        });
-      },
-      onToolResult: (name, result) => {
-        const tc = pendingToolCalls.find(t => t.name === name && t.status === "running");
-        if (tc) { tc.result = result; tc.status = "done"; }
-        setMessages(prev => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, toolCalls: [...pendingToolCalls] };
-          }
-          return updated;
-        });
-      },
-      onContent: (text) => {
-        assistantContent += text;
-        setMessages(prev => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: assistantContent };
-          } else {
-            updated.push({
-              role: "assistant",
-              content: assistantContent,
-              toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
-            });
-          }
-          return updated;
-        });
-      },
-      onError: (msg) => {
-        setMessages(prev => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
-      },
+    const updateAssistant = () => {
+      setMessages(prev => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last?.role === "assistant") {
+          updated[updated.length - 1] = {
+            ...last,
+            content: assistantContent,
+            toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+          };
+        } else {
+          updated.push({
+            role: "assistant",
+            content: assistantContent,
+            toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+          });
+        }
+        return updated;
+      });
     };
 
     try {
       const history = newMessages.map(m => ({ role: m.role, content: m.content }));
-      await chatWithLlm(history, tools, config, callbacks);
+      await sendChat(history, {
+        onToolStart: (name, args) => {
+          pendingToolCalls.push({ name, args, status: "running" });
+          updateAssistant();
+        },
+        onToolResult: (name, content) => {
+          const tc = pendingToolCalls.find(t => t.name === name && t.status === "running");
+          if (tc) {
+            tc.result = content;
+            tc.status = content.startsWith("Error:") ? "error" : "done";
+          }
+          updateAssistant();
+        },
+        onContent: (text) => {
+          assistantContent += text;
+          updateAssistant();
+        },
+        onError: (error) => {
+          setMessages(prev => [...prev, { role: "assistant", content: `Error: ${error}` }]);
+        },
+        onDone: () => {
+          // Final state already set via onContent
+        },
+      });
     } catch (err: any) {
       setMessages(prev => [...prev, { role: "assistant", content: `Connection error: ${err.message}` }]);
     }
@@ -137,7 +133,7 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(input);
+      handleSend(input);
     }
   };
 
@@ -153,7 +149,7 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
             <h2 className="text-xl font-bold mb-2">Process1st Intelligence</h2>
             <p className="text-p1-muted text-sm max-w-md">
               Ask about accounts, vendor positions, process templates, or prepare for customer meetings.
-              {tools.length > 0 && <span className="text-p1-accent"> {tools.length} tools available.</span>}
+              {toolCount > 0 && <span className="text-p1-accent"> {toolCount} tools available.</span>}
             </p>
             {toolsError && (
               <p className="text-amber-400 text-xs mt-3">{toolsError}</p>
@@ -194,7 +190,7 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
             }}
           />
           <button
-            onClick={() => sendMessage(input)}
+            onClick={() => handleSend(input)}
             disabled={!input.trim() || isLoading}
             className="w-[48px] h-[48px] rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           >
@@ -256,35 +252,23 @@ function MessageBubble({ message }: { message: Message }) {
 
 function simpleMarkdown(text: string): string {
   let html = text
-    // Escape HTML
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    // Code blocks
     .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-    // Inline code
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Italic
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Headers
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Unordered lists
     .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Links
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-p1-accent hover:underline">$1</a>')
-    // Line breaks → paragraphs
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br/>');
 
-  // Wrap list items
   html = html.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
-  // Wrap in paragraph
   html = `<p>${html}</p>`;
-  // Clean empty paragraphs
   html = html.replace(/<p><\/p>/g, '');
 
   return html;

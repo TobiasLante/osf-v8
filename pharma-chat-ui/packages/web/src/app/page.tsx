@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Chat } from "@/components/Chat";
+import { NewAccountForm } from "@/components/NewAccountForm";
 import { loadLlmConfig } from "@/lib/api";
 
 const QUICK_LINKS = [
@@ -52,6 +53,9 @@ export default function HomePage() {
             </div>
           ))}
         </div>
+
+        {/* New Account Form */}
+        <NewAccountForm onAnalyze={(prompt) => setChatPrompt(prompt)} />
 
         {/* Quick links */}
         <div>

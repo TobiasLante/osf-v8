@@ -1,0 +1,6 @@
+{
+  "name": "@p1/shared",
+  "version": "0.2.0",
+  "main": "src/types.ts",
+  "types": "src/types.ts"
+}

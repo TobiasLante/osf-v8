@@ -1,24 +1,16 @@
 {
   "name": "pharma-chat-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3100",
-    "build": "next build",
-    "start": "next start --port 3100"
-  },
-  "dependencies": {
-    "next": "14.2.35",
-    "react": "^18",
-    "react-dom": "^18"
+    "dev": "concurrently \"pnpm --filter @p1/gateway dev\" \"pnpm --filter @p1/web dev\"",
+    "dev:web": "pnpm --filter @p1/web dev",
+    "dev:gateway": "pnpm --filter @p1/gateway dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @p1/web build",
+    "build:gateway": "pnpm --filter @p1/gateway build"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "autoprefixer": "^10.4.27",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "concurrently": "^8.2.0"
   }
 }
