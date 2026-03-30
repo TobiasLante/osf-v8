@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: p1-gateway-egress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: p1-gateway
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow i3x-server-pharma (i3x namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: i3x
+          podSelector:
+            matchLabels:
+              app: i3x-server-pharma
+      ports:
+        - port: 8045
+          protocol: TCP
+    # Allow external HTTPS (Anthropic, OpenAI, FDA APIs)
+    - ports:
+        - port: 443
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: p1-gateway-ingress
+  namespace: osf
+spec:
+  podSelector:
+    matchLabels:
+      app: p1-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from anywhere on NodePort
+    - ports:
+        - port: 3101
+          protocol: TCP

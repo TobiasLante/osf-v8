@@ -24,7 +24,7 @@ spec:
             - name: PORT
               value: "3101"
             - name: MCP_URL
-              value: "http://i3x-server-pharma.i3x.svc.cluster.local:8035"
+              value: "http://i3x-server-pharma.i3x.svc.cluster.local:8045"
             - name: CORS_ORIGINS
               value: "https://process1st.zeroguess.ai,http://localhost:3100"
             - name: RATE_LIMIT_MAX
