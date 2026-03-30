@@ -84,13 +84,18 @@ fdaRouter.post('/api/enrich/fda', async (req: Request, res: Response) => {
   }
 });
 
+const FDA_TIMEOUT_MS = 10_000;
+
 async function fetchFdaDrugs(companyName: string, field: string): Promise<any[]> {
   const encoded = encodeURIComponent(`"${companyName}"`);
   const url = `https://api.fda.gov/drug/drugsfda.json?search=${field}:${encoded}&limit=20`;
 
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) return [];
+    const resp = await fetch(url, { signal: AbortSignal.timeout(FDA_TIMEOUT_MS) });
+    if (!resp.ok) {
+      console.warn(`[fda-api] fetchFdaDrugs ${field} returned ${resp.status}`);
+      return [];
+    }
     const data: any = await resp.json();
 
     return (data.results || []).map((r: any) => {
@@ -104,7 +109,8 @@ async function fetchFdaDrugs(companyName: string, field: string): Promise<any[]>
         route: openfda.route?.[0] || products[0]?.route || 'N/A',
       };
     });
-  } catch {
+  } catch (err: any) {
+    console.warn(`[fda-api] fetchFdaDrugs ${field} failed:`, err.message);
     return [];
   }
 }
@@ -114,8 +120,11 @@ async function fetchFdaLabels(companyName: string): Promise<any[]> {
   const url = `https://api.fda.gov/drug/label.json?search=openfda.manufacturer_name:${encoded}&limit=10`;
 
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) return [];
+    const resp = await fetch(url, { signal: AbortSignal.timeout(FDA_TIMEOUT_MS) });
+    if (!resp.ok) {
+      console.warn(`[fda-api] fetchFdaLabels returned ${resp.status}`);
+      return [];
+    }
     const data: any = await resp.json();
 
     return (data.results || []).map((r: any) => {
@@ -127,7 +136,8 @@ async function fetchFdaLabels(companyName: string): Promise<any[]> {
         application_type: openfda.application_number?.[0]?.startsWith('NDA') ? 'NDA' : 'ANDA',
       };
     });
-  } catch {
+  } catch (err: any) {
+    console.warn(`[fda-api] fetchFdaLabels failed:`, err.message);
     return [];
   }
 }

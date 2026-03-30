@@ -1,0 +1,35 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy workspace config + lockfile
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/web/package.json packages/web/
+
+# Install deps
+RUN pnpm install --frozen-lockfile
+
+# Copy source
+COPY packages/shared/ packages/shared/
+COPY packages/web/ packages/web/
+
+# Build as standalone Next.js app
+ARG NEXT_PUBLIC_GATEWAY_URL=https://process1st-api.zeroguess.ai
+ENV NEXT_PUBLIC_GATEWAY_URL=$NEXT_PUBLIC_GATEWAY_URL
+
+RUN cd packages/web && pnpm build
+
+# ── Production — serve with Next.js standalone ──
+FROM node:20-alpine
+WORKDIR /app
+
+COPY --from=builder /app/packages/web/.next/standalone ./
+COPY --from=builder /app/packages/web/.next/static ./.next/static
+COPY --from=builder /app/packages/web/public ./public
+
+ENV PORT=3100
+EXPOSE 3100
+
+CMD ["node", "server.js"]

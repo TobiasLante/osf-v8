@@ -15,10 +15,9 @@ export default function SettingsPage() {
       <div className="mt-6 rounded-lg border border-p1-border bg-p1-surface p-5">
         <h3 className="text-sm font-semibold text-p1-text mb-2">How it works</h3>
         <ul className="text-p1-muted text-xs space-y-1.5">
-          <li>Your API key is stored only in this browser&apos;s localStorage.</li>
-          <li>LLM calls go directly from your browser to the provider (Anthropic/OpenAI).</li>
-          <li>Tool calls go to the Process1st MCP server for knowledge graph data.</li>
-          <li>No data passes through any intermediate backend.</li>
+          <li>Your API key is stored in this browser&apos;s localStorage.</li>
+          <li>LLM calls are routed through the Process1st gateway for server-side tool execution. Your key is used per-request and not stored on the server.</li>
+          <li>Tool calls go to the i3x knowledge graph via the gateway.</li>
         </ul>
       </div>
     </div>

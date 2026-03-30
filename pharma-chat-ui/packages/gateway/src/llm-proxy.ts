@@ -140,6 +140,8 @@ async function chatAnthropic(
     llmMessages.push({ role: 'assistant', content: response.content });
     llmMessages.push({ role: 'user', content: toolResults });
   }
+
+  sendEvent({ type: 'warning', message: `Tool loop limit reached (${MAX_TOOL_LOOPS})` });
 }
 
 // ── OpenAI ──
@@ -193,7 +195,14 @@ async function chatOpenAI(
     oaiMessages.push(msg);
 
     for (const tc of msg.tool_calls) {
-      const args = JSON.parse(tc.function.arguments || '{}');
+      let args: Record<string, any>;
+      try {
+        args = JSON.parse(tc.function.arguments || '{}');
+      } catch {
+        sendEvent({ type: 'tool_result', name: tc.function.name, content: 'Error: Malformed tool arguments' });
+        oaiMessages.push({ role: 'tool', tool_call_id: tc.id, content: 'Error: Malformed tool arguments' });
+        continue;
+      }
       sendEvent({ type: 'tool_start', name: tc.function.name, args });
 
       try {
@@ -216,4 +225,6 @@ async function chatOpenAI(
       }
     }
   }
+
+  sendEvent({ type: 'warning', message: `Tool loop limit reached (${MAX_TOOL_LOOPS})` });
 }

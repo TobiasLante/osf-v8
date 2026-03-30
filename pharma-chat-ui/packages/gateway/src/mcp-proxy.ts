@@ -9,10 +9,10 @@ export const mcpRouter: IRouter = Router();
 mcpRouter.get('/api/tools', async (_req: Request, res: Response) => {
   try {
     const tools = await mcpListTools();
-    res.json({ tools });
+    res.json(tools);
   } catch (err: any) {
     console.error('[mcp-proxy] tools/list error:', err.message);
-    res.status(502).json({ error: `MCP unreachable: ${err.message}` });
+    res.status(502).json({ error: 'MCP server unreachable' });
   }
 });
 
@@ -29,33 +29,20 @@ mcpRouter.post('/api/tools/call', async (req: Request, res: Response) => {
     res.json({ result });
   } catch (err: any) {
     console.error(`[mcp-proxy] tools/call ${name} error:`, err.message);
-    res.status(502).json({ error: err.message });
-  }
-});
-
-// Stats proxy
-mcpRouter.get('/api/stats', async (_req: Request, res: Response) => {
-  try {
-    const resp = await fetch(`${MCP_URL}/i3x/v0/objecttypes`);
-    if (!resp.ok) {
-      res.status(resp.status).json({ error: `MCP stats error: ${resp.status}` });
-      return;
-    }
-    const data = await resp.json();
-    res.json(data);
-  } catch (err: any) {
-    console.error('[mcp-proxy] stats error:', err.message);
-    res.status(502).json({ error: err.message });
+    res.status(502).json({ error: 'Tool call failed' });
   }
 });
 
 // ── Internal helpers (also used by llm-proxy) ──
+
+const MCP_TIMEOUT_MS = 15_000;
 
 export async function mcpListTools() {
   const resp = await fetch(`${MCP_URL}/mcp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    signal: AbortSignal.timeout(MCP_TIMEOUT_MS),
   });
   if (!resp.ok) throw new Error(`MCP HTTP ${resp.status}`);
   const data: any = await resp.json();
@@ -67,6 +54,7 @@ export async function mcpCallTool(name: string, args: Record<string, any>) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    signal: AbortSignal.timeout(MCP_TIMEOUT_MS),
   });
   if (!resp.ok) throw new Error(`MCP tool HTTP ${resp.status}`);
   const data: any = await resp.json();

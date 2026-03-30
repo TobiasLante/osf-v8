@@ -1,15 +1,7 @@
 "use client";
 
 import React from "react";
-
-export interface ProcessStep {
-  step: string;
-  equipment: string;
-  stepOrder: number;
-  status?: "WON" | "OPEN" | "COMPETITOR" | "NO_CONTACT";
-  vendor?: string;
-  product?: string;
-}
+import type { ProcessStep } from "@p1/shared";
 
 interface Props {
   steps: ProcessStep[];
@@ -62,12 +54,31 @@ const EQUIPMENT_IMAGES: Record<string, string> = {
   "lineariz": "/equipment/Shake_Flasks.png",
   "plasmid": "/equipment/Shake_Flasks.png",
   "microbial bioreactor": "/equipment/Single_Use_Bioreactor_50L.png",
+  "wave": "/equipment/Rocking_Motion_20L.png",
+  "stirred tank": "/equipment/Single_Use_Bioreactor_200L.png",
+  "harvest": "/equipment/Centrifuge.png",
+  "tangential flow": "/equipment/UF_DF_1.png",
+  "affinity": "/equipment/Chromo_Resin_BE1.png",
+  "ion exchange": "/equipment/Chromo_Resin_BE1.png",
+  "mixed mode": "/equipment/Chromo_Resin_BE1.png",
+  "hydrophobic interaction": "/equipment/Chromo_Resin_BE1.png",
+  "size exclusion": "/equipment/Chromo_Resin_BE1.png",
+  "nanofiltration": "/equipment/Virus_Filter_CPV.png",
+  "cell lysis": "/equipment/Centrifuge.png",
+  "homogenizer": "/equipment/Centrifuge.png",
+  "lyophilization": "/equipment/Formulation_Bags.png",
+  "freeze thaw": "/equipment/Formulation_Bags.png",
+  "bag": "/equipment/Formulation_Bags.png",
+  "mixing": "/equipment/Buffer_Preparation.png",
+  "incubation": "/equipment/Shake_Flasks.png",
+  "transfection": "/equipment/Shake_Flasks.png",
 };
+
+const SORTED_EQUIPMENT_KEYS = Object.keys(EQUIPMENT_IMAGES).sort((a, b) => b.length - a.length);
 
 function findEquipmentImage(equipment: string): string {
   const lower = equipment.toLowerCase();
-  const sortedKeys = Object.keys(EQUIPMENT_IMAGES).sort((a, b) => b.length - a.length);
-  for (const key of sortedKeys) {
+  for (const key of SORTED_EQUIPMENT_KEYS) {
     if (lower.includes(key)) return EQUIPMENT_IMAGES[key];
   }
   return "/equipment/TBD.png";
@@ -122,8 +133,9 @@ export function ProcessMap({ steps, title, className = "" }: Props) {
             <div className={`shrink-0 w-28 rounded-lg border p-2 text-center transition-all ${statusBorderColor(step.status)}`}>
               <img
                 src={findEquipmentImage(step.equipment)}
-                alt={step.equipment}
+                alt={`${step.step} — ${step.equipment}`}
                 className="w-16 h-16 mx-auto object-contain mb-1.5 opacity-80"
+                onError={e => { (e.target as HTMLImageElement).src = '/equipment/TBD.png'; }}
               />
               <div className="text-[10px] font-semibold text-slate-200 leading-tight truncate" title={step.step}>
                 {step.step}

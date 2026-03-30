@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { Chat } from "@/components/Chat";
 import { NewAccountForm } from "@/components/NewAccountForm";
-import { loadLlmConfig } from "@/lib/api";
+import { loadLlmConfig, getAccounts, getVendors, getStats } from "@/lib/api";
+import type { Account } from "@/lib/api";
 
 const QUICK_LINKS = [
   { label: "Show hot accounts", icon: "🔥", prompt: "Show me all accounts with warmth rating HOT and their open opportunities" },
@@ -15,10 +16,24 @@ const QUICK_LINKS = [
 export default function HomePage() {
   const [chatPrompt, setChatPrompt] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [accountCount, setAccountCount] = useState<number | null>(null);
+  const [vendorCount, setVendorCount] = useState<number | null>(null);
+  const [productCount, setProductCount] = useState<number | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
   useEffect(() => {
     const cfg = loadLlmConfig();
     setHasApiKey(!!cfg.apiKey);
+
+    // Load live stats from i3x REST API
+    getAccounts().then(a => { setAccounts(a); setAccountCount(a.length); }).catch(() => {});
+    getVendors().then(v => setVendorCount(v.length)).catch(() => {});
+    getStats().then(types => {
+      if (Array.isArray(types)) {
+        const vp = types.find((t: any) => t.displayName === 'VendorProduct');
+        setProductCount(vp ? null : types.length); // fallback to type count
+      }
+    }).catch(() => {});
   }, []);
 
   return (
@@ -39,20 +54,47 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Stats placeholder */}
+        {/* Live stats from i3x REST API */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Accounts", value: "--", sub: "pharma companies" },
-            { label: "Vendors", value: "--", sub: "equipment suppliers" },
-            { label: "Products", value: "--", sub: "mapped to operations" },
+            { label: "Accounts", value: accountCount, sub: "pharma companies" },
+            { label: "Vendors", value: vendorCount, sub: "equipment suppliers" },
+            { label: "Products", value: productCount, sub: "mapped to operations" },
           ].map(s => (
             <div key={s.label} className="rounded-lg border border-p1-border bg-p1-surface p-4">
-              <p className="text-2xl font-bold text-p1-accent">{s.value}</p>
+              <p className="text-2xl font-bold text-p1-accent">{s.value ?? "--"}</p>
               <p className="text-xs text-p1-muted mt-1">{s.label}</p>
               <p className="text-[10px] text-p1-dim">{s.sub}</p>
             </div>
           ))}
         </div>
+
+        {/* Accounts from i3x REST API */}
+        {accounts.length > 0 && (
+          <div>
+            <h3 className="text-xs font-semibold text-p1-muted uppercase tracking-wider mb-3">Accounts</h3>
+            <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto">
+              {accounts.map(a => (
+                <button
+                  key={a.elementId}
+                  onClick={() => setChatPrompt(`Prepare a sales meeting brief for ${a.displayName}`)}
+                  className="text-left rounded-lg border border-p1-border bg-p1-surface hover:border-p1-accent/40 transition-all px-3 py-2 flex items-center justify-between"
+                >
+                  <span className="text-sm text-p1-text truncate">{a.displayName}</span>
+                  {a.properties.warmth_rating && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                      a.properties.warmth_rating === 'HOT' ? 'bg-red-500/20 text-red-400' :
+                      a.properties.warmth_rating === 'WARM' ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-slate-600/20 text-slate-400'
+                    }`}>
+                      {a.properties.warmth_rating}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* New Account Form */}
         <NewAccountForm onAnalyze={(prompt) => setChatPrompt(prompt)} />

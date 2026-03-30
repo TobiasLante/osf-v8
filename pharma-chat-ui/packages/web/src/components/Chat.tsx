@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadLlmConfig, sendChat, getTools } from "@/lib/api";
 
 interface Message {
@@ -29,30 +29,21 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
   const [toolsError, setToolsError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Load tool count on mount
   useEffect(() => {
     getTools()
-      .then(tools => setToolCount(tools.length))
+      .then(tools => setToolCount(Array.isArray(tools) ? tools.length : 0))
       .catch(e => setToolsError(`Could not reach gateway: ${e.message}`));
   }, []);
 
-  // Handle external prompt from quick actions
+  // Cleanup SSE stream on unmount
   useEffect(() => {
-    if (externalPrompt && !isLoading) {
-      handleSend(externalPrompt);
-      onPromptConsumed();
-    }
-  }, [externalPrompt]);
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
-  // Auto-scroll
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isLoading]);
-
-  const handleSend = async (text: string) => {
+  const handleSend = useCallback(async (text: string) => {
     if (!text.trim() || isLoading) return;
 
     const config = loadLlmConfig();
@@ -64,6 +55,11 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
       ]);
       return;
     }
+
+    // Abort previous stream if running
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setInput("");
     setIsLoading(true);
@@ -121,14 +117,31 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
         onDone: () => {
           // Final state already set via onContent
         },
-      });
+      }, controller.signal);
     } catch (err: any) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Connection error: ${err.message}` }]);
+      if (err.name !== 'AbortError') {
+        setMessages(prev => [...prev, { role: "assistant", content: `Connection error: ${err.message}` }]);
+      }
     }
 
     setIsLoading(false);
     inputRef.current?.focus();
-  };
+  }, [messages, isLoading]);
+
+  // Handle external prompt from quick actions
+  useEffect(() => {
+    if (externalPrompt && !isLoading) {
+      handleSend(externalPrompt);
+      onPromptConsumed();
+    }
+  }, [externalPrompt, isLoading, handleSend, onPromptConsumed]);
+
+  // Auto-scroll
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -174,6 +187,18 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
       {/* Input */}
       <div className="border-t border-p1-border px-5 py-3">
         <div className="flex items-end gap-2 max-w-3xl mx-auto">
+          {messages.length > 0 && (
+            <button
+              onClick={() => { abortRef.current?.abort(); setMessages([]); setIsLoading(false); }}
+              className="w-[48px] h-[48px] rounded-lg border border-p1-border text-p1-dim hover:text-p1-text hover:border-p1-accent/40 grid place-items-center transition-colors"
+              aria-label="Clear chat"
+              title="Clear chat"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
           <textarea
             ref={inputRef}
             value={input}
@@ -192,6 +217,7 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
           <button
             onClick={() => handleSend(input)}
             disabled={!input.trim() || isLoading}
+            aria-label="Send message"
             className="w-[48px] h-[48px] rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
@@ -263,7 +289,12 @@ function simpleMarkdown(text: string): string {
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h1>$1</h1>')
     .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-p1-accent hover:underline">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+      if (/^https?:\/\//.test(url) || url.startsWith('/')) {
+        return `<a href="${url}" class="text-p1-accent hover:underline" rel="noopener">${label}</a>`;
+      }
+      return `${label} (${url})`;
+    })
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br/>');
 

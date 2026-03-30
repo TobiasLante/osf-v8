@@ -1,0 +1,38 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy workspace config + lockfile
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/gateway/package.json packages/gateway/
+
+# Install deps
+RUN pnpm install --frozen-lockfile
+
+# Copy source
+COPY packages/shared/ packages/shared/
+COPY packages/gateway/ packages/gateway/
+
+# Build
+RUN cd packages/gateway && pnpm build
+
+# ── Production ──
+FROM node:20-alpine
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+COPY --from=builder /app/pnpm-workspace.yaml /app/pnpm-lock.yaml /app/package.json ./
+COPY --from=builder /app/packages/shared/ packages/shared/
+COPY --from=builder /app/packages/gateway/package.json packages/gateway/
+COPY --from=builder /app/packages/gateway/dist/ packages/gateway/dist/
+
+RUN pnpm install --frozen-lockfile --prod
+
+ENV PORT=3101
+EXPOSE 3101
+
+CMD ["node", "packages/gateway/dist/index.js"]
