@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { Chat } from "@/components/Chat";
+import { ProcessMap } from "@/components/ProcessMap";
 import { NewAccountForm } from "@/components/NewAccountForm";
+import type { ProcessStep } from "@p1/shared";
 import { loadLlmConfig, getAccounts, getVendors, getStats } from "@/lib/api";
 import type { Account } from "@/lib/api";
 
@@ -20,6 +22,7 @@ export default function HomePage() {
   const [vendorCount, setVendorCount] = useState<number | null>(null);
   const [productCount, setProductCount] = useState<number | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
 
   useEffect(() => {
     const cfg = loadLlmConfig();
@@ -40,7 +43,7 @@ export default function HomePage() {
     <div className="h-[calc(100vh-3.5rem)] flex">
       {/* Left: Chat (60%) */}
       <div className="flex-[3] min-w-0 flex flex-col border-r border-p1-border">
-        <Chat externalPrompt={chatPrompt} onPromptConsumed={() => setChatPrompt(null)} />
+        <Chat externalPrompt={chatPrompt} onPromptConsumed={() => setChatPrompt(null)} onProcessMap={setProcessSteps} />
       </div>
 
       {/* Right: Dashboard (40%) */}
@@ -119,13 +122,8 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Process map placeholder */}
-        <div className="flex-1 rounded-lg border border-p1-border bg-p1-surface p-4 flex items-center justify-center min-h-[200px]">
-          <div className="text-center">
-            <p className="text-p1-dim text-sm mb-1">Process Map</p>
-            <p className="text-p1-dim text-xs">Visualization will appear here when data is loaded</p>
-          </div>
-        </div>
+        {/* Process map — shown when chat returns pharma_process_map data */}
+        <ProcessMap steps={processSteps} className="flex-1 min-h-[200px]" />
       </div>
     </div>
   );

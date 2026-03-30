@@ -19,9 +19,10 @@ interface ToolCallUI {
 interface ChatProps {
   externalPrompt: string | null;
   onPromptConsumed: () => void;
+  onProcessMap?: (steps: any[]) => void;
 }
 
-export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
+export function Chat({ externalPrompt, onPromptConsumed, onProcessMap }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -104,6 +105,16 @@ export function Chat({ externalPrompt, onPromptConsumed }: ChatProps) {
           if (tc) {
             tc.result = content;
             tc.status = content.startsWith("Error:") ? "error" : "done";
+          }
+          // Extract process map data from tool results
+          if (name === "pharma_process_map" && onProcessMap) {
+            try {
+              const parsed = JSON.parse(content);
+              const results = parsed.results || parsed;
+              if (Array.isArray(results) && results.length > 0 && results[0].step) {
+                onProcessMap(results);
+              }
+            } catch { /* not JSON, skip */ }
           }
           updateAssistant();
         },
