@@ -132,28 +132,40 @@ export function ProcessMap({ steps, title, className = "" }: Props) {
     );
   }
 
+  // Derive modality from first step's category for BFD PDF link
+  const modality = steps[0]?.category || "";
+  const bfdUrl = modality ? `/bfd/${modality}.pdf` : null;
+
   return (
     <div className={className}>
-      {title && <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">{title}</div>}
-      <div className="flex items-start gap-1 overflow-x-auto pb-3 scrollbar-thin">
+      <div className="flex items-center justify-between mb-3">
+        {title && <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{title}</div>}
+        {bfdUrl && (
+          <a href={bfdUrl} target="_blank" rel="noopener noreferrer"
+             className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 rounded px-2 py-1 hover:border-cyan-400/50 transition-colors">
+            View Block Flow Diagram (PDF)
+          </a>
+        )}
+      </div>
+      <div className="flex items-start gap-1.5 overflow-x-auto pb-3 scrollbar-thin">
         {[...steps].sort((a, b) => a.stepOrder - b.stepOrder).map((step, i) => (
           <React.Fragment key={i}>
-            {i > 0 && <div className="flex items-center px-1 pt-6 text-slate-600 text-lg shrink-0">&rarr;</div>}
-            <div className={`shrink-0 w-28 rounded-lg border p-2 text-center transition-all ${statusBorderColor(step.status)}`}>
+            {i > 0 && <div className="flex items-center px-1 pt-8 text-slate-600 text-lg shrink-0">&rarr;</div>}
+            <div className={`shrink-0 w-36 rounded-lg border p-2.5 text-center transition-all ${statusBorderColor(step.status)}`}>
               <img
                 src={findEquipmentImage(step.equipment)}
                 alt={`${step.step} — ${step.equipment}`}
-                className="w-16 h-16 mx-auto object-contain mb-1.5 opacity-80"
+                className="w-20 h-20 mx-auto object-contain mb-2 opacity-80"
                 onError={e => { (e.target as HTMLImageElement).src = '/equipment/TBD.png'; }}
               />
-              <div className="text-[10px] font-semibold text-slate-200 leading-tight truncate" title={step.step}>
+              <div className="text-[11px] font-semibold text-slate-200 leading-tight line-clamp-2" title={step.step}>
                 {step.step}
               </div>
-              <div className="text-[8px] text-slate-500 truncate mt-0.5" title={step.equipment}>
+              <div className="text-[9px] text-slate-500 truncate mt-0.5" title={step.equipment}>
                 {step.equipment}
               </div>
               {step.status && <StatusBadge status={step.status} />}
-              {step.vendor && <div className="text-[7px] text-cyan-400/60 mt-0.5 truncate">{step.vendor}</div>}
+              {step.vendor && <div className="text-[8px] text-cyan-400/60 mt-0.5 truncate">{step.vendor}</div>}
             </div>
           </React.Fragment>
         ))}
