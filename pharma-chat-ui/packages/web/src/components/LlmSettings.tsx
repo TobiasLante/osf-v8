@@ -6,7 +6,7 @@ import { loadLlmConfig, saveLlmConfig, Provider } from "@/lib/api";
 const PROVIDERS: { value: Provider; label: string; desc: string }[] = [
   { value: "anthropic", label: "Anthropic", desc: "Claude Sonnet, Opus, Haiku" },
   { value: "openai", label: "OpenAI", desc: "GPT-4o, o1, or other models" },
-  { value: "custom", label: "Built-in (qwen2.5)", desc: "Self-hosted LLM — no API key needed" },
+  { value: "custom", label: "Custom", desc: "Any OpenAI-compatible endpoint (no API key needed)" },
 ];
 
 const MODELS: Record<Provider, string[]> = {
@@ -138,15 +138,15 @@ export function LlmSettings() {
         )}
       </div>
 
-      {/* Custom base URL — hidden for built-in, gateway handles routing */}
-      {provider === "custom" && customBaseUrl && (
+      {/* Custom base URL */}
+      {provider === "custom" && (
         <div>
-          <label className="text-sm font-medium text-p1-text block mb-1.5">Base URL (optional override)</label>
+          <label className="text-sm font-medium text-p1-text block mb-1.5">Base URL</label>
           <input
             type="url"
             value={customBaseUrl}
             onChange={e => setCustomBaseUrl(e.target.value)}
-            placeholder="Leave empty to use built-in server"
+            placeholder="e.g. http://my-server:5001/v1 (empty = gateway default)"
             className="w-full bg-p1-surface border border-p1-border rounded-lg px-3 py-2.5 text-p1-text text-sm focus:outline-none focus:border-p1-accent"
           />
         </div>
