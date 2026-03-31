@@ -72,6 +72,15 @@ const EQUIPMENT_IMAGES: Record<string, string> = {
   "mixing": "/equipment/Buffer_Preparation.png",
   "incubation": "/equipment/Shake_Flasks.png",
   "transfection": "/equipment/Shake_Flasks.png",
+  "chrom system": "/equipment/Chromo_Resin_BE1.png",
+  "chrom": "/equipment/Chromo_Resin_BE1.png",
+  "cimmultus": "/equipment/Chromo_Resin_BE1.png",
+  "sartobind": "/equipment/Chromo_Resin_BE1.png",
+  "tube sealer": "/equipment/Formulation_Bottles.png",
+  "tube welder": "/equipment/Formulation_Bottles.png",
+  "biowelder": "/equipment/Formulation_Bottles.png",
+  "clarification filter": "/equipment/Virus_Filter_HF.png",
+  "sartopure": "/equipment/Virus_Filter_HF.png",
 };
 
 const SORTED_EQUIPMENT_KEYS = Object.keys(EQUIPMENT_IMAGES).sort((a, b) => b.length - a.length);
