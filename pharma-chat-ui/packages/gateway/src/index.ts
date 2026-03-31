@@ -69,6 +69,11 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: '0.2.0', timestamp: new Date().toISOString() });
 });
 
+// Root — redirect to chat UI
+app.get('/', (_req, res) => {
+  res.redirect('https://process1st-chat.pages.dev');
+});
+
 // Routes
 app.use(llmRouter);
 app.use(mcpRouter);
