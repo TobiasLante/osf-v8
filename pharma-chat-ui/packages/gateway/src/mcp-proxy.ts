@@ -49,7 +49,7 @@ export async function mcpListTools() {
   return data.result?.tools || [];
 }
 
-export async function mcpCallTool(name: string, args: Record<string, any>) {
+export async function mcpCallTool(name: string, args: Record<string, any>): Promise<string> {
   const resp = await fetch(`${MCP_URL}/mcp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -59,5 +59,15 @@ export async function mcpCallTool(name: string, args: Record<string, any>) {
   if (!resp.ok) throw new Error(`MCP tool HTTP ${resp.status}`);
   const data: any = await resp.json();
   if (data.error) throw new Error(data.error.message || 'MCP tool error');
-  return data.result;
+
+  // MCP returns {content: [{type: "text", text: "..."}]}.
+  // Extract the actual text so the LLM sees clean data, not a nested envelope.
+  const result = data.result;
+  if (result?.content && Array.isArray(result.content)) {
+    const textParts = result.content
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text);
+    return textParts.join('\n');
+  }
+  return typeof result === 'string' ? result : JSON.stringify(result);
 }

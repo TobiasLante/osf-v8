@@ -47,6 +47,10 @@ llmRouter.post('/api/chat', async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
+  // SSE keepalive — Cloudflare Tunnel drops idle connections after 100s.
+  // Send a comment ping every 15s to keep the stream alive during slow LLM calls.
+  const keepalive = setInterval(() => { res.write(': keepalive\n\n'); }, 15_000);
+
   try {
     // Get tools if not provided
     let tools: McpTool[] = providedTools || [];
@@ -70,6 +74,7 @@ llmRouter.post('/api/chat', async (req: Request, res: Response) => {
     sendEvent({ type: 'error', message: err.message });
   }
 
+  clearInterval(keepalive);
   res.end();
 });
 
@@ -113,8 +118,7 @@ async function chatAnthropic(
         sendEvent({ type: 'tool_start', name: block.name, args: block.input });
 
         try {
-          const result = await mcpCallTool(block.name, block.input as Record<string, any>);
-          const resultText = typeof result === 'string' ? result : JSON.stringify(result);
+          const resultText = await mcpCallTool(block.name, block.input as Record<string, any>);
           sendEvent({ type: 'tool_result', name: block.name, content: resultText });
           toolResults.push({
             type: 'tool_result',
@@ -206,8 +210,7 @@ async function chatOpenAI(
       sendEvent({ type: 'tool_start', name: tc.function.name, args });
 
       try {
-        const result = await mcpCallTool(tc.function.name, args);
-        const resultText = typeof result === 'string' ? result : JSON.stringify(result);
+        const resultText = await mcpCallTool(tc.function.name, args);
         sendEvent({ type: 'tool_result', name: tc.function.name, content: resultText });
         oaiMessages.push({
           role: 'tool',
