@@ -48,7 +48,6 @@ export function escapeValue(v: any): string {
   const s = String(v)
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
-    .replace(/\$/g, '')
     .substring(0, 500);
   return `'${s}'`;
 }
@@ -57,7 +56,6 @@ export function escapeId(id: string): string {
   return String(id || '')
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
-    .replace(/\$/g, '')
     .substring(0, 200);
 }
 
@@ -185,10 +183,6 @@ export async function bulkMergeEdges(edges: BulkEdge[]): Promise<{ success: numb
       toLabels.forEach(l => validateLabel(l));
       try {
         const hasProps = pairs.some(p => p.props);
-        // Build target MATCH: (b:Label1 OR b:Label2 ...) with shared idProp
-        const targetWhere = toLabels.length === 1
-          ? `(b:${toLabels[0]} {${toIdProp}: row.toId})`
-          : `(b) WHERE (${toLabels.map(l => `b:${l}`).join(' OR ')}) AND b.${toIdProp} = row.toId`;
         const isSimple = toLabels.length === 1;
         await session.executeWrite(async (tx) => {
           await tx.run(
@@ -408,11 +402,17 @@ export async function cypherQuery(cypher: string, params?: Record<string, any>):
 
 // ── Shutdown ──────────────────────────────────────────────────────
 
+export async function closeKgPool(): Promise<void> {
+  await kgPool.end();
+  logger.info('KG PG pool closed');
+}
+
 export async function closeGraph(): Promise<void> {
   if (driver) {
     await driver.close();
     logger.info('Neo4j driver closed');
   }
+  await closeKgPool();
 }
 
 // ── Neo4j value conversion helper ─────────────────────────────────

@@ -985,6 +985,12 @@ async function buildKpiNodes(
         validateLabel(label);
         const idProp = profiles.find(p => p.kgNodeLabel === label)?.kgIdProperty || 'id';
 
+        // Write guard: block dangerous keywords in KPI calculation Cypher
+        if (/\b(CALL|LOAD|FOREACH|REMOVE|CREATE|MERGE|DELETE|DETACH|DROP|ALTER)\b/i.test(kpi.calculation.cypher)) {
+          logger.warn({ kpiId: kpi.kpiId, label }, '[SchemaBuild] KPI calculation contains blocked keyword — skipped');
+          continue;
+        }
+
         // Sanitize KPI fields for Cypher (no user input, all from trusted schema files)
         const kpiId = kpi.kpiId.replace(/[^a-zA-Z0-9_-]/g, '');
         const displayName = kpi.displayName.replace(/'/g, "\\'");

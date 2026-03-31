@@ -169,7 +169,7 @@ function loadJsonDirWithPaths(dirPath: string): Array<{ data: unknown; filePath:
         const resolved = raw
           .replace(/"\$\{(\w+)\}"/g, (_, key) => {
             const val = process.env[key] ?? '';
-            return /^\d+$/.test(val) ? val : `"${val}"`;
+            return /^\d+$/.test(val) ? val : `"${val.replace(/"/g, '\\"')}"`;
           });
         results.push({ data: JSON.parse(resolved), filePath: fullPath });
       } catch (err) {

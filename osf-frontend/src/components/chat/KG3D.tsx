@@ -107,7 +107,7 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380, width
         color:
           e.label === "ALTERNATIVE" || e.label === "CAN_REPLACE"
             ? "#22c55e"
-            : "rgba(255,255,255,0.15)",
+            : "rgba(208,58,140,0.35)",
         dashed:
           e.label === "ALTERNATIVE" ||
           e.label === "CAN_REPLACE" ||
@@ -227,7 +227,7 @@ export function KG3D({ nodes, edges, centerEntityId, status, height = 380, width
         linkLabel={linkLabel}
         linkColor={(link: any) => link.color}
         linkWidth={1.5}
-        linkOpacity={0.4}
+        linkOpacity={0.6}
         linkDirectionalParticles={2}
         linkDirectionalParticleWidth={1.5}
         linkDirectionalParticleColor={(link: any) => link.color}

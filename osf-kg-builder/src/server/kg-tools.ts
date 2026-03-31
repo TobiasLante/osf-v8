@@ -1,4 +1,5 @@
-import { cypherQuery, validateLabel } from '../shared/cypher-utils';
+import { cypherQuery, validateLabel, getDriver } from '../shared/cypher-utils';
+import { config } from '../shared/config';
 import { generateChart } from './chart-engine';
 import { generateEmbedding } from '../shared/embedding-service';
 import { semanticSearch } from '../shared/vector-store';
@@ -342,12 +343,24 @@ async function executeSubgraph(nodeId: string, radius?: number): Promise<any> {
 }
 
 async function executeQuery(cypher: string, params?: Record<string, any>): Promise<any> {
-  // Block write operations
-  if (/\b(DELETE|REMOVE|CREATE|DROP|SET|MERGE|DETACH|FOREACH|CALL\s*\{)\b/i.test(cypher)) {
+  // Block write operations (unified regex — matches routes.ts)
+  if (/\b(CALL|LOAD|FOREACH|REMOVE|CREATE|MERGE|DELETE|DETACH|DROP|ALTER)\b/i.test(cypher)) {
     return { error: 'Write operations are not allowed. Use read-only Cypher.' };
   }
-  const rows = await cypherQuery(cypher, params || {});
-  return { cypher, results: rows.slice(0, 100), count: rows.length };
+  // Defense-in-depth: execute inside a read-only transaction
+  const session = getDriver().session({ database: config.neo4j.database });
+  try {
+    const result = await session.executeRead(tx => tx.run(cypher, params || {}));
+    const rows = result.records.map(record => {
+      if (record.keys.length === 1) return record.get(0);
+      const obj: Record<string, any> = {};
+      for (const key of record.keys) obj[key as string] = record.get(key);
+      return obj;
+    });
+    return { cypher, results: rows.slice(0, 100), count: rows.length };
+  } finally {
+    await session.close();
+  }
 }
 
 async function executeStats(): Promise<any> {

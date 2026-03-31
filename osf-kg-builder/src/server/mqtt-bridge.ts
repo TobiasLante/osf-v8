@@ -54,6 +54,7 @@ const enrichedMap = new Map<string, MqttMessage>();
 
 const BATCH_INTERVAL_MS = 2000;
 const BATCH_MAX_SIZE = 50;
+const MAX_BUFFER_SIZE = 50_000;
 
 /**
  * Start the unified MQTT bridge: subscribe → validate → enrich → KG.
@@ -221,6 +222,13 @@ async function handleMessage(topic: string, payload: Buffer, rules: TransformRul
   
 
   const cypher = vertexCypher(label, String(nodeId), props);
+
+  if (batchBuffer.length >= MAX_BUFFER_SIZE) {
+    stats.rejected++;
+    logger.warn({ bufferSize: batchBuffer.length, topic }, 'Buffer full — dropping message');
+    return;
+  }
+
   batchBuffer.push(cypher);
 
   if (batchBuffer.length >= BATCH_MAX_SIZE) {
@@ -315,6 +323,13 @@ async function flushBatch(): Promise<void> {
   } catch (e: any) {
     stats.errors += queries.length;
     logger.error({ err: e.message, batchSize: queries.length }, 'Bridge batch flush failed');
+    // Re-queue failed queries if buffer has room, otherwise dead-letter
+    if (batchBuffer.length + queries.length > MAX_BUFFER_SIZE) {
+      logger.error({ dropped: queries.length, bufferSize: batchBuffer.length }, 'Dead-letter: buffer full, dropping failed batch');
+    } else {
+      batchBuffer.unshift(...queries);
+      logger.warn({ requeued: queries.length }, 'Re-queued failed batch');
+    }
   } finally {
     flushing = false;
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useRef, useCallback } from "react";
 import type { ProcessStep } from "@p1/shared";
 
 interface Props {
@@ -132,22 +132,82 @@ export function ProcessMap({ steps, title, className = "" }: Props) {
     );
   }
 
-  // Derive modality from first step's category for BFD PDF link
+  const mapRef = useRef<HTMLDivElement>(null);
   const modality = steps[0]?.category || "";
   const bfdUrl = modality ? `/bfd/${modality}.pdf` : null;
+  const processName = steps[0]?.process || modality.replace(/_/g, " ");
+
+  const handleExportPdf = useCallback(async () => {
+    if (!mapRef.current) return;
+    const { toPng } = await import("html-to-image");
+    const { default: jsPDF } = await import("jspdf");
+
+    const dataUrl = await toPng(mapRef.current, {
+      backgroundColor: "#0f172a",
+      pixelRatio: 2,
+    });
+
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise(r => { img.onload = r; });
+
+    const landscape = img.width > img.height;
+    const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+    // Header
+    pdf.setFontSize(16);
+    pdf.setTextColor(0, 180, 216);
+    pdf.text("Process1st", 10, 14);
+    pdf.setFontSize(11);
+    pdf.setTextColor(80, 80, 80);
+    pdf.text(processName + " — Process Map", 10, 22);
+
+    // Status legend
+    pdf.setFontSize(8);
+    const stats: Record<string, number> = {};
+    for (const s of steps) { if (s.status) stats[s.status] = (stats[s.status] || 0) + 1; }
+    const legend = Object.entries(stats).map(([k, v]) => `${k}: ${v}`).join("   ");
+    if (legend) pdf.text(legend, 10, 28);
+
+    // Process map image
+    const margin = 10;
+    const topOffset = 32;
+    const availW = pageW - margin * 2;
+    const availH = pageH - topOffset - margin;
+    const scale = Math.min(availW / img.width, availH / img.height);
+    const imgW = img.width * scale;
+    const imgH = img.height * scale;
+
+    pdf.addImage(dataUrl, "PNG", margin, topOffset, imgW, imgH);
+
+    // Footer
+    pdf.setFontSize(7);
+    pdf.setTextColor(150, 150, 150);
+    pdf.text(`Generated ${new Date().toLocaleDateString()} — Process1st Sales Intelligence`, margin, pageH - 5);
+
+    pdf.save(`Process1st_${modality || "ProcessMap"}.pdf`);
+  }, [steps, modality, processName]);
 
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-3">
         {title && <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{title}</div>}
-        {bfdUrl && (
-          <a href={bfdUrl} target="_blank" rel="noopener noreferrer"
-             className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 rounded px-2 py-1 hover:border-cyan-400/50 transition-colors">
-            View Block Flow Diagram (PDF)
-          </a>
-        )}
+        <div className="flex items-center gap-2">
+          {bfdUrl && (
+            <a href={bfdUrl} target="_blank" rel="noopener noreferrer"
+               className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 rounded px-2 py-1 hover:border-cyan-400/50 transition-colors">
+              Reference BFD
+            </a>
+          )}
+          <button onClick={handleExportPdf}
+                  className="text-[10px] font-medium text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded px-2 py-1 hover:border-emerald-400/50 transition-colors">
+            Export PDF
+          </button>
+        </div>
       </div>
-      <div className="flex items-start gap-1.5 overflow-x-auto pb-3 scrollbar-thin">
+      <div ref={mapRef} className="flex items-start gap-1.5 overflow-x-auto pb-3 scrollbar-thin">
         {[...steps].sort((a, b) => a.stepOrder - b.stepOrder).map((step, i) => (
           <React.Fragment key={i}>
             {i > 0 && <div className="flex items-center px-1 pt-8 text-slate-600 text-lg shrink-0">&rarr;</div>}

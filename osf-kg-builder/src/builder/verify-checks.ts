@@ -250,6 +250,11 @@ async function checkDomainCompliance(): Promise<CheckResult[]> {
 
   // Compliance checks from template (Cypher-based)
   for (const cc of template.complianceChecks) {
+    // Write guard: block dangerous keywords in compliance check Cypher
+    if (/\b(CALL|LOAD|FOREACH|REMOVE|CREATE|MERGE|DELETE|DETACH|DROP|ALTER)\b/i.test(cc.cypher)) {
+      checks.push({ phase, name: `compliance_${cc.name.substring(0, 40).replace(/\s+/g, '_')}`, passed: false, detail: 'Blocked: compliance Cypher contains write keyword' });
+      continue;
+    }
     try {
       const rows = await cypherQuery(cc.cypher);
       const violations = rows[0]?.violations ?? rows[0] ?? 0;

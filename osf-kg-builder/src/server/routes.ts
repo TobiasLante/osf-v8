@@ -203,7 +203,7 @@ Return ONLY the Cypher query, nothing else. Use RETURN with explicit property ac
       const cypher = (await callLlm(messages, { maxTokens: 500 })).trim().replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
 
       // Guard: only allow read-only Cypher from LLM
-      if (/\b(DELETE|REMOVE|CREATE|DROP|SET|MERGE|DETACH|FOREACH|CALL)\b/i.test(cypher)) {
+      if (/\b(CALL|LOAD|FOREACH|REMOVE|CREATE|MERGE|DELETE|DETACH|DROP|ALTER)\b/i.test(cypher)) {
         res.status(400).json({ error: 'LLM generated a write query — blocked for safety', cypher });
         return;
       }
