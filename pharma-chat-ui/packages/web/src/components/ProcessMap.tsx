@@ -138,54 +138,121 @@ export function ProcessMap({ steps, title, className = "" }: Props) {
   const processName = steps[0]?.process || modality.replace(/_/g, " ");
 
   const handleExportPdf = useCallback(async () => {
-    if (!mapRef.current) return;
     const { toPng } = await import("html-to-image");
     const { default: jsPDF } = await import("jspdf");
 
-    const dataUrl = await toPng(mapRef.current, {
-      backgroundColor: "#0f172a",
-      pixelRatio: 2,
-    });
+    const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
+
+    // Build a temporary light-themed, multi-row render element
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;left:-9999px;top:0;background:#fff;padding:24px;width:1100px;font-family:system-ui,sans-serif;";
+
+    // Header
+    container.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <div style="font-size:22px;font-weight:700;color:#0891b2;">Process1st</div>
+        <div style="font-size:14px;color:#334155;margin-top:2px;">${processName} — Process Map</div>
+      </div>
+    `;
+
+    // Steps in a wrapping grid (4-5 per row for readability)
+    const grid = document.createElement("div");
+    grid.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;";
+
+    for (let i = 0; i < sorted.length; i++) {
+      const step = sorted[i];
+      const imgSrc = findEquipmentImage(step.equipment);
+
+      // Arrow between steps (not before first, not at row start)
+      if (i > 0) {
+        const arrow = document.createElement("div");
+        arrow.style.cssText = "display:flex;align-items:center;padding-top:32px;color:#94a3b8;font-size:20px;";
+        arrow.textContent = "\u2192";
+        grid.appendChild(arrow);
+      }
+
+      const statusColors: Record<string, string> = {
+        WON: "#10b981", OPEN: "#f59e0b", COMPETITOR: "#ef4444", NO_CONTACT: "#94a3b8",
+      };
+      const borderColor = statusColors[step.status || ""] || "#e2e8f0";
+
+      const card = document.createElement("div");
+      card.style.cssText = `flex-shrink:0;width:130px;border:2px solid ${borderColor};border-radius:8px;padding:10px;text-align:center;background:#f8fafc;`;
+      card.innerHTML = `
+        <img src="${imgSrc}" style="width:64px;height:64px;margin:0 auto 6px;display:block;object-fit:contain;" onerror="this.src='/equipment/TBD.png'" />
+        <div style="font-size:10px;font-weight:600;color:#1e293b;line-height:1.3;min-height:26px;">${step.step}</div>
+        <div style="font-size:8px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${step.equipment}</div>
+        ${step.status ? `<div style="margin-top:4px;font-size:8px;font-weight:600;color:${borderColor};text-transform:uppercase;">${step.status.replace("_", " ")}</div>` : ""}
+        ${step.vendor ? `<div style="font-size:7px;color:#0891b2;margin-top:2px;">${step.vendor}</div>` : ""}
+      `;
+      grid.appendChild(card);
+    }
+    container.appendChild(grid);
+
+    // Status legend
+    const stats: Record<string, number> = {};
+    for (const s of steps) { if (s.status) stats[s.status] = (stats[s.status] || 0) + 1; }
+    if (Object.keys(stats).length > 0) {
+      const legend = document.createElement("div");
+      legend.style.cssText = "margin-top:16px;font-size:9px;color:#64748b;";
+      legend.textContent = Object.entries(stats).map(([k, v]) => `${k}: ${v}`).join("    ");
+      container.appendChild(legend);
+    }
+
+    // Footer
+    const footer = document.createElement("div");
+    footer.style.cssText = "margin-top:20px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;";
+    footer.textContent = `Generated ${new Date().toLocaleDateString()} — Process1st Sales Intelligence — CONFIDENTIAL`;
+    container.appendChild(footer);
+
+    document.body.appendChild(container);
+
+    // Wait for images to load
+    const imgs = container.querySelectorAll("img");
+    await Promise.all(Array.from(imgs).map(img =>
+      img.complete ? Promise.resolve() : new Promise(r => { img.onload = r; img.onerror = r; })
+    ));
+
+    const dataUrl = await toPng(container, { backgroundColor: "#ffffff", pixelRatio: 2 });
+    document.body.removeChild(container);
 
     const img = new Image();
     img.src = dataUrl;
     await new Promise(r => { img.onload = r; });
 
-    const landscape = img.width > img.height;
-    const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    // Landscape A4, scale to fit width, multi-page if needed
+    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
-
-    // Header
-    pdf.setFontSize(16);
-    pdf.setTextColor(0, 180, 216);
-    pdf.text("Process1st", 10, 14);
-    pdf.setFontSize(11);
-    pdf.setTextColor(80, 80, 80);
-    pdf.text(processName + " — Process Map", 10, 22);
-
-    // Status legend
-    pdf.setFontSize(8);
-    const stats: Record<string, number> = {};
-    for (const s of steps) { if (s.status) stats[s.status] = (stats[s.status] || 0) + 1; }
-    const legend = Object.entries(stats).map(([k, v]) => `${k}: ${v}`).join("   ");
-    if (legend) pdf.text(legend, 10, 28);
-
-    // Process map image
-    const margin = 10;
-    const topOffset = 32;
+    const margin = 8;
     const availW = pageW - margin * 2;
-    const availH = pageH - topOffset - margin;
-    const scale = Math.min(availW / img.width, availH / img.height);
-    const imgW = img.width * scale;
+
+    const scale = availW / img.width;
+    const imgW = availW;
     const imgH = img.height * scale;
 
-    pdf.addImage(dataUrl, "PNG", margin, topOffset, imgW, imgH);
-
-    // Footer
-    pdf.setFontSize(7);
-    pdf.setTextColor(150, 150, 150);
-    pdf.text(`Generated ${new Date().toLocaleDateString()} — Process1st Sales Intelligence`, margin, pageH - 5);
+    if (imgH <= pageH - margin * 2) {
+      // Fits on one page
+      pdf.addImage(dataUrl, "PNG", margin, margin, imgW, imgH);
+    } else {
+      // Multi-page: slice the image
+      const pageContentH = pageH - margin * 2;
+      const srcSliceH = pageContentH / scale;
+      let yOffset = 0;
+      let page = 0;
+      while (yOffset < img.height) {
+        if (page > 0) pdf.addPage();
+        const canvas = document.createElement("canvas");
+        const sliceH = Math.min(srcSliceH, img.height - yOffset);
+        canvas.width = img.width;
+        canvas.height = sliceH;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, yOffset, img.width, sliceH, 0, 0, img.width, sliceH);
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, imgW, sliceH * scale);
+        yOffset += sliceH;
+        page++;
+      }
+    }
 
     pdf.save(`Process1st_${modality || "ProcessMap"}.pdf`);
   }, [steps, modality, processName]);
