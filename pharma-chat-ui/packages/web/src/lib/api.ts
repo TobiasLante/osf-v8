@@ -50,7 +50,7 @@ export async function sendChat(
   signal?: AbortSignal,
 ) {
   const config = loadLlmConfig();
-  if (!config.apiKey) throw new Error('No API key configured');
+  if (!config.apiKey && config.provider !== 'custom') throw new Error('No API key configured');
 
   const gatewayConfig = {
     provider: config.provider,

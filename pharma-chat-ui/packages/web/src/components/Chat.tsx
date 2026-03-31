@@ -48,7 +48,7 @@ export function Chat({ externalPrompt, onPromptConsumed, onProcessMap }: ChatPro
     if (!text.trim() || isLoading) return;
 
     const config = loadLlmConfig();
-    if (!config.apiKey) {
+    if (!config.apiKey && config.provider !== 'custom') {
       setMessages(prev => [
         ...prev,
         { role: "user", content: text },

@@ -32,7 +32,7 @@ llmRouter.post('/api/chat', async (req: Request, res: Response) => {
     tools?: McpTool[];
   };
 
-  if (!config?.apiKey) {
+  if (!config?.apiKey && config?.provider !== 'custom') {
     res.status(400).json({ error: 'No API key provided' });
     return;
   }
@@ -153,7 +153,7 @@ async function chatOpenAI(
   sendEvent: (data: Record<string, any>) => void,
 ) {
   const client = new OpenAI({
-    apiKey: config.apiKey,
+    apiKey: config.apiKey || 'not-needed',
     baseURL: config.baseUrl || undefined,
   });
 

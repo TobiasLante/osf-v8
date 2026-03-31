@@ -156,14 +156,14 @@ export function LlmSettings() {
       <div className="flex items-center gap-3">
         <button
           onClick={handleSave}
-          disabled={!apiKey}
+          disabled={provider !== "custom" && !apiKey}
           className="bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-2.5 rounded-lg font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
           {saved ? "Saved!" : "Save"}
         </button>
         <button
           onClick={handleTest}
-          disabled={!apiKey || testing}
+          disabled={(provider !== "custom" && !apiKey) || testing}
           className="border border-p1-border text-p1-text px-5 py-2.5 rounded-lg text-sm hover:border-p1-accent/40 disabled:opacity-40 transition-colors"
         >
           {testing ? "Testing..." : "Test Connection"}

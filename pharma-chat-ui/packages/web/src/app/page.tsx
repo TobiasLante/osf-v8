@@ -26,7 +26,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const cfg = loadLlmConfig();
-    setHasApiKey(!!cfg.apiKey);
+    setHasApiKey(!!cfg.apiKey || cfg.provider === 'custom');
 
     // Load live stats from i3x REST API
     getAccounts().then(a => { setAccounts(a); setAccountCount(a.length); }).catch(() => {});
