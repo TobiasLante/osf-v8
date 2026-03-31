@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadLlmConfig, saveLlmConfig, Provider } from "@/lib/api";
+import { loadLlmConfig, saveLlmConfig, sendChat, Provider } from "@/lib/api";
 
 const PROVIDERS: { value: Provider; label: string; desc: string }[] = [
   { value: "anthropic", label: "Anthropic", desc: "Claude Sonnet, Opus, Haiku" },
@@ -49,29 +49,21 @@ export function LlmSettings() {
     setTesting(true);
     setTestResult(null);
     try {
-      if (provider === "anthropic") {
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
+      // Route test through the gateway — same path as real chat.
+      // This ensures private LLM endpoints (LAN IPs) work.
+      handleSave(); // save first so sendChat picks up current config
+      let gotContent = false;
+      await sendChat(
+        [{ role: "user", content: "Say OK" }],
+        {
+          onContent: () => { gotContent = true; },
+          onError: (msg) => { setTestResult({ ok: false, msg }); },
+          onDone: () => {
+            if (!gotContent) return; // onError already fired
+            setTestResult({ ok: true, msg: "Connection successful!" });
           },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: "Say OK" }], max_tokens: 10 }),
-        });
-        if (res.ok) setTestResult({ ok: true, msg: "Connection successful!" });
-        else setTestResult({ ok: false, msg: `Error ${res.status}: ${await res.text()}` });
-      } else {
-        const baseUrl = customBaseUrl || "https://api.openai.com";
-        const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: "Say OK" }], max_tokens: 10 }),
-        });
-        if (res.ok) setTestResult({ ok: true, msg: "Connection successful!" });
-        else setTestResult({ ok: false, msg: `Error ${res.status}: ${await res.text()}` });
-      }
+        },
+      );
     } catch (err: any) {
       setTestResult({ ok: false, msg: err.message });
     }
