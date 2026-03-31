@@ -26,7 +26,11 @@ spec:
             - name: MCP_URL
               value: "http://i3x-server-pharma.i3x.svc.cluster.local:8045"
             - name: CORS_ORIGINS
-              value: "https://process1st.zeroguess.ai,http://localhost:3100"
+              value: "https://process1st.zeroguess.ai,https://process1st-chat.pages.dev,http://localhost:3100"
+            - name: LLM_BASE_URL
+              value: "http://192.168.178.120:5001/v1"
+            - name: LLM_DEFAULT_MODEL
+              value: "Qwen2.5-32B-Instruct-Q4_K_M.gguf"
             - name: RATE_LIMIT_MAX
               value: "60"
           resources:

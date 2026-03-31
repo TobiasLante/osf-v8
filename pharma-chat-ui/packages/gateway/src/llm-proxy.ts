@@ -154,7 +154,7 @@ async function chatOpenAI(
 ) {
   const client = new OpenAI({
     apiKey: config.apiKey || 'not-needed',
-    baseURL: config.baseUrl || undefined,
+    baseURL: config.baseUrl || process.env.LLM_BASE_URL || undefined,
   });
 
   const oaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] = tools.map(t => ({
@@ -176,7 +176,7 @@ async function chatOpenAI(
 
   for (let i = 0; i < MAX_TOOL_LOOPS; i++) {
     const response = await client.chat.completions.create({
-      model: config.model,
+      model: config.model || process.env.LLM_DEFAULT_MODEL || 'gpt-4o',
       messages: oaiMessages,
       ...(oaiTools.length > 0 ? { tools: oaiTools } : {}),
       max_tokens: 4096,
