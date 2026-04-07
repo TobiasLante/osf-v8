@@ -8,7 +8,7 @@
 import {
   Document, Packer, Paragraph, Table, TableRow, TableCell,
   TextRun, HeadingLevel, AlignmentType, WidthType, BorderStyle,
-  ShadingType, Header, Footer, ImageRun,
+  ShadingType, Header, Footer, ImageRun, PageBreak,
   type ITableCellOptions, type IParagraphOptions,
 } from 'docx';
 import { llmComplete } from './llm-client';
@@ -100,8 +100,8 @@ export async function generateReport(request: ReportRequest): Promise<Buffer> {
         ...buildPipelineSection(enrichment, resolution),
         spacer(200),
 
-        // ── SECTION 2 ──
-        sectionTitle('SECTION 2', 'Process Map — Equipment Position and Competitive Landscape'),
+        // ── SECTION 2 (new page — large table) ──
+        sectionTitle('SECTION 2', 'Process Map — Equipment Position and Competitive Landscape', true),
         para(`Primary modality: ${resolution.modality} ${resolution.scale}. Report generated from ${input.vendor} perspective.`, { size: 19, color: COLOR_DIM, italics: true }),
         spacer(100),
         buildStatusLegend(),
@@ -109,8 +109,8 @@ export async function generateReport(request: ReportRequest): Promise<Buffer> {
         buildEquipmentTable(processSteps, input.vendor),
         spacer(200),
 
-        // ── SECTION 3 ──
-        sectionTitle('SECTION 3', 'Recommended Strategy'),
+        // ── SECTION 3 (new page — after large equipment table) ──
+        sectionTitle('SECTION 3', 'Recommended Strategy', true),
         para('The Commercial Play for This Account', { bold: true, size: 22, color: COLOR_TEXT }),
         spacer(50),
         buildStrategyTable(strategy),
@@ -130,8 +130,8 @@ export async function generateReport(request: ReportRequest): Promise<Buffer> {
         para('PLACEHOLDER — Content to be added by Process-1st', { italics: true, color: COLOR_DIM }),
         spacer(200),
 
-        // ── SECTION 6 ──
-        sectionTitle('SECTION 6', 'Process Treasure Map'),
+        // ── SECTION 6 (new page) ──
+        sectionTitle('SECTION 6', 'Process Treasure Map', true),
         para('Visual Opportunity Map — Equipment Coverage by Unit Operation', { bold: true, size: 22, color: COLOR_TEXT }),
         spacer(50),
         buildTreasureMapTable(processSteps, resolution),
@@ -155,9 +155,10 @@ function spacer(spacing: number): Paragraph {
   return new Paragraph({ spacing: { before: spacing } });
 }
 
-function para(text: string, opts?: { bold?: boolean; size?: number; color?: string; italics?: boolean; alignment?: typeof AlignmentType[keyof typeof AlignmentType] }): Paragraph {
+function para(text: string, opts?: { bold?: boolean; size?: number; color?: string; italics?: boolean; alignment?: typeof AlignmentType[keyof typeof AlignmentType]; keepNext?: boolean }): Paragraph {
   return new Paragraph({
     alignment: opts?.alignment,
+    keepNext: opts?.keepNext ?? opts?.bold,
     children: [new TextRun({
       text,
       bold: opts?.bold,
@@ -168,11 +169,14 @@ function para(text: string, opts?: { bold?: boolean; size?: number; color?: stri
   });
 }
 
-function sectionTitle(number: string, title: string): Paragraph {
+function sectionTitle(number: string, title: string, pageBreakBefore = false): Paragraph {
   return new Paragraph({
-    spacing: { before: 300, after: 100 },
+    spacing: { before: pageBreakBefore ? 0 : 300, after: 100 },
+    keepNext: true,
+    keepLines: true,
     border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: BRAND_PRIMARY } },
     children: [
+      ...(pageBreakBefore ? [new PageBreak()] : []),
       new TextRun({ text: number + '  ', bold: true, size: 26, color: BRAND_PRIMARY }),
       new TextRun({ text: title, bold: true, size: 26, color: COLOR_TEXT }),
     ],
