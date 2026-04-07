@@ -47,14 +47,26 @@ export function resolveModality(enrichment: EnrichmentData): ModalityResolution 
           }
           allSignals.push(`CT.gov: GENETIC intervention "${iv.name}" → Gene Therapy`);
         } else if (t === 'BIOLOGICAL') {
-          if (n.includes('mab') || n.includes('antibod') || n.includes('umab') || n.includes('izumab')) {
-            increment(interventionTypes, 'mAb');
-          } else if (n.includes('mrna') || n.includes('rna')) {
+          if (n.includes('mrna') || n.includes('m-rna') || n.includes('messenger rna') ||
+              n.includes('messenger ribonucleic')) {
             increment(interventionTypes, 'mRNA');
+          } else if (n.includes('mab') || n.includes('antibod') || n.includes('umab') ||
+                     n.includes('izumab') || n.includes('tinib')) {
+            increment(interventionTypes, 'mAb');
           } else if (n.includes('adc') || n.includes('conjugat')) {
             increment(interventionTypes, 'ADC');
+          } else if (n.includes('aav') || n.includes('adeno-associated')) {
+            increment(interventionTypes, 'AAV');
+          } else if (n.includes('lenti') || n.includes('car-t') || n.includes('car t')) {
+            increment(interventionTypes, 'Lentivirus');
+          } else if (n.includes('vaccine') || n.includes('dose') || n.includes('placebo') ||
+                     n.includes('booster') || n.includes('immunization')) {
+            // Vaccine/placebo — skip, don't count as mAb
+            allSignals.push(`CT.gov: Skipped vaccine/placebo "${iv.name}"`);
+            continue;
           } else {
-            increment(interventionTypes, 'mAb'); // mAb most common biologic
+            // Unknown biological — don't default to mAb, just skip
+            continue;
           }
           allSignals.push(`CT.gov: BIOLOGICAL intervention "${iv.name}"`);
         } else if (t === 'DRUG') {
@@ -66,11 +78,14 @@ export function resolveModality(enrichment: EnrichmentData): ModalityResolution 
       }
     }
 
+    // Score proportionally — the modality with more interventions wins
+    const totalInterventions = [...interventionTypes.values()].reduce((a, b) => a + b, 0) || 1;
     for (const [mod, count] of interventionTypes) {
+      const proportion = count / totalInterventions; // 0-1, proportional to how dominant this modality is
       candidates.push({
         modality: mod,
-        score: WEIGHT_CTGOV * Math.min(count / 3, 1), // cap at 3 studies
-        signals: [`CT.gov: ${count} studies suggest ${mod}`],
+        score: WEIGHT_CTGOV * proportion * Math.min(totalInterventions / 3, 1.5), // boost if many studies
+        signals: [`CT.gov: ${count}/${totalInterventions} interventions suggest ${mod} (${Math.round(proportion * 100)}%)`],
       });
     }
 
@@ -135,6 +150,36 @@ export function resolveModality(enrichment: EnrichmentData): ModalityResolution 
     }
     if (ws.cgmpStatus) {
       allSignals.push(`Website: ${ws.cgmpStatus} status confirmed`);
+    }
+
+    // News titles as additional modality signal
+    const newsText = (ws.recentNews || []).join(' ').toLowerCase();
+    if (newsText) {
+      const newsModalities: Record<string, number> = {};
+      const newsKw: [string, string][] = [
+        ['mrna', 'mRNA'], ['m-rna', 'mRNA'], ['messenger rna', 'mRNA'],
+        ['aav', 'AAV'], ['adeno-associated', 'AAV'], ['gene therapy', 'AAV'],
+        ['lentivir', 'Lentivirus'], ['car-t', 'Lentivirus'], ['car t', 'Lentivirus'],
+        ['monoclonal antibod', 'mAb'], ['bispecific', 'mAb'],
+        ['antibody-drug conjugate', 'ADC'], ['adc ', 'ADC'],
+        ['plasmid', 'pDNA'], ['pdna', 'pDNA'],
+        ['oligonucleotide', 'mRNA'],
+      ];
+      for (const [kw, mod] of newsKw) {
+        const count = (newsText.match(new RegExp(kw, 'gi')) || []).length;
+        if (count > 0) newsModalities[mod] = (newsModalities[mod] || 0) + count;
+      }
+      for (const [mod, count] of Object.entries(newsModalities)) {
+        const normalized = normalizeModality(mod);
+        if (normalized) {
+          websiteModalities.add(normalized);
+          candidates.push({
+            modality: normalized,
+            score: WEIGHT_WEBSITE * Math.min(count / 5, 1), // scale with frequency
+            signals: [`News: "${mod}" mentioned ${count}x in press releases`],
+          });
+        }
+      }
     }
   }
 
