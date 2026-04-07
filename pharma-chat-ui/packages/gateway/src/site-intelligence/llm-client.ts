@@ -11,20 +11,30 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const LLM_BASE_URL = process.env.LLM_BASE_URL || '';
 const LLM_MODEL = process.env.LLM_DEFAULT_MODEL || 'Qwen2.5-32B-Instruct-Q4_K_M.gguf';
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
+const ANTHROPIC_KEY_ENV = process.env.ANTHROPIC_API_KEY || '';
 const TIMEOUT_MS = 30_000;
+
+// Per-request API key override (set via middleware from X-API-Key header)
+let _requestApiKey: string | null = null;
+
+/** Set a per-request API key (called from middleware) */
+export function setRequestApiKey(key: string | null) { _requestApiKey = key; }
+
+function getAnthropicKey(): string {
+  return _requestApiKey || ANTHROPIC_KEY_ENV;
+}
 
 type LlmProvider = 'anthropic' | 'openai-compat' | 'none';
 
 function getProvider(): LlmProvider {
-  if (ANTHROPIC_KEY) return 'anthropic';
+  if (getAnthropicKey()) return 'anthropic';
   if (LLM_BASE_URL) return 'openai-compat';
   return 'none';
 }
 
 /**
  * Send a prompt to the configured LLM and return the text response.
- * Uses Anthropic Haiku if API key is available, otherwise falls back to llama.cpp.
+ * Uses Anthropic if API key is available (env or request header), otherwise llama.cpp.
  */
 export async function llmComplete(prompt: string, opts?: {
   maxTokens?: number;
@@ -40,8 +50,8 @@ export async function llmComplete(prompt: string, opts?: {
     return openaiCompatComplete(prompt, maxTokens);
   }
 
-  console.warn('[llm-client] No LLM provider configured (set ANTHROPIC_API_KEY or LLM_BASE_URL)');
-  return '(LLM not configured)';
+  console.warn('[llm-client] No LLM provider configured (set ANTHROPIC_API_KEY, X-API-Key header, or LLM_BASE_URL)');
+  return '(LLM not configured — add your API key in Settings)';
 }
 
 /**
@@ -67,7 +77,7 @@ export async function llmExtractJson<T = any>(prompt: string): Promise<T | null>
 
 async function anthropicComplete(prompt: string, maxTokens: number, model?: string): Promise<string> {
   try {
-    const client = new Anthropic({ apiKey: ANTHROPIC_KEY });
+    const client = new Anthropic({ apiKey: getAnthropicKey() });
     const msg = await client.messages.create({
       model: model || 'claude-haiku-4-5-20251001',
       max_tokens: maxTokens,

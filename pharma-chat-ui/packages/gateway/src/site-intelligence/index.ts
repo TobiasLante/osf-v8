@@ -3,7 +3,7 @@
  * resolution, status inference, and report generation steps.
  */
 
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import type { IRouter } from 'express';
 import type {
   SiteIntelligenceInput, EnrichmentData, ModalityResolution,
@@ -18,8 +18,16 @@ import { resolveModality } from './modality-resolver';
 import { inferStatus } from './status-inference';
 import { generateReport } from './report-generator';
 import { enrichFromNews, type NewsEnrichment } from './news-api';
+import { setRequestApiKey } from './llm-client';
 
 export const siteIntelligenceRouter: IRouter = Router();
+
+// ── Middleware: extract API key from X-API-Key header ──
+siteIntelligenceRouter.use('/api/site-intelligence', (req: Request, _res: Response, next: express.NextFunction) => {
+  const apiKey = req.headers['x-api-key'] as string | undefined;
+  setRequestApiKey(apiKey || null);
+  next();
+});
 
 // ── GET /api/site-intelligence/vendor-map — list available tabs ──
 

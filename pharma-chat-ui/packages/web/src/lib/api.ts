@@ -198,10 +198,18 @@ import type {
   EquipmentStatus, ReportRequest, VendorMapRow, ProcessStep,
 } from '@p1/shared';
 
+/** Get auth headers — passes the user's API key to the gateway for LLM calls */
+function siteHeaders(): Record<string, string> {
+  const cfg = loadLlmConfig();
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (cfg.apiKey) h['X-API-Key'] = cfg.apiKey;
+  return h;
+}
+
 export async function siteEnrich(input: SiteIntelligenceInput): Promise<EnrichmentData> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/enrich`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: siteHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -211,7 +219,7 @@ export async function siteEnrich(input: SiteIntelligenceInput): Promise<Enrichme
 export async function siteResolve(enrichment: EnrichmentData): Promise<ModalityResolution> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/resolve`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: siteHeaders(),
     body: JSON.stringify({ enrichment }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -223,7 +231,7 @@ export async function siteInferStatus(
 ): Promise<EquipmentStatus> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/status`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: siteHeaders(),
     body: JSON.stringify({ enrichment, vendorMapTab, userVendor }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -235,7 +243,7 @@ export async function siteGetProcessSteps(
 ): Promise<ProcessStep[]> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/process-steps`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: siteHeaders(),
     body: JSON.stringify({ vendorMapTab, userVendor, equipmentStatus }),
   });
   if (!res.ok) return [];
@@ -246,7 +254,7 @@ export async function siteGetProcessSteps(
 export async function siteGenerateReport(request: ReportRequest): Promise<Blob> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/report`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: siteHeaders(),
     body: JSON.stringify(request),
   });
   if (!res.ok) throw new Error(await res.text());
