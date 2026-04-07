@@ -17,6 +17,7 @@ import { enrichFromWebsite } from './website-enrichment';
 import { resolveModality } from './modality-resolver';
 import { inferStatus } from './status-inference';
 import { generateReport } from './report-generator';
+import { enrichFromNews, type NewsEnrichment } from './news-api';
 
 export const siteIntelligenceRouter: IRouter = Router();
 
@@ -58,7 +59,7 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
     const fdaEncoded = encodeURIComponent(`"${companyName}"`);
 
     // Run all 6 enrichment sources in parallel
-    const [ctResult, fdaResult, decrsResult, hctersResult, edgarResult, websiteResult] =
+    const [ctResult, fdaResult, decrsResult, hctersResult, edgarResult, websiteResult, newsResult] =
       await Promise.allSettled([
         // 1. ClinicalTrials.gov
         fetch(ctUrl, { signal: AbortSignal.timeout(15000) })
@@ -115,7 +116,68 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
 
         // 6. Website
         enrichFromWebsite(companyName),
+
+        // 7. News / Press Releases (Google News RSS)
+        enrichFromNews(companyName),
       ]);
+
+    // Merge news data into website enrichment for richer intelligence
+    let website = websiteResult.status === 'fulfilled' ? websiteResult.value : null;
+    const news: NewsEnrichment | null = newsResult.status === 'fulfilled' ? newsResult.value : null;
+
+    if (news && website) {
+      // Merge news partnerships into website partnerships (deduplicated, cleaned)
+      const allPartners = new Set([
+        ...website.partnerships,
+        ...news.partnerships.filter(p =>
+          p.length > 3 && p.length < 60 &&
+          !p.toLowerCase().startsWith('to ') &&
+          !p.toLowerCase().startsWith('for ') &&
+          !p.toLowerCase().includes('advance') &&
+          !p.toLowerCase().includes('nonprofit') &&
+          /[A-Z]/.test(p[0]) // Must start with uppercase (company name)
+        ),
+      ]);
+      website.partnerships = Array.from(allPartners);
+
+      // Fill gaps from news
+      // News parent company is always more reliable (regex from PR titles, not LLM hallucination)
+      if (news.parentCompany) {
+        console.log(`[site-intelligence] Parent company from news titles: ${news.parentCompany}`);
+        website.parentCompany = news.parentCompany;
+      } else if (website.parentCompany && website.parentCompany.length < 4) {
+        // LLM garbage like "Child" — discard
+        website.parentCompany = undefined;
+      }
+      if (!website.facilityDetails && news.facilityDetails) website.facilityDetails = news.facilityDetails;
+      if (!website.scale && news.scale) website.scale = news.scale;
+
+      // Merge equipment vendors into equipment mentions
+      const allEquip = new Set([...website.equipmentMentions, ...news.equipmentVendors]);
+      website.equipmentMentions = Array.from(allEquip);
+
+      // Add news key facts to differentiators
+      if (news.keyFacts.length) {
+        website.keyDifferentiators = [...(website.keyDifferentiators || []), ...news.keyFacts];
+      }
+
+      // Add news articles to recentNews
+      if (news.articles.length) {
+        website.recentNews = news.articles.slice(0, 5).map(a => `${a.title} (${a.source}, ${a.date})`);
+      }
+    } else if (news && !website) {
+      // No website data at all — create from news alone
+      website = {
+        modalities: [],
+        partnerships: news.partnerships,
+        equipmentMentions: news.equipmentVendors,
+        parentCompany: news.parentCompany,
+        facilityDetails: news.facilityDetails,
+        scale: news.scale,
+        keyDifferentiators: news.keyFacts,
+        recentNews: news.articles.slice(0, 5).map(a => `${a.title} (${a.source}, ${a.date})`),
+      };
+    }
 
     const enrichment: EnrichmentData = {
       clinicalTrials: ctResult.status === 'fulfilled' && ctResult.value
@@ -125,10 +187,10 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
       decrs: decrsResult.status === 'fulfilled' ? decrsResult.value : null,
       hcters: hctersResult.status === 'fulfilled' ? hctersResult.value : null,
       edgar: edgarResult.status === 'fulfilled' ? edgarResult.value : null,
-      website: websiteResult.status === 'fulfilled' ? websiteResult.value : null,
+      website,
     };
 
-    console.log(`[site-intelligence] Enrichment complete: CT=${enrichment.clinicalTrials.studies.length} studies, FDA=${enrichment.openFda.approvals.length} approvals, DECRS=${enrichment.decrs ? 'found' : 'none'}, HCTERS=${enrichment.hcters?.hasRegistration ? 'yes' : 'no'}, EDGAR=${enrichment.edgar?.totalMentions || 0} mentions, Website=${enrichment.website ? 'extracted' : 'failed'}`);
+    console.log(`[site-intelligence] Enrichment complete: CT=${enrichment.clinicalTrials.studies.length} studies, FDA=${enrichment.openFda.approvals.length} approvals, DECRS=${enrichment.decrs ? 'found' : 'none'}, HCTERS=${enrichment.hcters?.hasRegistration ? 'yes' : 'no'}, EDGAR=${enrichment.edgar?.totalMentions || 0} mentions, Website=${enrichment.website ? 'extracted' : 'failed'}, News=${news?.totalArticles || 0} articles`);
 
     res.json(enrichment);
   } catch (err: any) {
