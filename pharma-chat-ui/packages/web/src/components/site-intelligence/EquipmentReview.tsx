@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { ProcessStep, EquipmentStatusValue } from "@p1/shared";
-import { ProcessMap } from "../ProcessMap";
+import { ProcessMapBfd } from "../ProcessMapBfd";
 
 interface Props {
   steps: ProcessStep[];
@@ -13,93 +13,106 @@ interface Props {
   isLoading: boolean;
 }
 
-const STATUS_OPTIONS: { value: EquipmentStatusValue; label: string; color: string }[] = [
-  { value: "WON", label: "WON", color: "text-emerald-400" },
-  { value: "OPEN", label: "OPEN", color: "text-amber-400" },
-  { value: "COMPETITOR", label: "COMPETITOR", color: "text-red-400" },
-  { value: "NO_CONTACT", label: "NO CONTACT", color: "text-slate-400" },
+const STATUS_OPTIONS: { value: EquipmentStatusValue; label: string; icon: string }[] = [
+  { value: "WON", label: "Our Product", icon: "✓" },
+  { value: "OPEN", label: "Open Opportunity", icon: "●" },
+  { value: "COMPETITOR", label: "Competitor", icon: "✕" },
+  { value: "NO_CONTACT", label: "Unknown", icon: "◆" },
 ];
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    WON: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    OPEN: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-    COMPETITOR: "bg-red-500/20 text-red-400 border-red-500/30",
-    NO_CONTACT: "bg-slate-600/20 text-slate-400 border-slate-600/30",
-  };
-  return (
-    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${colors[status] || colors.NO_CONTACT}`}>
-      {status.replace("_", " ")}
-    </span>
-  );
-}
+const STATUS_STYLES: Record<EquipmentStatusValue, { bg: string; text: string; border: string }> = {
+  WON:        { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-l-emerald-500" },
+  OPEN:       { bg: "bg-amber-500/10",   text: "text-amber-400",   border: "border-l-amber-500" },
+  COMPETITOR: { bg: "bg-red-500/10",     text: "text-red-400",     border: "border-l-red-500" },
+  NO_CONTACT: { bg: "bg-slate-500/5",    text: "text-slate-500",   border: "border-l-slate-600" },
+};
 
 export function EquipmentReview({ steps, vendorMapTab, vendor, onStatusChange, onGenerate, isLoading }: Props) {
-  // Count statuses
   const counts: Record<EquipmentStatusValue, number> = { WON: 0, OPEN: 0, COMPETITOR: 0, NO_CONTACT: 0 };
   for (const s of steps) counts[(s.status || "NO_CONTACT") as EquipmentStatusValue]++;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Header */}
       <div className="text-center">
-        <h2 className="text-xl font-bold">Equipment Review</h2>
-        <p className="text-p1-dim text-sm mt-1">
-          {vendorMapTab} — {vendor} perspective — {steps.length} unit operations
-        </p>
+        <h2 className="text-xl font-bold">Process Equipment — {vendorMapTab}</h2>
+        <p className="text-p1-dim text-sm mt-1">{vendor} perspective</p>
       </div>
 
-      {/* Status summary bar */}
-      <div className="flex items-center gap-4 justify-center text-xs font-semibold">
-        <span className="text-emerald-400">WON: {counts.WON}</span>
-        <span className="text-amber-400">OPEN: {counts.OPEN}</span>
-        <span className="text-red-400">COMPETITOR: {counts.COMPETITOR}</span>
-        <span className="text-slate-400">NO CONTACT: {counts.NO_CONTACT}</span>
+      {/* Summary bar — Justin style */}
+      <div className="flex items-center justify-center gap-6 py-3 rounded-lg bg-p1-surface border border-p1-border">
+        <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-400">
+          <span className="text-base">✓</span> Our Product: {counts.WON}
+        </span>
+        <span className="flex items-center gap-1.5 text-sm font-bold text-red-400">
+          <span className="text-base">✕</span> Competitor: {counts.COMPETITOR}
+        </span>
+        <span className="flex items-center gap-1.5 text-sm font-bold text-amber-400">
+          <span className="text-base">●</span> Open: {counts.OPEN}
+        </span>
+        <span className="flex items-center gap-1.5 text-sm font-bold text-slate-400">
+          <span className="text-base">◆</span> Unknown: {counts.NO_CONTACT}
+        </span>
       </div>
 
-      {/* Process Treasure Map (live preview) */}
+      {/* 2D Process Map — BFD style */}
       <div className="rounded-lg border border-p1-border bg-p1-surface p-4">
-        <ProcessMap
-          steps={steps}
-          title="Process Treasure Map — Live Preview"
-        />
+        <ProcessMapBfd steps={steps} title="Process Treasure Map" />
       </div>
 
-      {/* Equipment table */}
+      {/* Equipment table — 3 columns, Justin style */}
       <div className="rounded-lg border border-p1-border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-p1-surface">
-              <th className="text-left px-3 py-2 text-xs font-semibold text-p1-muted uppercase tracking-wider">#</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-p1-muted uppercase tracking-wider">Unit Operation</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-p1-muted uppercase tracking-wider">Equipment</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-p1-muted uppercase tracking-wider">Our Product</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-p1-muted uppercase tracking-wider">Status</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold text-p1-muted uppercase tracking-wider">Competitors</th>
+            <tr className="bg-cyan-500/10">
+              <th className="text-left px-4 py-2.5 text-xs font-bold text-cyan-400 uppercase tracking-wider w-[35%]">Unit Operation</th>
+              <th className="text-left px-4 py-2.5 text-xs font-bold text-cyan-400 uppercase tracking-wider w-[30%]">Our Product ({vendor})</th>
+              <th className="text-left px-4 py-2.5 text-xs font-bold text-cyan-400 uppercase tracking-wider w-[35%]">Status / Competitor</th>
             </tr>
           </thead>
           <tbody>
-            {steps.map((step, i) => (
-              <tr key={i} className="border-t border-p1-border/50 hover:bg-p1-surface/50">
-                <td className="px-3 py-2 text-p1-dim text-xs">{step.stepOrder}</td>
-                <td className="px-3 py-2 font-medium">{step.step}</td>
-                <td className="px-3 py-2 text-p1-dim text-xs">{step.equipment}</td>
-                <td className="px-3 py-2 text-xs">{step.product || "—"}</td>
-                <td className="px-3 py-2">
-                  <select
-                    value={step.status || "NO_CONTACT"}
-                    onChange={(e) => onStatusChange(i, e.target.value as EquipmentStatusValue)}
-                    className="text-xs px-2 py-1 rounded border border-p1-border bg-p1-bg text-p1-text focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                  >
-                    {STATUS_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-3 py-2 text-p1-dim text-xs max-w-[200px] truncate" title={step.vendor}>
-                  {step.vendor || "—"}
-                </td>
-              </tr>
-            ))}
+            {steps.map((step, i) => {
+              const status = (step.status || "NO_CONTACT") as EquipmentStatusValue;
+              const style = STATUS_STYLES[status];
+              const statusOpt = STATUS_OPTIONS.find(o => o.value === status);
+
+              return (
+                <tr key={i} className={`border-t border-p1-border/30 border-l-4 ${style.border} ${style.bg}`}>
+                  {/* Column 1: Unit Operation + Equipment */}
+                  <td className="px-4 py-2.5">
+                    <div className="font-semibold text-p1-text">{step.step}</div>
+                    <div className="text-xs text-p1-dim mt-0.5">{step.equipment}</div>
+                  </td>
+
+                  {/* Column 2: Our Product */}
+                  <td className="px-4 py-2.5">
+                    <span className={`text-sm ${status === "WON" ? "font-bold text-emerald-400" : "text-p1-text"}`}>
+                      {step.product || "—"}
+                    </span>
+                  </td>
+
+                  {/* Column 3: Status dropdown + Competitor name */}
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={status}
+                        onChange={(e) => onStatusChange(i, e.target.value as EquipmentStatusValue)}
+                        className={`text-xs font-semibold px-2 py-1 rounded border border-p1-border bg-p1-bg ${style.text} focus:outline-none focus:ring-1 focus:ring-cyan-500/40`}
+                      >
+                        {STATUS_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.icon} {opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {step.vendor && step.vendor !== "—" && (
+                      <div className="text-xs text-p1-dim mt-1 truncate" title={step.vendor}>
+                        {step.vendor}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

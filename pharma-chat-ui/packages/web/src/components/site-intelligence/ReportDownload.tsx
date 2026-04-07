@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { ProcessStep } from "@p1/shared";
-import { ProcessMap } from "../ProcessMap";
+import { ProcessMapBfd } from "../ProcessMapBfd";
 
 interface Props {
   reportBlob: Blob | null;
@@ -56,7 +56,7 @@ export function ReportDownload({ reportBlob, accountName, steps, onRestart }: Pr
       {/* Interactive Treasure Map */}
       {showMap && steps.length > 0 && (
         <div className="rounded-lg border border-p1-border bg-p1-surface p-4">
-          <ProcessMap
+          <ProcessMapBfd
             steps={steps}
             title="Process Treasure Map — Interactive View"
           />
