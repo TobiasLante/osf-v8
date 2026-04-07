@@ -16,6 +16,9 @@ RUN pnpm install --frozen-lockfile
 COPY packages/shared/ packages/shared/
 COPY packages/gateway/ packages/gateway/
 
+# Copy Vendor Map data (needed at runtime by site-intelligence)
+COPY vendor-map.xlsx /data/vendor-map.xlsx
+
 # Build
 RUN cd packages/gateway && pnpm build
 
@@ -29,10 +32,12 @@ COPY --from=builder /app/pnpm-workspace.yaml /app/pnpm-lock.yaml /app/package.js
 COPY --from=builder /app/packages/shared/ packages/shared/
 COPY --from=builder /app/packages/gateway/package.json packages/gateway/
 COPY --from=builder /app/packages/gateway/dist/ packages/gateway/dist/
+COPY --from=builder /data/vendor-map.xlsx /data/vendor-map.xlsx
 
 RUN pnpm install --frozen-lockfile --prod
 
 ENV PORT=3101
+ENV VENDOR_MAP_PATH=/data/vendor-map.xlsx
 EXPOSE 3101
 
 CMD ["node", "packages/gateway/dist/index.js"]

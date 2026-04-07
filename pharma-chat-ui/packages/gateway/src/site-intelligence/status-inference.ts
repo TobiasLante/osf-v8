@@ -3,8 +3,8 @@
  * based on enrichment signals. Uses deterministic rules first, LLM for ambiguous cases.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import type { EnrichmentData, EquipmentStatus, EquipmentStatusValue, VendorMapRow } from '@p1/shared';
+import { llmExtractJson } from './llm-client';
 import { getVendorMapTab } from './vendor-map';
 
 // Known vendor → upstream equipment mapping
@@ -65,11 +65,10 @@ export async function inferStatus(
     }
   }
 
-  // Phase 3: LLM-assisted refinement (optional, if API key available)
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (apiKey && ws) {
+  // Phase 3: LLM-assisted refinement
+  if (ws) {
     try {
-      const llmStatus = await llmRefineStatus(enrichment, rows, userVendor, apiKey);
+      const llmStatus = await llmRefineStatus(enrichment, rows, userVendor);
       // Only override NO_CONTACT with LLM suggestions (don't override deterministic COMPETITOR)
       for (const [op, val] of Object.entries(llmStatus)) {
         if (status[op] === 'NO_CONTACT' && val !== 'NO_CONTACT') {
@@ -88,9 +87,7 @@ async function llmRefineStatus(
   enrichment: EnrichmentData,
   rows: VendorMapRow[],
   userVendor: string,
-  apiKey: string,
 ): Promise<EquipmentStatus> {
-  const client = new Anthropic({ apiKey });
 
   // Build context from enrichment
   const context: string[] = [];
@@ -134,17 +131,9 @@ Return ONLY a JSON object mapping unit operation names to status values. Example
 
 Only classify operations where you have evidence. Leave ambiguous ones as NO_CONTACT.`;
 
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1000,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  const parsed = await llmExtractJson<Record<string, string>>(prompt);
+  if (!parsed) return {};
 
-  const text = msg.content[0]?.type === 'text' ? msg.content[0].text : '';
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return {};
-
-  const parsed = JSON.parse(jsonMatch[0]);
   const result: EquipmentStatus = {};
 
   for (const [op, val] of Object.entries(parsed)) {

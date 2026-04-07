@@ -10,7 +10,7 @@ import {
   ShadingType, PageOrientation, Header, Footer,
   type ITableCellOptions,
 } from 'docx';
-import Anthropic from '@anthropic-ai/sdk';
+import { llmComplete } from './llm-client';
 import type {
   ReportRequest, ProcessStep, EquipmentStatusValue,
   SiteIntelligenceInput, EnrichmentData, ModalityResolution,
@@ -456,21 +456,7 @@ Each item should be one line starting with an actionable instruction. Be specifi
 }
 
 async function callLlm(prompt: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return '(LLM content generation requires ANTHROPIC_API_KEY)';
-
-  try {
-    const client = new Anthropic({ apiKey });
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    return msg.content[0]?.type === 'text' ? msg.content[0].text : '';
-  } catch (err: any) {
-    console.warn('[report-generator] LLM call failed:', err.message);
-    return '(Content generation failed — please regenerate)';
-  }
+  return llmComplete(prompt, { maxTokens: 500 });
 }
 
 function inferTemperature(enrichment: EnrichmentData): string {

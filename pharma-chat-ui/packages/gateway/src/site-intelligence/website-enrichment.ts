@@ -5,8 +5,8 @@
  */
 
 import * as cheerio from 'cheerio';
-import Anthropic from '@anthropic-ai/sdk';
 import type { WebsiteEnrichment } from '@p1/shared';
+import { llmExtractJson } from './llm-client';
 
 const TIMEOUT_MS = 10_000;
 const MAX_TEXT_CHARS = 8000;
@@ -128,14 +128,6 @@ async function extractWithLlm(
   websiteText: string,
   companyName: string,
 ): Promise<WebsiteEnrichment | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn('[website-enrichment] No ANTHROPIC_API_KEY set, skipping LLM extraction');
-    return fallbackExtraction(websiteText);
-  }
-
-  const client = new Anthropic({ apiKey });
-
   const prompt = `Extract pharmaceutical manufacturing intelligence from this company website text for "${companyName}".
 
 Return a JSON object with these fields:
@@ -151,17 +143,9 @@ Website text:
 ${websiteText}`;
 
   try {
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const parsed = await llmExtractJson<any>(prompt);
+    if (!parsed) return fallbackExtraction(websiteText);
 
-    const text = msg.content[0]?.type === 'text' ? msg.content[0].text : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return fallbackExtraction(websiteText);
-
-    const parsed = JSON.parse(jsonMatch[0]);
     return {
       modalities: Array.isArray(parsed.modalities) ? parsed.modalities : [],
       scale: parsed.scale || undefined,
