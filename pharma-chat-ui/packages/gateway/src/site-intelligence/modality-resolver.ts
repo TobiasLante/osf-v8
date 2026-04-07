@@ -268,15 +268,24 @@ function inferPhase(enrichment: EnrichmentData): string {
 }
 
 function inferAccountType(enrichment: EnrichmentData): 'innovator' | 'cdmo' | 'unknown' {
-  // Strong signals for CDMO
+  // Strongest signal: LLM-extracted account type from website
+  const wsAccountType = (enrichment.website?.accountType || '').toLowerCase();
+  if (wsAccountType.includes('cdmo') || wsAccountType.includes('cmo')) return 'cdmo';
+  if (wsAccountType.includes('innovator')) return 'innovator';
+
+  // Secondary: keyword scan across all website data
   const wsText = [
     ...(enrichment.website?.modalities || []),
     enrichment.website?.cgmpStatus || '',
+    enrichment.website?.facilityDetails || '',
     ...(enrichment.website?.partnerships || []),
+    ...(enrichment.website?.keyDifferentiators || []),
   ].join(' ').toLowerCase();
 
-  if (wsText.includes('cdmo') || wsText.includes('contract') ||
-      wsText.includes('cmo ') || wsText.includes('outsourc')) {
+  if (wsText.includes('cdmo') || wsText.includes('contract development') ||
+      wsText.includes('contract manufactur') || wsText.includes('cmo ') ||
+      wsText.includes('outsourc') || wsText.includes('client') ||
+      wsText.includes('sponsor')) {
     return 'cdmo';
   }
 
@@ -286,6 +295,11 @@ function inferAccountType(enrichment: EnrichmentData): 'innovator' | 'cdmo' | 'u
 
   // If openFDA has approvals → innovator
   if (enrichment.openFda?.approvals?.length) return 'innovator';
+
+  // CDMOs often have EDGAR mentions from client filings but no own CT.gov/FDA data
+  const noOwnData = studies.length === 0 && !enrichment.openFda?.approvals?.length;
+  const hasEdgar = (enrichment.edgar?.totalMentions || 0) > 0;
+  if (noOwnData && hasEdgar) return 'cdmo';
 
   return 'unknown';
 }

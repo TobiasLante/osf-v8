@@ -10,7 +10,7 @@ import { llmExtractJson } from './llm-client';
 
 const TIMEOUT_MS = 10_000;
 const MAX_TEXT_CHARS = 8000;
-const SUBPAGES = ['/about', '/capabilities', '/services', '/technology', '/manufacturing'];
+const SUBPAGES = ['/about', '/about-us', '/capabilities', '/services', '/technology', '/manufacturing', '/facilities', '/our-services', '/what-we-do'];
 
 export async function enrichFromWebsite(
   companyName: string,
@@ -137,16 +137,22 @@ async function extractWithLlm(
   websiteText: string,
   companyName: string,
 ): Promise<WebsiteEnrichment | null> {
-  const prompt = `Extract pharmaceutical manufacturing intelligence from this company website text for "${companyName}".
+  const prompt = `You are a pharma industry analyst. Extract ALL manufacturing intelligence from this company website for "${companyName}".
 
-Return a JSON object with these fields:
-- modalities: array of molecule types manufactured (use these exact terms where applicable: "mAb", "AAV", "Lentivirus", "mRNA", "pDNA", "ADC", "Oligonucleotide")
-- scale: production scale if mentioned (e.g. "500L", "50L to 2000L", "clinical to commercial")
-- cgmpStatus: GMP classification if mentioned (e.g. "cGMP", "R&D only", "clinical GMP", "commercial GMP")
-- partnerships: array of partner/vendor names mentioned (e.g. "Sartorius", "G-CON", "Texas A&M")
-- equipmentMentions: array of specific equipment brands or types mentioned (e.g. "Biostat STR", "CIMmultus", "AKTA")
+Return a JSON object with these fields — extract as much as possible, do NOT leave fields empty if the text contains relevant information:
 
-Return ONLY valid JSON, no markdown, no explanation. If a field has no data, use an empty array or null.
+- modalities: array of ALL molecule types (use exact terms: "mAb", "AAV", "Lentivirus", "mRNA", "pDNA", "ADC", "Oligonucleotide", "Oncolytic Virus", "Cell Therapy", "Vaccine")
+- scale: production scale (e.g. "500L Fed Batch", "50L to 2000L", "clinical to commercial scale")
+- cgmpStatus: GMP classification (e.g. "cGMP", "cGMP clinical and commercial", "R&D only")
+- accountType: one of "CDMO", "Innovator", "Hybrid" — look for keywords like "contract", "CDMO", "CMO", "outsourced manufacturing" for CDMO; "proprietary pipeline" for Innovator
+- parentCompany: parent company name if mentioned (e.g. "CHA Biotech")
+- facilityDetails: any facility info (square footage, number of suites/cleanrooms, location, year built)
+- partnerships: array of ALL partner/vendor/client names mentioned (equipment vendors like Sartorius, clients, research partners, investors)
+- equipmentMentions: array of specific equipment brands or types (e.g. "Biostat STR", "CIMmultus", "single-use bioreactors", "modular cleanrooms")
+- keyDifferentiators: array of unique capabilities or technologies mentioned (e.g. "MatiMAX proprietary cell line", "single-use platform")
+- recentNews: array of any news/press release headlines visible on the page
+
+Return ONLY valid JSON. Extract aggressively — more data is better.
 
 Website text:
 ${websiteText}`;
@@ -159,8 +165,13 @@ ${websiteText}`;
       modalities: Array.isArray(parsed.modalities) ? parsed.modalities : [],
       scale: parsed.scale || undefined,
       cgmpStatus: parsed.cgmpStatus || undefined,
+      accountType: parsed.accountType || undefined,
+      parentCompany: parsed.parentCompany || undefined,
+      facilityDetails: parsed.facilityDetails || undefined,
       partnerships: Array.isArray(parsed.partnerships) ? parsed.partnerships : [],
       equipmentMentions: Array.isArray(parsed.equipmentMentions) ? parsed.equipmentMentions : [],
+      keyDifferentiators: Array.isArray(parsed.keyDifferentiators) ? parsed.keyDifferentiators : [],
+      recentNews: Array.isArray(parsed.recentNews) ? parsed.recentNews : [],
     };
   } catch (err: any) {
     console.warn('[website-enrichment] LLM extraction failed:', err.message);

@@ -115,9 +115,13 @@ export interface WebsiteEnrichment {
   modalities: string[];
   scale?: string;
   cgmpStatus?: string;
+  accountType?: string;
+  parentCompany?: string;
+  facilityDetails?: string;
   partnerships: string[];
   equipmentMentions: string[];
-  rawExcerpts?: string[];
+  keyDifferentiators?: string[];
+  recentNews?: string[];
 }
 
 // ── Aggregated Enrichment ──

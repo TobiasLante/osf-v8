@@ -177,19 +177,41 @@ function buildSiteProfileTable(
   const ws = enrichment.website;
   const decrs = enrichment.decrs;
 
+  // Build sources list dynamically
+  const sourcesUsed: string[] = [];
+  if (enrichment.clinicalTrials?.studies?.length) sourcesUsed.push('ClinicalTrials.gov');
+  if (enrichment.openFda?.approvals?.length) sourcesUsed.push('openFDA');
+  if (decrs) sourcesUsed.push('FDA DECRS');
+  if (enrichment.hcters?.hasRegistration) sourcesUsed.push('CBER HCTERS');
+  if (enrichment.edgar?.totalMentions) sourcesUsed.push('SEC EDGAR');
+  if (ws) sourcesUsed.push('Company Website');
+
   const fields: [string, string][] = [
-    ['Company', input.accountName],
+    ['Company', input.accountName + (ws?.parentCompany ? ` (${ws.parentCompany})` : '')],
     ['Address', input.location || 'Not specified'],
-    ['Modalities', resolution.modality + (ws?.modalities?.length ? ` (${ws.modalities.join(', ')})` : '')],
-    ['GMP Status', ws?.cgmpStatus || (decrs ? 'FDA-registered facility' : 'Not confirmed')],
-    ['Scale', resolution.scale],
-    ['Phase', resolution.phase],
-    ['IND Visibility', resolution.accountType === 'cdmo' ? 'CDMO — pipeline belongs to sponsor clients' : 'Innovator — see pipeline below'],
+    ['Modalities', ws?.modalities?.length ? ws.modalities.join(', ') : resolution.modality],
+    ['GMP Status', ws?.cgmpStatus || (decrs ? `FDA-registered facility (FEI: ${decrs.feiNumber})` : 'Not confirmed from public data')],
+    ['Scale', ws?.scale || resolution.scale],
+    ['Phase', resolution.phase !== 'Unknown' ? resolution.phase : (ws?.cgmpStatus?.toLowerCase().includes('commercial') ? 'Clinical through Commercial' : 'Not determined')],
+    ['IND Visibility', resolution.accountType === 'cdmo'
+      ? 'CDMO — manufacturing under sponsor INDs; pipeline not publicly attributable'
+      : resolution.accountType === 'innovator' ? 'Innovator — see Facility Pipeline below' : 'Not determined'],
     ['Process Templates', resolution.vendorMapTab || `${resolution.modality} ${resolution.scale}`],
+    ['Facility Details', ws?.facilityDetails || 'Not available from public sources'],
+    ['Key Differentiators', ws?.keyDifferentiators?.length ? ws.keyDifferentiators.join('; ') : 'Not identified'],
+    ['Key Partnerships', ws?.partnerships?.length ? ws.partnerships.join(', ') : 'None identified from public data'],
     ['FEI Number', decrs?.feiNumber || 'Not found in DECRS'],
+    ['SEC Filing Intelligence', enrichment.edgar?.totalMentions
+      ? `${enrichment.edgar.totalMentions} filing(s): ${enrichment.edgar.filings.slice(0, 2).map(f => `${f.filer} (${f.form}, ${f.date})`).join('; ')}`
+      : 'No SEC filing mentions found'],
     ['Sales Temperature', inferTemperature(enrichment)],
-    ['Data Sources Used', resolution.signals.length > 0 ? 'CT.gov, openFDA, DECRS, HCTERS, SEC EDGAR, Company Website' : 'Limited public data'],
+    ['Data Sources Used', sourcesUsed.length > 0 ? sourcesUsed.join(', ') : 'Limited public data available'],
   ];
+
+  // Add recent news if available
+  if (ws?.recentNews?.length) {
+    fields.push(['Recent News', ws.recentNews.slice(0, 3).join(' | ')]);
+  }
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -463,9 +485,23 @@ function inferTemperature(enrichment: EnrichmentData): string {
   const hasTrials = (enrichment.clinicalTrials?.studies?.length || 0) > 0;
   const hasApprovals = (enrichment.openFda?.approvals?.length || 0) > 0;
   const hasEdgar = (enrichment.edgar?.totalMentions || 0) > 0;
+  const hasHcters = enrichment.hcters?.hasRegistration;
+  const wsCgmp = enrichment.website?.cgmpStatus?.toLowerCase() || '';
+  const hasNews = (enrichment.website?.recentNews?.length || 0) > 0;
+  const hasCommercial = wsCgmp.includes('commercial') || wsCgmp.includes('cgmp');
 
+  // HOT: multiple strong signals
   if (hasApprovals) return 'HOT — Approved products, active manufacturing';
+  if (hasCommercial && hasEdgar) return 'HOT — cGMP commercial facility with active SEC filing mentions';
+  if (hasCommercial && hasTrials) return 'HOT — cGMP facility with active clinical pipeline';
+
+  // WARM: some activity signals
   if (hasTrials) return 'WARM — Active clinical pipeline';
-  if (hasEdgar) return 'WARM — SEC filing activity';
-  return 'COLD — Limited public intelligence';
+  if (hasEdgar && hasHcters) return 'WARM — SEC filing activity + registered cell/gene therapy facility';
+  if (hasEdgar) return 'WARM — SEC filing activity, active industry relationships';
+  if (hasCommercial) return 'WARM — cGMP facility, procurement likely active';
+
+  // COLD
+  if (hasHcters || hasNews) return 'MONITOR — Limited signals, facility registered or recently active';
+  return 'COLD — Limited public intelligence available';
 }

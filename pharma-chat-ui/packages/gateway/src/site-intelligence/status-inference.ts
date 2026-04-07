@@ -3,18 +3,13 @@
  * based on enrichment signals. Uses deterministic rules first, LLM for ambiguous cases.
  */
 
-import type { EnrichmentData, EquipmentStatus, EquipmentStatusValue, VendorMapRow } from '@p1/shared';
+import type { EnrichmentData, EquipmentStatus, EquipmentStatusValue, VendorMapRow, VendorKey } from '@p1/shared';
 import { llmExtractJson } from './llm-client';
-import { getVendorMapTab } from './vendor-map';
+import { getVendorMapTab, VENDOR_KEYS } from './vendor-map';
 
-// Known vendor → upstream equipment mapping
-const VENDOR_UPSTREAM_KEYWORDS: Record<string, string[]> = {
-  sartorius: ['biostat', 'rm ', 'str ', 'bioreactor', 'shake flask', 'cell seed', 'cell cultivation'],
-  cytiva: ['wave', 'xdr', 'akta'],
-  'thermo fisher': ['hyperforma', 'dynadrive', 'nunc'],
-  milliporesigma: ['mobius'],
-  repligen: ['xcell', 'atf', 'krosflo'],
-};
+// No hardcoded vendor→equipment mapping. Instead, we use the Vendor Map itself:
+// If website mentions "Sartorius" as partner, find all rows where Sartorius has a product
+// and the user's vendor is NOT Sartorius → those rows are COMPETITOR.
 
 export async function inferStatus(
   enrichment: EnrichmentData,
@@ -31,35 +26,41 @@ export async function inferStatus(
     status[row.unitOperation] = 'NO_CONTACT';
   }
 
-  // Phase 2: Deterministic rules from website partnerships/equipment
+  // Phase 2: Deterministic rules — use the Vendor Map itself to infer competitors
   const ws = enrichment.website;
   if (ws) {
-    const partnerships = ws.partnerships.map(p => p.toLowerCase());
-    const equipment = ws.equipmentMentions.map(e => e.toLowerCase());
-    const userVendorLower = userVendor.toLowerCase();
+    const mentionedPartners = ws.partnerships.map(p => p.toLowerCase());
+    const mentionedEquipment = ws.equipmentMentions.map(e => e.toLowerCase());
+    const userKey = VENDOR_KEYS[userVendor] as VendorKey | undefined;
 
+    // For each vendor mentioned as a partner on the website...
+    for (const [vendorName, vendorKey] of Object.entries(VENDOR_KEYS)) {
+      if (vendorName.toLowerCase() === userVendor.toLowerCase()) continue; // skip our vendor
+
+      const isMentionedAsPartner = mentionedPartners.some(p =>
+        p.includes(vendorName.toLowerCase())
+      );
+      if (!isMentionedAsPartner) continue;
+
+      // ...find all rows where that vendor has a product → mark as COMPETITOR
+      for (const row of rows) {
+        const competitorProduct = row.vendors[vendorKey as VendorKey];
+        if (competitorProduct) {
+          status[row.unitOperation] = 'COMPETITOR';
+        }
+      }
+    }
+
+    // Also check for specific equipment mentions matching competitor products
     for (const row of rows) {
-      const rowLower = row.equipmentName.toLowerCase();
-      const opLower = row.unitOperation.toLowerCase();
-
-      // Check if a competitor vendor is mentioned as partner for this equipment type
-      for (const [vendor, keywords] of Object.entries(VENDOR_UPSTREAM_KEYWORDS)) {
-        if (vendor === userVendorLower) continue; // skip our own vendor
-
-        const isPartner = partnerships.some(p => p.includes(vendor));
-        const isEquipmentMentioned = equipment.some(e =>
-          keywords.some(kw => e.includes(kw))
-        );
-
-        if (isPartner || isEquipmentMentioned) {
-          // Check if this unit operation matches the vendor's typical equipment
-          const matchesRow = keywords.some(kw =>
-            rowLower.includes(kw) || opLower.includes(kw)
-          );
-
-          if (matchesRow) {
-            status[row.unitOperation] = 'COMPETITOR';
-          }
+      if (status[row.unitOperation] !== 'NO_CONTACT') continue; // already classified
+      for (const [vk, product] of Object.entries(row.vendors)) {
+        if (userKey && vk === userKey) continue; // skip our products
+        if (!product) continue;
+        // If the website mentions a specific competitor product name
+        const productLower = product.toLowerCase();
+        if (mentionedEquipment.some(e => productLower.includes(e) || e.includes(productLower.split(' ')[0]))) {
+          status[row.unitOperation] = 'COMPETITOR';
         }
       }
     }
