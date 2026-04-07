@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design C — Neon Line</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Noto+Sans+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --tt-pink: #d03a8c;
+    --tt-purple: #7b2d85;
+    --tt-pink-light: #ed3f96;
+    --bg: #06060a;
+    --text: #eee8f0;
+    --text-muted: rgba(238,232,240,0.5);
+    --text-dim: rgba(238,232,240,0.22);
+    --border: rgba(208,58,140,0.08);
+    --card-bg: rgba(255,255,255,0.015);
+    --accent-line: rgba(208,58,140,0.6);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Noto Sans Display', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  h1,h2,h3,h4,.heading { font-family: 'Montserrat', system-ui, sans-serif; }
+
+  /* Subtle noise texture + grid lines */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      linear-gradient(0deg, rgba(208,58,140,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(208,58,140,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── Header ── */
+  header {
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(6,6,10,0.95);
+    position: relative; z-index: 10;
+  }
+  /* Neon accent line under header */
+  header::after {
+    content: '';
+    position: absolute; bottom: -1px; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 5%, var(--tt-pink) 30%, var(--tt-purple) 70%, transparent 95%);
+    opacity: 0.5;
+  }
+  .logo-group { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    background: transparent;
+    border: 2px solid var(--tt-pink);
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .logo-icon::after {
+    content: '';
+    position: absolute; inset: -4px;
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(208,58,140,0.4), inset 0 0 15px rgba(208,58,140,0.1);
+    pointer-events: none;
+  }
+  .logo-icon svg { width: 18px; height: 18px; color: var(--tt-pink); }
+  .brand-name { font-family: 'Montserrat'; font-weight: 900; font-size: 18px; color: var(--text); letter-spacing: -0.3px; }
+  .version-badge {
+    font-size: 10px; font-family: 'Montserrat'; font-weight: 700;
+    color: var(--tt-pink);
+    border: 1px solid rgba(208,58,140,0.3);
+    border-radius: 4px;
+    padding: 2px 8px;
+    letter-spacing: 1px;
+  }
+  .separator { color: rgba(208,58,140,0.3); font-size: 14px; }
+  .page-title { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; }
+  .mode-btn {
+    padding: 6px 14px; border-radius: 6px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    border: 1px solid rgba(208,58,140,0.2);
+    background: transparent; color: var(--text-dim);
+    cursor: pointer;
+  }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .i3x-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 6px;
+    border: 1px solid rgba(208,58,140,0.2);
+  }
+  .i3x-label { font-weight: 900; font-size: 11px; color: var(--tt-pink); letter-spacing: 3px; }
+
+  /* ── Main ── */
+  .content { flex: 1; display: flex; min-height: 0; position: relative; z-index: 1; }
+
+  /* ── Chat ── */
+  .chat-panel { width: 50%; display: flex; flex-direction: column; border-right: 1px solid var(--border); position: relative; }
+  .chat-panel::after {
+    content: '';
+    position: absolute; top: 0; right: -1px; bottom: 0; width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(208,58,140,0.3), transparent);
+  }
+  .chat-area { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+
+  .msg-user {
+    align-self: flex-end; max-width: 90%;
+    padding: 14px 18px; border-radius: 14px 14px 2px 14px;
+    background: transparent;
+    border: 1px solid rgba(208,58,140,0.3);
+    font-weight: 600; font-size: 15px;
+    position: relative;
+  }
+  .msg-user::before {
+    content: '';
+    position: absolute; inset: -1px;
+    border-radius: 14px 14px 2px 14px;
+    box-shadow: 0 0 12px rgba(208,58,140,0.15);
+    pointer-events: none;
+  }
+
+  .msg-assistant { display: flex; flex-direction: column; gap: 8px; }
+  .tool-call {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 8px;
+    background: transparent;
+    border: 1px solid rgba(208,58,140,0.08);
+    border-left: 3px solid;
+    font-size: 14px;
+  }
+  .tool-call.done { border-left-color: #10b981; }
+  .tool-call.running { border-left-color: #f59e0b; }
+  .tool-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .tool-dot.done { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+  .tool-dot.running { background: #f59e0b; animation: blink 1s infinite; }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+  .tool-name { font-family: monospace; color: #fbbf24; font-size: 13px; }
+
+  .assistant-text { font-size: 14px; line-height: 1.75; color: rgba(238,232,240,0.78); }
+  .assistant-text h2 { font-size: 19px; font-weight: 800; margin-bottom: 10px; color: var(--text); }
+  .assistant-text h3 {
+    font-size: 14px; margin: 14px 0 6px; font-weight: 800;
+    color: var(--tt-pink); text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  /* Specs */
+  .spec-section { margin-top: 10px; }
+  .spec-header {
+    font-family: 'Montserrat'; font-size: 10px; font-weight: 800;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 4px; margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .spec-card { margin-bottom: 6px; border-left: 2px solid rgba(208,58,140,0.15); }
+  .spec-card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; font-size: 14px;
+  }
+  .spec-dur { font-size: 11px; color: var(--text-dim); font-family: monospace; }
+
+  /* Final rec */
+  .final-rec {
+    border-radius: 12px; padding: 22px;
+    border: 1px solid rgba(16,185,129,0.25);
+    background: transparent;
+    position: relative;
+  }
+  .final-rec::before {
+    content: '';
+    position: absolute; inset: -1px;
+    border-radius: 12px;
+    box-shadow: 0 0 20px rgba(16,185,129,0.1);
+    pointer-events: none;
+  }
+  .final-rec-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .final-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #34d399; box-shadow: 0 0 10px rgba(52,211,153,0.5); }
+  .final-rec-label { font-family: 'Montserrat'; font-size: 12px; font-weight: 900; color: #34d399; text-transform: uppercase; letter-spacing: 4px; }
+  .final-rec-text { font-size: 14px; line-height: 1.8; color: rgba(238,232,240,0.8); white-space: pre-line; }
+
+  /* Input */
+  .input-bar { padding: 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; position: relative; }
+  .input-bar::before {
+    content: '';
+    position: absolute; top: -1px; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 10%, rgba(208,58,140,0.3) 50%, transparent 90%);
+  }
+  .input-bar input {
+    flex: 1; padding: 14px 18px; border-radius: 10px;
+    background: transparent;
+    border: 1px solid rgba(208,58,140,0.15);
+    color: var(--text); font-size: 15px;
+    font-family: 'Noto Sans Display', system-ui;
+    outline: none; transition: all 0.3s;
+  }
+  .input-bar input::placeholder { color: var(--text-dim); }
+  .input-bar input:focus { border-color: rgba(208,58,140,0.5); box-shadow: 0 0 12px rgba(208,58,140,0.1); }
+  .send-btn {
+    padding: 14px 24px; border-radius: 10px;
+    background: transparent;
+    border: 2px solid var(--tt-pink);
+    color: var(--tt-pink); font-weight: 800; font-size: 14px;
+    font-family: 'Montserrat'; text-transform: uppercase; letter-spacing: 2px;
+    cursor: pointer; transition: all 0.2s;
+    position: relative;
+  }
+  .send-btn::after {
+    content: '';
+    position: absolute; inset: -2px;
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(208,58,140,0.3);
+    pointer-events: none; opacity: 0; transition: opacity 0.2s;
+  }
+  .send-btn:hover::after { opacity: 1; }
+  .send-btn:hover { background: rgba(208,58,140,0.1); }
+
+  .drag-handle { width: 6px; cursor: col-resize; flex-shrink: 0; }
+  .drag-handle:hover { background: rgba(208,58,140,0.3); }
+
+  /* ── Right Panel ── */
+  .insight-panel { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+
+  .card {
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    padding: 20px;
+    position: relative;
+  }
+  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .card-title {
+    font-family: 'Montserrat'; font-size: 11px; font-weight: 900;
+    text-transform: uppercase; letter-spacing: 5px; color: var(--tt-pink);
+  }
+  .card-subtitle { font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
+
+  /* Sources */
+  .sources-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .source-tile {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 20px 14px; border-radius: 10px;
+    border: 1px solid rgba(208,58,140,0.05);
+    background: transparent;
+    transition: all 0.5s; position: relative;
+  }
+  .source-tile.active { border-color: rgba(255,255,255,0.1); }
+  .source-tile.active::after {
+    content: '';
+    position: absolute; bottom: -1px; left: 20%; right: 20%; height: 2px;
+    border-radius: 1px;
+  }
+  .source-tile:nth-child(1).active::after { background: #06b6d4; box-shadow: 0 0 8px #06b6d4; }
+  .source-tile:nth-child(2).active::after { background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+  .source-tile:nth-child(3).active::after { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+  .source-tile:nth-child(4).active::after { background: #10b981; box-shadow: 0 0 8px #10b981; }
+  .source-icon { width: 32px; height: 32px; transition: all 0.5s; }
+  .source-label { font-size: 13px; font-weight: 700; transition: all 0.5s; letter-spacing: 0.5px; }
+  .source-ping { position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border-radius: 50%; animation: ping 1.2s infinite; }
+  @keyframes ping { 0% { transform:scale(1);opacity:1; } 75%,100% { transform:scale(2);opacity:0; } }
+
+  /* KG Types */
+  .kg-types { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kg-type {
+    padding: 6px 14px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    border: 1px solid transparent;
+    transition: all 0.5s; opacity: 0.3;
+  }
+  .kg-type.active { opacity: 1; }
+
+  /* KG 3D */
+  .kg-3d-placeholder {
+    height: 380px; border-radius: 0 0 12px 12px;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 13px; font-family: monospace;
+    position: relative;
+  }
+  /* Grid decoration */
+  .kg-3d-placeholder::before {
+    content: '';
+    position: absolute; inset: 20px;
+    background:
+      linear-gradient(0deg, rgba(208,58,140,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(208,58,140,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  /* Center crosshair */
+  .kg-3d-placeholder::after {
+    content: '+';
+    position: absolute;
+    font-size: 24px;
+    color: rgba(208,58,140,0.2);
+  }
+
+  /* Impact */
+  .impact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .impact-card {
+    border-radius: 10px; padding: 20px;
+    background: transparent;
+    position: relative;
+  }
+  .impact-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; bottom: 0; width: 3px;
+    border-radius: 3px 0 0 3px;
+  }
+  .impact-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; }
+  .impact-value { font-family: 'Montserrat'; font-size: 42px; font-weight: 900; }
+  .impact-detail { font-size: 10px; margin-top: 8px; font-family: monospace; opacity: 0.3; line-height: 1.6; }
+
+  .impact-card.orders { border: 1px solid rgba(239,68,68,0.15); }
+  .impact-card.orders::before { background: #f87171; box-shadow: 0 0 8px rgba(248,113,113,0.4); }
+  .impact-card.orders .impact-label { color: rgba(248,113,113,0.6); }
+  .impact-card.orders .impact-value { color: #f87171; }
+
+  .impact-card.customers { border: 1px solid rgba(245,158,11,0.15); }
+  .impact-card.customers::before { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.4); }
+  .impact-card.customers .impact-label { color: rgba(251,191,36,0.6); }
+  .impact-card.customers .impact-value { color: #fbbf24; }
+
+  .impact-card.cost { border: 1px solid rgba(208,58,140,0.15); }
+  .impact-card.cost::before { background: var(--tt-pink); box-shadow: 0 0 8px rgba(208,58,140,0.4); }
+  .impact-card.cost .impact-label { color: rgba(208,58,140,0.6); }
+  .impact-card.cost .impact-value { color: var(--tt-pink); font-size: 30px; }
+
+  .proposal-label {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    padding: 10px 24px; border-radius: 4px;
+    background: transparent;
+    border: 2px solid var(--tt-pink);
+    color: var(--tt-pink); font-family: 'Montserrat'; font-weight: 900; font-size: 13px;
+    letter-spacing: 3px; text-transform: uppercase; z-index: 100;
+    box-shadow: 0 0 20px rgba(208,58,140,0.3);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-group">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    </div>
+    <span class="brand-name">OpenShopFloor</span>
+    <span class="version-badge">v8.18</span>
+    <span class="separator">|</span>
+    <span class="page-title">FoMI 2026</span>
+    <button class="mode-btn">Light</button>
+  </div>
+  <div class="header-right">
+    <div class="i3x-badge">
+      <span class="i3x-label">i3X</span>
+      <span style="color:var(--text-dim)">|</span>
+      <span style="color:var(--text-muted);font-size:10px;letter-spacing:1px">CESMII</span>
+    </div>
+  </div>
+</header>
+
+<div class="content">
+  <div class="chat-panel">
+    <div class="chat-area">
+      <div class="msg-user">What happens if SGM-004 goes down right now?</div>
+      <div class="msg-assistant">
+        <div class="tool-call done"><span class="tool-dot done"></span><span class="tool-name">factory_get_machine_status</span></div>
+        <div class="tool-call done"><span class="tool-dot done"></span><span class="tool-name">factory_get_orders_for_machine</span></div>
+        <div class="tool-call done"><span class="tool-dot done"></span><span class="tool-name">kg_what_if_machine_down</span></div>
+        <div class="assistant-text">
+          <h2>Impact Analysis: SGM-004 Failure</h2>
+          <p>If <strong>SGM-004</strong> (Schleifmaschine 004) goes down right now:</p>
+          <h3>Orders at Risk</h3>
+          <p>FA-4021 — ART-2200, due 2026-03-19 for KD-112<br>
+          FA-4035 — ART-3100, due 2026-03-20 for KD-108<br>
+          FA-4042 — due 2026-03-21 for KD-115</p>
+          <h3>Downtime Cost</h3>
+          <p>Estimated <strong>850 EUR/h</strong> based on current production value.</p>
+          <h3>Alternative</h3>
+          <p><strong>SGM-007</strong> — 15% free capacity, compatible tooling (WKZ-440).</p>
+        </div>
+      </div>
+      <div class="spec-section">
+        <div class="spec-header">Specialists — 4/4</div>
+        <div class="spec-card"><div class="spec-card-header"><span class="tool-dot done"></span><span style="flex:1;color:rgba(238,232,240,0.8)">OEE Impact Analyst</span><span class="spec-dur">3.8s</span></div></div>
+        <div class="spec-card"><div class="spec-card-header"><span class="tool-dot done"></span><span style="flex:1;color:rgba(238,232,240,0.8)">OTD Impact Analyst</span><span class="spec-dur">5.1s</span></div></div>
+        <div class="spec-card"><div class="spec-card-header"><span class="tool-dot done"></span><span style="flex:1;color:rgba(238,232,240,0.8)">Cost Impact Analyst</span><span class="spec-dur">5.9s</span></div></div>
+        <div class="spec-card"><div class="spec-card-header"><span class="tool-dot done"></span><span style="flex:1;color:rgba(238,232,240,0.8)">Quality Impact Analyst</span><span class="spec-dur">6.7s</span></div></div>
+      </div>
+      <div class="final-rec">
+        <div class="final-rec-header"><span class="final-rec-dot"></span><span class="final-rec-label">Final Recommendation</span></div>
+        <div class="final-rec-text">1. Immediately run calibration check on SGM-007 (20 min)
+2. If pass: Reroute FA-4021 to SGM-007, start within 1 hour
+3. If fail: Contact KD-112 for 24h extension
+4. Parallel: Inform KD-112 sales rep, file maintenance ticket
+5. Hold FA-4035/FA-4042 for 24h
+
+Cost: 320 EUR (rerouting) vs. 24,600 EUR (inaction). ROI: 77x.</div>
+      </div>
+    </div>
+    <div class="input-bar">
+      <input type="text" placeholder="What happens if SGM-004 goes down right now?">
+      <button class="send-btn">Ask</button>
+    </div>
+  </div>
+
+  <div class="drag-handle"></div>
+
+  <div class="insight-panel">
+    <div class="card">
+      <div class="card-header"><span class="card-title">Interoperability</span><span class="card-subtitle">— Data Sources</span></div>
+      <div class="sources-grid">
+        <div class="source-tile active">
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#06b6d4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          <span class="source-label" style="color:#06b6d4">UNS / MQTT</span>
+          <span class="source-ping" style="background:#06b6d4"></span>
+        </div>
+        <div class="source-tile active">
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#3b82f6"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
+          <span class="source-label" style="color:#3b82f6">ERP</span>
+          <span class="source-ping" style="background:#3b82f6"></span>
+        </div>
+        <div class="source-tile active">
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#f59e0b"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H5V5h7v12zm7 0h-5V5h5v12z"/></svg>
+          <span class="source-label" style="color:#f59e0b">BDE</span>
+          <span class="source-ping" style="background:#f59e0b"></span>
+        </div>
+        <div class="source-tile active">
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#10b981"><path d="M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z"/></svg>
+          <span class="source-label" style="color:#10b981">MRP</span>
+          <span class="source-ping" style="background:#10b981"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">Integration</span><span class="card-subtitle">— Knowledge Graph Types</span></div>
+      <div class="kg-types">
+        <span class="kg-type active" style="color:#d03a8c;background:rgba(208,58,140,0.08);border-color:rgba(208,58,140,0.25)">Machine</span>
+        <span class="kg-type active" style="color:#f59e0b;background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.25)">Sensor</span>
+        <span class="kg-type active" style="color:#10b981;background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.25)">Order</span>
+        <span class="kg-type active" style="color:#3b82f6;background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.25)">Article</span>
+        <span class="kg-type active" style="color:#06b6d4;background:rgba(6,182,212,0.08);border-color:rgba(6,182,212,0.25)">Customer</span>
+        <span class="kg-type" style="color:rgba(238,232,240,0.2)">Material</span>
+        <span class="kg-type active" style="color:#eab308;background:rgba(234,179,8,0.08);border-color:rgba(234,179,8,0.25)">Tool</span>
+        <span class="kg-type active" style="color:#a855f7;background:rgba(168,85,247,0.08);border-color:rgba(168,85,247,0.25)">Process</span>
+        <span class="kg-type active" style="color:#22c55e;background:rgba(34,197,94,0.08);border-color:rgba(34,197,94,0.25)">Alternative</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 20px 8px">
+        <span class="card-title">Intelligence</span>
+        <span class="card-subtitle">— Knowledge Graph</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text-dim);font-family:monospace">127n / 184e</span>
+      </div>
+      <div class="kg-3d-placeholder">
+        <span style="z-index:1;font-size:12px">// 3D Knowledge Graph</span>
+      </div>
+    </div>
+
+    <div class="impact-grid">
+      <div class="impact-card orders">
+        <div class="impact-label">Orders at Risk</div>
+        <div class="impact-value">4</div>
+        <div class="impact-detail">FA-4021<br>FA-4035<br>FA-4042<br>FA-4058</div>
+      </div>
+      <div class="impact-card customers">
+        <div class="impact-label">Customers Hit</div>
+        <div class="impact-value">3</div>
+        <div class="impact-detail">KD-112<br>KD-108<br>KD-115</div>
+      </div>
+      <div class="impact-card cost">
+        <div class="impact-label">Downtime Cost</div>
+        <div class="impact-value">850 EUR/h</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="proposal-label">Design C — Neon Line</div>
+</body>
+</html>

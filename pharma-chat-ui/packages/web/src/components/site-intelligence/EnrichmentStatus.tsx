@@ -4,9 +4,11 @@ import React from "react";
 import type { EnrichmentData, ModalityResolution } from "@p1/shared";
 
 interface Props {
-  enrichment: EnrichmentData;
+  enrichment: EnrichmentData | null;
   resolution: ModalityResolution | null;
   isResolving: boolean;
+  sourceStatus: Record<string, 'pending' | 'running' | 'done' | 'error'>;
+  sourcePreviews: Record<string, string>;
   onConfirm: () => void;
   onOverrideModality: (modality: string, scale: string) => void;
 }
@@ -21,77 +23,91 @@ const MODALITY_OPTIONS = [
   { label: "pDNA 40L", modality: "pDNA", scale: "40L" },
 ];
 
-function SourceCard({ name, found, detail }: { name: string; found: boolean; detail: string }) {
+const SOURCE_LABELS: Record<string, { name: string; icon: string }> = {
+  clinicalTrials: { name: "ClinicalTrials.gov", icon: "🔬" },
+  openFda:        { name: "openFDA", icon: "💊" },
+  decrs:          { name: "FDA DECRS", icon: "🏭" },
+  hcters:         { name: "CBER / HCTERS", icon: "🧬" },
+  edgar:          { name: "SEC EDGAR", icon: "📄" },
+  website:        { name: "Company Website", icon: "🌐" },
+  news:           { name: "Press Releases", icon: "📰" },
+};
+
+function SourceCard({ id, status, preview }: {
+  id: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  preview?: string;
+}) {
+  const label = SOURCE_LABELS[id] || { name: id, icon: "📡" };
+
   return (
-    <div className={`rounded-lg border p-3 ${found ? "border-emerald-500/30 bg-emerald-500/5" : "border-p1-border bg-p1-surface"}`}>
+    <div className={`rounded-lg border p-3 transition-all duration-300 ${
+      status === 'done' ? "border-emerald-500/30 bg-emerald-500/5" :
+      status === 'running' ? "border-cyan-500/30 bg-cyan-500/5 animate-pulse" :
+      status === 'error' ? "border-red-500/20 bg-red-500/5" :
+      "border-p1-border bg-p1-surface opacity-50"
+    }`}>
       <div className="flex items-center gap-2 mb-1">
-        <span className={`text-sm ${found ? "text-emerald-400" : "text-p1-dim"}`}>
-          {found ? "✓" : "—"}
+        <span className="text-sm">{label.icon}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-p1-muted">{label.name}</span>
+        <span className="ml-auto">
+          {status === 'running' && <span className="w-3 h-3 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin inline-block" />}
+          {status === 'done' && <span className="text-emerald-400 text-sm">✓</span>}
+          {status === 'error' && <span className="text-red-400 text-sm">✕</span>}
+          {status === 'pending' && <span className="text-slate-600 text-sm">○</span>}
         </span>
-        <span className="text-xs font-semibold uppercase tracking-wider text-p1-muted">{name}</span>
       </div>
-      <p className="text-xs text-p1-dim leading-relaxed">{detail}</p>
+      <p className="text-xs text-p1-dim leading-relaxed min-h-[16px]">
+        {status === 'running' ? 'Searching...' :
+         status === 'done' ? (preview || 'Complete') :
+         status === 'error' ? 'Failed' :
+         'Waiting...'}
+      </p>
     </div>
   );
 }
 
-export function EnrichmentStatus({ enrichment, resolution, isResolving, onConfirm, onOverrideModality }: Props) {
-  const e = enrichment;
-  const ctCount = e.clinicalTrials?.studies?.length || 0;
-  const fdaCount = e.openFda?.approvals?.length || 0;
+export function EnrichmentStatus({
+  enrichment, resolution, isResolving, sourceStatus, sourcePreviews,
+  onConfirm, onOverrideModality,
+}: Props) {
+  const allDone = Object.values(sourceStatus).every(s => s === 'done' || s === 'error');
+  const doneCount = Object.values(sourceStatus).filter(s => s === 'done').length;
+  const totalCount = Object.keys(sourceStatus).length;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="text-center">
-        <h2 className="text-xl font-bold">Enrichment Results</h2>
-        <p className="text-p1-dim text-sm mt-1">Data collected from 6 public sources</p>
+        <h2 className="text-xl font-bold">Searching Public Databases</h2>
+        <p className="text-p1-dim text-sm mt-1">
+          {allDone ? `${doneCount} of ${totalCount} sources returned data` : `Querying ${totalCount} sources...`}
+        </p>
       </div>
 
-      {/* Source cards */}
+      {/* Progress bar */}
+      <div className="h-1.5 bg-p1-surface rounded-full overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full transition-all duration-500"
+          style={{ width: `${(doneCount / Math.max(totalCount, 1)) * 100}%` }}
+        />
+      </div>
+
+      {/* Source cards grid */}
       <div className="grid grid-cols-2 gap-3">
-        <SourceCard
-          name="ClinicalTrials.gov"
-          found={ctCount > 0}
-          detail={ctCount > 0 ? `${ctCount} studies found` : "No studies (typical for CDMOs)"}
-        />
-        <SourceCard
-          name="openFDA"
-          found={fdaCount > 0}
-          detail={fdaCount > 0 ? `${fdaCount} approved products` : "No approved products found"}
-        />
-        <SourceCard
-          name="FDA DECRS"
-          found={!!e.decrs}
-          detail={e.decrs ? `FEI: ${e.decrs.feiNumber} — ${e.decrs.businessOperations.join(", ")}` : "Not found in establishment registry"}
-        />
-        <SourceCard
-          name="CBER/HCTERS"
-          found={!!e.hcters?.hasRegistration}
-          detail={e.hcters?.hasRegistration ? "HCT/P registration found — cell/gene therapy signal" : "No HCT/P registration"}
-        />
-        <SourceCard
-          name="SEC EDGAR"
-          found={(e.edgar?.totalMentions || 0) > 0}
-          detail={e.edgar?.totalMentions
-            ? `${e.edgar.totalMentions} filing(s): ${e.edgar.filings.slice(0, 2).map(f => f.filer).join(", ")}`
-            : "No SEC filing mentions"}
-        />
-        <SourceCard
-          name="Company Website"
-          found={!!e.website && e.website.modalities.length > 0}
-          detail={e.website?.modalities.length
-            ? `Modalities: ${e.website.modalities.join(", ")}${e.website.cgmpStatus ? ` | ${e.website.cgmpStatus}` : ""}`
-            : "Website not accessible or no data extracted"}
-        />
+        {Object.entries(sourceStatus).map(([id, status]) => (
+          <SourceCard key={id} id={id} status={status} preview={sourcePreviews[id]} />
+        ))}
       </div>
 
       {/* Resolution result */}
-      {isResolving ? (
-        <div className="text-center py-6">
-          <span className="w-6 h-6 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin inline-block" />
-          <p className="text-p1-dim text-sm mt-2">Resolving modality...</p>
+      {allDone && !resolution && isResolving && (
+        <div className="text-center py-4">
+          <span className="w-5 h-5 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin inline-block" />
+          <p className="text-p1-dim text-sm mt-2">Analyzing modality...</p>
         </div>
-      ) : resolution ? (
+      )}
+
+      {resolution && (
         <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold uppercase tracking-wider text-cyan-400">Detected Modality</h3>
@@ -110,7 +126,6 @@ export function EnrichmentStatus({ enrichment, resolution, isResolving, onConfir
             {resolution.phase} | {resolution.accountType === "cdmo" ? "CDMO" : resolution.accountType === "innovator" ? "Innovator" : "Unknown"} | Tab: {resolution.vendorMapTab}
           </div>
 
-          {/* Signals */}
           <details className="text-xs text-p1-dim">
             <summary className="cursor-pointer hover:text-p1-text">View {resolution.signals.length} signals</summary>
             <ul className="mt-2 space-y-1 pl-4">
@@ -118,7 +133,6 @@ export function EnrichmentStatus({ enrichment, resolution, isResolving, onConfir
             </ul>
           </details>
 
-          {/* Actions */}
           <div className="flex gap-3 mt-5">
             <button
               onClick={onConfirm}
@@ -141,7 +155,7 @@ export function EnrichmentStatus({ enrichment, resolution, isResolving, onConfir
             </select>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

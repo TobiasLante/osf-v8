@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design A — Glass Morphism</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Noto+Sans+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --tt-pink: #d03a8c;
+    --tt-purple: #7b2d85;
+    --tt-pink-light: #ed3f96;
+    --tt-purple-dark: #62246a;
+    --tt-purple-deep: #311235;
+    --bg: #0a060d;
+    --bg-card: rgba(208, 58, 140, 0.04);
+    --border: rgba(208, 58, 140, 0.12);
+    --text: #f0e8f2;
+    --text-muted: rgba(240, 232, 242, 0.5);
+    --text-dim: rgba(240, 232, 242, 0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Noto Sans Display', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  h1, h2, h3, h4, .heading { font-family: 'Montserrat', system-ui, sans-serif; }
+
+  /* ── Animated gradient bg ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 20%, rgba(208,58,140,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(123,45,133,0.06) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Header ── */
+  header {
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    background: rgba(10, 6, 13, 0.8);
+    position: relative;
+    z-index: 10;
+  }
+  .logo-group { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--tt-pink), var(--tt-purple));
+    display: grid; place-items: center;
+    box-shadow: 0 0 20px rgba(208,58,140,0.3);
+  }
+  .logo-icon svg { width: 18px; height: 18px; color: white; }
+  .brand-name { font-family: 'Montserrat'; font-weight: 800; font-size: 18px; letter-spacing: -0.5px; }
+  .version-badge {
+    font-size: 10px; font-family: monospace;
+    color: var(--text-dim);
+    background: rgba(208,58,140,0.08);
+    border: 1px solid rgba(208,58,140,0.15);
+    border-radius: 6px;
+    padding: 2px 8px;
+  }
+  .separator { color: var(--text-dim); font-size: 14px; margin: 0 4px; }
+  .page-title { font-size: 14px; font-weight: 600; color: var(--text-muted); }
+  .mode-toggle {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px; font-weight: 700;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mode-toggle:hover { background: rgba(208,58,140,0.1); color: var(--text); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .i3x-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    font-size: 10px;
+  }
+  .i3x-label { font-weight: 800; color: var(--tt-pink); letter-spacing: 2px; }
+
+  /* ── Main content ── */
+  .content { flex: 1; display: flex; min-height: 0; position: relative; z-index: 1; }
+
+  /* ── Left Panel (Chat) ── */
+  .chat-panel {
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+  }
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Glass empty state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+  }
+  .empty-icon {
+    width: 96px; height: 96px;
+    position: relative;
+    margin-bottom: 24px;
+  }
+  .empty-icon .ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--tt-pink), var(--tt-purple));
+    opacity: 0.15;
+    animation: pulse 3s ease-in-out infinite;
+  }
+  .empty-icon .inner {
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    background: var(--bg);
+  }
+  .empty-icon svg {
+    position: absolute;
+    inset: 0;
+    width: 40px; height: 40px;
+    margin: auto;
+    color: var(--tt-pink);
+  }
+  @keyframes pulse { 0%,100% { opacity:0.15; transform:scale(1); } 50% { opacity:0.3; transform:scale(1.05); } }
+
+  .empty-title { font-family: 'Montserrat'; font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+  .empty-subtitle { font-size: 14px; color: var(--text-muted); max-width: 300px; margin-bottom: 24px; }
+  .demo-btn {
+    padding: 14px 24px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--tt-pink), var(--tt-purple));
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 20px rgba(208,58,140,0.3);
+  }
+  .demo-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 30px rgba(208,58,140,0.4); }
+
+  /* Messages */
+  .msg-user {
+    align-self: flex-end;
+    max-width: 90%;
+    padding: 12px 16px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(208,58,140,0.15), rgba(123,45,133,0.08));
+    border: 1px solid rgba(208,58,140,0.2);
+    backdrop-filter: blur(10px);
+    font-weight: 500;
+  }
+  .msg-assistant { display: flex; flex-direction: column; gap: 8px; }
+  .tool-call {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(208,58,140,0.04);
+    border: 1px solid rgba(208,58,140,0.1);
+    backdrop-filter: blur(8px);
+    font-size: 14px;
+  }
+  .tool-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .tool-dot.running { background: #f59e0b; animation: pulse 1.5s infinite; }
+  .tool-dot.done { background: #10b981; }
+  .tool-name { font-family: monospace; color: rgba(245,158,11,0.9); }
+  .assistant-text {
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgba(240,232,242,0.8);
+  }
+  .assistant-text h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+  .assistant-text h3 { font-size: 15px; margin: 12px 0 6px; color: var(--text); }
+
+  /* Streaming dots */
+  .streaming-dots { display: flex; gap: 6px; padding: 12px 8px; }
+  .streaming-dots span {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--tt-pink);
+    animation: bounce 0.6s infinite alternate;
+  }
+  .streaming-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .streaming-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { to { transform: translateY(-6px); opacity: 0.5; } }
+
+  /* Input */
+  .input-bar {
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+  .input-bar input {
+    flex: 1;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: rgba(208,58,140,0.05);
+    border: 1px solid rgba(208,58,140,0.15);
+    color: var(--text);
+    font-size: 15px;
+    font-family: 'Noto Sans Display', system-ui;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .input-bar input::placeholder { color: var(--text-dim); }
+  .input-bar input:focus { border-color: rgba(208,58,140,0.4); }
+  .send-btn {
+    padding: 14px 22px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--tt-pink), var(--tt-purple));
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .send-btn:hover { opacity: 0.9; }
+
+  /* ── Drag handle ── */
+  .drag-handle {
+    width: 6px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .drag-handle:hover { background: rgba(208,58,140,0.3); }
+
+  /* ── Right Panel (i3X) ── */
+  .insight-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Glass cards */
+  .glass-card {
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: rgba(208,58,140,0.03);
+    backdrop-filter: blur(12px);
+    padding: 20px;
+  }
+  .card-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-family: 'Montserrat';
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: rgba(240,232,242,0.8);
+  }
+  .card-subtitle { font-size: 12px; color: var(--text-dim); }
+
+  /* Data Sources grid */
+  .sources-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .source-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(208,58,140,0.06);
+    background: rgba(208,58,140,0.02);
+    transition: all 0.5s;
+    position: relative;
+  }
+  .source-tile.active {
+    border-color: rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04);
+  }
+  .source-tile .glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 14px;
+    opacity: 0;
+    transition: opacity 0.5s;
+    pointer-events: none;
+  }
+  .source-tile.active .glow { opacity: 1; animation: pulse 2s infinite; }
+  .source-icon { width: 32px; height: 32px; transition: color 0.5s; }
+  .source-label { font-size: 14px; font-weight: 600; transition: color 0.5s; }
+  .source-ping {
+    position: absolute;
+    top: 8px; right: 8px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    animation: ping 1s cubic-bezier(0,0,0.2,1) infinite;
+  }
+  @keyframes ping { 0% { transform: scale(1); opacity: 1; } 75%,100% { transform: scale(2); opacity: 0; } }
+
+  /* KG Types */
+  .kg-types { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kg-type {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    transition: all 0.5s;
+    opacity: 0.4;
+  }
+  .kg-type.active { opacity: 1; transform: scale(1); }
+
+  /* Impact cards */
+  .impact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .impact-card {
+    border-radius: 14px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .impact-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 14px;
+    backdrop-filter: blur(8px);
+  }
+  .impact-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+    position: relative;
+  }
+  .impact-value {
+    font-family: 'Montserrat';
+    font-size: 40px;
+    font-weight: 900;
+    position: relative;
+  }
+  .impact-detail {
+    font-size: 10px;
+    margin-top: 6px;
+    position: relative;
+    font-family: monospace;
+    opacity: 0.4;
+  }
+
+  .impact-card.orders { border: 1px solid rgba(239,68,68,0.2); background: rgba(239,68,68,0.05); }
+  .impact-card.orders .impact-label { color: rgba(248,113,113,0.7); }
+  .impact-card.orders .impact-value { color: #f87171; }
+
+  .impact-card.customers { border: 1px solid rgba(245,158,11,0.2); background: rgba(245,158,11,0.05); }
+  .impact-card.customers .impact-label { color: rgba(251,191,36,0.7); }
+  .impact-card.customers .impact-value { color: #fbbf24; }
+
+  .impact-card.cost { border: 1px solid rgba(208,58,140,0.2); background: rgba(208,58,140,0.05); }
+  .impact-card.cost .impact-label { color: rgba(208,58,140,0.7); }
+  .impact-card.cost .impact-value { color: var(--tt-pink); }
+
+  /* KG 3D placeholder */
+  .kg-3d-placeholder {
+    height: 380px;
+    border-radius: 0 0 16px 16px;
+    background:
+      radial-gradient(circle at 30% 40%, rgba(208,58,140,0.08) 0%, transparent 50%),
+      radial-gradient(circle at 70% 60%, rgba(123,45,133,0.06) 0%, transparent 50%),
+      var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    position: relative;
+  }
+  .kg-3d-placeholder::after {
+    content: '';
+    position: absolute;
+    inset: 40px;
+    border: 1px dashed rgba(208,58,140,0.15);
+    border-radius: 50%;
+  }
+
+  /* Specialist cards */
+  .specialist-section { margin-top: 8px; }
+  .spec-header { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+  .spec-card {
+    border-radius: 12px;
+    background: rgba(208,58,140,0.04);
+    border: 1px solid rgba(208,58,140,0.1);
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .spec-card-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-size: 14px;
+  }
+  .spec-card-header:hover { background: rgba(208,58,140,0.03); }
+  .spec-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .spec-badge.hoch { background: rgba(239,68,68,0.2); color: #f87171; }
+  .spec-badge.mittel { background: rgba(245,158,11,0.2); color: #fbbf24; }
+  .spec-badge.niedrig { background: rgba(59,130,246,0.2); color: #60a5fa; }
+
+  /* Final recommendation */
+  .final-rec {
+    border-radius: 16px;
+    padding: 20px;
+    border: 2px solid rgba(16,185,129,0.3);
+    background: linear-gradient(135deg, rgba(16,185,129,0.06), rgba(16,185,129,0.02));
+  }
+  .final-rec-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .final-rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #34d399; }
+  .final-rec-label { font-family: 'Montserrat'; font-size: 13px; font-weight: 800; color: #34d399; text-transform: uppercase; letter-spacing: 2px; }
+  .final-rec-text { font-size: 14px; line-height: 1.7; color: rgba(240,232,242,0.85); white-space: pre-line; }
+
+  /* Proposal label */
+  .proposal-label {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 20px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--tt-pink), var(--tt-purple));
+    color: white;
+    font-family: 'Montserrat';
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 1px;
+    z-index: 100;
+    box-shadow: 0 4px 20px rgba(208,58,140,0.4);
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo-group">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+    </div>
+    <span class="brand-name">OpenShopFloor</span>
+    <span class="version-badge">v8.18.0</span>
+    <span class="separator">|</span>
+    <span class="page-title">FoMI 2026 Live Demo</span>
+    <button class="mode-toggle">Light</button>
+  </div>
+  <div class="header-right">
+    <div class="i3x-badge">
+      <span class="i3x-label">i3X</span>
+      <span style="color:var(--text-dim)">|</span>
+      <span style="color:var(--text-muted)">CESMII SM Profiles</span>
+    </div>
+  </div>
+</header>
+
+<!-- Content -->
+<div class="content">
+  <!-- Left: Chat -->
+  <div class="chat-panel">
+    <div class="chat-area">
+      <!-- User message -->
+      <div class="msg-user">What happens if SGM-004 goes down right now?</div>
+
+      <!-- Assistant -->
+      <div class="msg-assistant">
+        <div class="tool-call">
+          <span class="tool-dot done"></span>
+          <span class="tool-name">factory_get_machine_status</span>
+        </div>
+        <div class="tool-call">
+          <span class="tool-dot done"></span>
+          <span class="tool-name">factory_get_orders_for_machine</span>
+        </div>
+        <div class="tool-call">
+          <span class="tool-dot done"></span>
+          <span class="tool-name">kg_what_if_machine_down</span>
+        </div>
+        <div class="assistant-text">
+          <h2>Impact Analysis: SGM-004 Failure</h2>
+          <p>If <strong>SGM-004</strong> (Schleifmaschine 004) goes down right now, the following impact occurs:</p>
+          <h3>Orders at Risk</h3>
+          <p>FA-4021 — ART-2200, due 2026-03-19 for KD-112<br>
+          FA-4035 — ART-3100, due 2026-03-20 for KD-108<br>
+          FA-4042 — due 2026-03-21 for KD-115</p>
+          <h3>Downtime Cost</h3>
+          <p>Estimated <strong>850 EUR/h</strong> based on current production value.</p>
+          <h3>Alternative</h3>
+          <p><strong>SGM-007</strong> as potential alternative. 15% free capacity, compatible tooling (WKZ-440).</p>
+        </div>
+      </div>
+
+      <!-- Specialists -->
+      <div class="specialist-section">
+        <div class="spec-header">Specialists — 4/4</div>
+        <div class="spec-card">
+          <div class="spec-card-header">
+            <span class="tool-dot done"></span>
+            <span style="flex:1;color:rgba(240,232,242,0.8)">OEE Impact Analyst</span>
+            <span style="font-size:12px;color:var(--text-dim)">4s</span>
+          </div>
+        </div>
+        <div class="spec-card">
+          <div class="spec-card-header">
+            <span class="tool-dot done"></span>
+            <span style="flex:1;color:rgba(240,232,242,0.8)">OTD Impact Analyst</span>
+            <span style="font-size:12px;color:var(--text-dim)">5s</span>
+          </div>
+        </div>
+        <div class="spec-card">
+          <div class="spec-card-header">
+            <span class="tool-dot done"></span>
+            <span style="flex:1;color:rgba(240,232,242,0.8)">Cost Impact Analyst</span>
+            <span style="font-size:12px;color:var(--text-dim)">6s</span>
+          </div>
+        </div>
+        <div class="spec-card">
+          <div class="spec-card-header">
+            <span class="tool-dot done"></span>
+            <span style="flex:1;color:rgba(240,232,242,0.8)">Quality Impact Analyst</span>
+            <span style="font-size:12px;color:var(--text-dim)">7s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Final Recommendation -->
+      <div class="final-rec">
+        <div class="final-rec-header">
+          <span class="final-rec-dot"></span>
+          <span class="final-rec-label">Final Recommendation</span>
+        </div>
+        <div class="final-rec-text">1. Immediately run calibration check on SGM-007 (20 min)
+2. If pass: Reroute FA-4021 to SGM-007, start production within 1 hour
+3. If fail: Contact KD-112 for 24h extension
+4. Parallel: Inform KD-112 sales rep, file maintenance ticket
+5. Hold FA-4035/FA-4042 for 24h
+
+Cost: 320 EUR (rerouting) vs. 24,600 EUR (inaction). ROI: 77x.</div>
+      </div>
+    </div>
+
+    <div class="input-bar">
+      <input type="text" placeholder="What happens if SGM-004 goes down right now?">
+      <button class="send-btn">Ask</button>
+    </div>
+  </div>
+
+  <div class="drag-handle"></div>
+
+  <!-- Right: i3X Panel -->
+  <div class="insight-panel">
+    <!-- Data Sources -->
+    <div class="glass-card">
+      <div class="card-header">
+        <span class="card-title">Interoperability</span>
+        <span class="card-subtitle">— Data Sources</span>
+      </div>
+      <div class="sources-grid">
+        <div class="source-tile active">
+          <div class="glow" style="box-shadow: inset 0 0 20px rgba(6,182,212,0.3), 0 0 30px rgba(6,182,212,0.15)"></div>
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#06b6d4">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+          </svg>
+          <span class="source-label" style="color:#06b6d4">UNS / MQTT</span>
+          <span class="source-ping" style="background:#06b6d4"></span>
+        </div>
+        <div class="source-tile active">
+          <div class="glow" style="box-shadow: inset 0 0 20px rgba(59,130,246,0.3), 0 0 30px rgba(59,130,246,0.15)"></div>
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#3b82f6">
+            <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+          </svg>
+          <span class="source-label" style="color:#3b82f6">ERP</span>
+          <span class="source-ping" style="background:#3b82f6"></span>
+        </div>
+        <div class="source-tile active">
+          <div class="glow" style="box-shadow: inset 0 0 20px rgba(245,158,11,0.3), 0 0 30px rgba(245,158,11,0.15)"></div>
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#f59e0b">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H5V5h7v12zm7 0h-5V5h5v12z"/>
+          </svg>
+          <span class="source-label" style="color:#f59e0b">BDE</span>
+          <span class="source-ping" style="background:#f59e0b"></span>
+        </div>
+        <div class="source-tile active">
+          <div class="glow" style="box-shadow: inset 0 0 20px rgba(16,185,129,0.3), 0 0 30px rgba(16,185,129,0.15)"></div>
+          <svg class="source-icon" viewBox="0 0 24 24" fill="currentColor" style="color:#10b981">
+            <path d="M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z"/>
+          </svg>
+          <span class="source-label" style="color:#10b981">MRP</span>
+          <span class="source-ping" style="background:#10b981"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- KG Types -->
+    <div class="glass-card">
+      <div class="card-header">
+        <span class="card-title">Integration</span>
+        <span class="card-subtitle">— Knowledge Graph Types</span>
+      </div>
+      <div class="kg-types">
+        <span class="kg-type active" style="color:#d03a8c;background:rgba(208,58,140,0.1);border-color:rgba(208,58,140,0.3)">Machine</span>
+        <span class="kg-type active" style="color:#f59e0b;background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3)">Sensor</span>
+        <span class="kg-type active" style="color:#10b981;background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.3)">Order</span>
+        <span class="kg-type active" style="color:#3b82f6;background:rgba(59,130,246,0.1);border-color:rgba(59,130,246,0.3)">Article</span>
+        <span class="kg-type active" style="color:#06b6d4;background:rgba(6,182,212,0.1);border-color:rgba(6,182,212,0.3)">Customer</span>
+        <span class="kg-type" style="color:rgba(240,232,242,0.3)">Material</span>
+        <span class="kg-type active" style="color:#eab308;background:rgba(234,179,8,0.1);border-color:rgba(234,179,8,0.3)">Tool</span>
+        <span class="kg-type active" style="color:#a855f7;background:rgba(168,85,247,0.1);border-color:rgba(168,85,247,0.3)">Process</span>
+        <span class="kg-type active" style="color:#22c55e;background:rgba(34,197,94,0.1);border-color:rgba(34,197,94,0.3)">Alternative</span>
+      </div>
+    </div>
+
+    <!-- KG 3D -->
+    <div class="glass-card" style="padding:0;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:14px 20px 6px">
+        <span class="card-title">Intelligence</span>
+        <span class="card-subtitle">— Knowledge Graph</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-muted)">127 nodes, 184 edges</span>
+      </div>
+      <div class="kg-3d-placeholder">
+        <span>3D Knowledge Graph Visualization</span>
+      </div>
+    </div>
+
+    <!-- Impact Cards -->
+    <div class="impact-grid">
+      <div class="impact-card orders">
+        <div class="impact-label">Orders at Risk</div>
+        <div class="impact-value">4</div>
+        <div class="impact-detail">FA-4021<br>FA-4035<br>FA-4042<br>FA-4058</div>
+      </div>
+      <div class="impact-card customers">
+        <div class="impact-label">Customers Hit</div>
+        <div class="impact-value">3</div>
+        <div class="impact-detail">KD-112<br>KD-108<br>KD-115</div>
+      </div>
+      <div class="impact-card cost">
+        <div class="impact-label">Downtime Cost</div>
+        <div class="impact-value">850 EUR/h</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="proposal-label">DESIGN A — Glass Morphism Dark</div>
+</body>
+</html>

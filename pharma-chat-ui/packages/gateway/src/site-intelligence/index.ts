@@ -46,7 +46,153 @@ siteIntelligenceRouter.get('/api/site-intelligence/vendor-map/:tab', (req: Reque
   res.json({ tab: req.params.tab, rows });
 });
 
-// ── POST /api/site-intelligence/enrich — run all 6 APIs in parallel ──
+// ── GET /api/site-intelligence/enrich-stream — SSE stream for live progress ──
+
+siteIntelligenceRouter.get('/api/site-intelligence/enrich-stream', async (req: Request, res: Response) => {
+  const accountName = req.query.accountName as string;
+  const location = req.query.location as string | undefined;
+  const vendor = req.query.vendor as string | undefined;
+
+  if (!accountName) {
+    res.status(400).json({ error: 'Missing accountName' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const send = (event: string, data: any) => {
+    res.write(`data: ${JSON.stringify({ event, ...data })}\n\n`);
+  };
+
+  send('start', { accountName, sources: 7 });
+
+  const companyName = accountName;
+  const fdaEncoded = encodeURIComponent(`"${companyName}"`);
+  const ctUrl = `https://clinicaltrials.gov/api/v2/studies?query.term=${encodeURIComponent(companyName)}${location ? `+${encodeURIComponent(location)}` : ''}&pageSize=20`;
+
+  // Run each source and stream progress
+  const results: any = {};
+
+  const runSource = async (name: string, fn: () => Promise<any>) => {
+    send('source_start', { name });
+    try {
+      const result = await fn();
+      results[name] = result;
+      send('source_done', { name, preview: summarizeSource(name, result) });
+    } catch (err: any) {
+      results[name] = null;
+      send('source_error', { name, error: err.message });
+    }
+  };
+
+  // Run all 7 in parallel
+  await Promise.allSettled([
+    runSource('clinicalTrials', async () => {
+      const resp = await fetch(ctUrl, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return { studies: [], summary: 'Failed' };
+      const data: any = await resp.json();
+      const studies = (data?.studies || []).map((s: any) => {
+        const proto = s.protocolSection || {};
+        return {
+          nctId: proto.identificationModule?.nctId,
+          title: proto.identificationModule?.briefTitle || '',
+          phase: proto.designModule?.phases?.[0] || 'N/A',
+          status: proto.statusModule?.overallStatus || 'N/A',
+          conditions: proto.conditionsModule?.conditions || [],
+          interventions: (proto.armsInterventionsModule?.interventions || []).map((iv: any) => ({ type: iv.type, name: iv.name })),
+          sponsor: proto.sponsorCollaboratorsModule?.leadSponsor?.name,
+          collaborators: (proto.sponsorCollaboratorsModule?.collaborators || []).map((c: any) => c.name),
+        };
+      });
+      return { studies, summary: `Found ${studies.length} studies` };
+    }),
+
+    runSource('openFda', async () => {
+      const resp = await fetch(`https://api.fda.gov/drug/drugsfda.json?search=openfda.manufacturer_name:${fdaEncoded}&limit=20`, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) return { approvals: [], summary: 'No results' };
+      const data: any = await resp.json();
+      const approvals = (data.results || []).map((r: any) => ({
+        application_number: r.application_number,
+        application_type: r.application_type,
+        brand_name: r.openfda?.brand_name?.[0] || r.products?.[0]?.brand_name || 'N/A',
+        generic_name: r.openfda?.generic_name?.[0] || 'N/A',
+        route: r.openfda?.route?.[0] || 'N/A',
+        isBLA: r.application_number?.startsWith('BLA') ?? false,
+      }));
+      return { approvals, summary: `Found ${approvals.length} products` };
+    }),
+
+    runSource('decrs', () => queryDecrs(companyName).then(r => r.length > 0 ? r[0] : null)),
+    runSource('hcters', () => queryHcters(companyName)),
+    runSource('edgar', () => queryEdgar(companyName)),
+    runSource('website', () => enrichFromWebsite(companyName)),
+    runSource('news', () => enrichFromNews(companyName)),
+  ]);
+
+  // Merge news into website (same logic as POST endpoint)
+  let website = results.website;
+  const news: NewsEnrichment | null = results.news;
+  if (news && website) {
+    const allPartners = new Set([
+      ...website.partnerships,
+      ...news.partnerships.filter((p: string) =>
+        p.length > 3 && p.length < 60 && !p.toLowerCase().startsWith('to ') &&
+        !p.toLowerCase().startsWith('for ') && !p.toLowerCase().includes('advance') &&
+        !p.toLowerCase().includes('nonprofit') && /[A-Z]/.test(p[0])
+      ),
+    ]);
+    website.partnerships = Array.from(allPartners);
+    if (news.parentCompany) {
+      console.log(`[site-intelligence] Parent company from news titles: ${news.parentCompany}`);
+      website.parentCompany = news.parentCompany;
+    } else if (website.parentCompany && website.parentCompany.length < 4) {
+      website.parentCompany = undefined;
+    }
+    if (!website.facilityDetails && news.facilityDetails) website.facilityDetails = news.facilityDetails;
+    if (!website.scale && news.scale) website.scale = news.scale;
+    const allEquip = new Set([...website.equipmentMentions, ...news.equipmentVendors]);
+    website.equipmentMentions = Array.from(allEquip);
+    if (news.keyFacts.length) website.keyDifferentiators = [...(website.keyDifferentiators || []), ...news.keyFacts];
+    if (news.articles.length) website.recentNews = news.articles.slice(0, 5).map((a: any) => `${a.title} (${a.source}, ${a.date})`);
+  } else if (news && !website) {
+    website = {
+      modalities: [], partnerships: news.partnerships, equipmentMentions: news.equipmentVendors,
+      parentCompany: news.parentCompany, facilityDetails: news.facilityDetails, scale: news.scale,
+      keyDifferentiators: news.keyFacts,
+      recentNews: news.articles.slice(0, 5).map((a: any) => `${a.title} (${a.source}, ${a.date})`),
+    };
+  }
+
+  const enrichment: EnrichmentData = {
+    clinicalTrials: results.clinicalTrials || { studies: [], summary: 'Failed' },
+    openFda: results.openFda || { approvals: [], summary: 'Failed' },
+    decrs: results.decrs || null,
+    hcters: results.hcters || null,
+    edgar: results.edgar || null,
+    website,
+  };
+
+  send('complete', { enrichment });
+  res.end();
+});
+
+function summarizeSource(name: string, result: any): string {
+  if (!result) return 'No data';
+  switch (name) {
+    case 'clinicalTrials': return `${result.studies?.length || 0} studies`;
+    case 'openFda': return `${result.approvals?.length || 0} products`;
+    case 'decrs': return result?.feiNumber ? `FEI: ${result.feiNumber}` : 'Not found';
+    case 'hcters': return result?.hasRegistration ? 'Registered' : 'Not found';
+    case 'edgar': return `${result?.totalMentions || 0} filings`;
+    case 'website': return result?.modalities?.length ? result.modalities.join(', ') : 'Extracted';
+    case 'news': return `${result?.totalArticles || 0} articles`;
+    default: return 'Done';
+  }
+}
+
+// ── POST /api/site-intelligence/enrich — batch version (kept for API/curl testing) ──
 
 siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request, res: Response) => {
   const input: SiteIntelligenceInput = req.body;

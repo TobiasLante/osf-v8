@@ -6,7 +6,7 @@ import type {
   EquipmentStatus, EquipmentStatusValue, ProcessStep, ReportRequest,
 } from "@p1/shared";
 import {
-  siteEnrich, siteResolve, siteInferStatus,
+  siteEnrichStream, siteResolve, siteInferStatus,
   siteGetProcessSteps, siteGenerateReport,
 } from "../../lib/api";
 import { IntakeForm } from "../../components/site-intelligence/IntakeForm";
@@ -24,40 +24,49 @@ export default function SiteIntelligencePage() {
 
   const [input, setInput] = useState<SiteIntelligenceInput | null>(null);
   const [enrichment, setEnrichment] = useState<EnrichmentData | null>(null);
+  const [sourceStatus, setSourceStatus] = useState<Record<string, 'pending' | 'running' | 'done' | 'error'>>({});
+  const [sourcePreviews, setSourcePreviews] = useState<Record<string, string>>({});
   const [resolution, setResolution] = useState<ModalityResolution | null>(null);
   const [equipmentStatus, setEquipmentStatus] = useState<EquipmentStatus>({});
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   const [reportBlob, setReportBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Step 1 → 2: Enrich + Resolve ──
+  // ── Step 1 → 2: Enrich with live progress + Resolve ──
   const handleEnrich = useCallback(async (formInput: SiteIntelligenceInput) => {
     setIsLoading(true);
     setError(null);
     setInput(formInput);
+    setCurrentStep(2);
+
+    // Init all sources as pending
+    const sources = ['clinicalTrials', 'openFda', 'decrs', 'hcters', 'edgar', 'website', 'news'];
+    setSourceStatus(Object.fromEntries(sources.map(s => [s, 'pending' as const])));
+    setSourcePreviews({});
 
     try {
-      const data = await siteEnrich(formInput);
+      const data = await siteEnrichStream(
+        formInput,
+        (name) => setSourceStatus(prev => ({ ...prev, [name]: 'running' })),
+        (name, preview) => {
+          setSourceStatus(prev => ({ ...prev, [name]: 'done' }));
+          setSourcePreviews(prev => ({ ...prev, [name]: preview }));
+        },
+        (name) => setSourceStatus(prev => ({ ...prev, [name]: 'error' })),
+      );
       setEnrichment(data);
-      setCurrentStep(2);
 
-      // Auto-resolve modality (separate try-catch so enrichment still shows)
+      // Auto-resolve
       try {
         const res = await siteResolve(data);
         setResolution(res);
-
-        // Auto-infer status
         if (res.vendorMapTab) {
           try {
             const status = await siteInferStatus(data, res.vendorMapTab, formInput.vendor);
             setEquipmentStatus(status);
-          } catch {
-            console.warn('Status inference failed, using defaults');
-          }
+          } catch { /* defaults */ }
         }
-      } catch {
-        console.warn('Auto-resolve failed, user can select modality manually');
-      }
+      } catch { /* user selects manually */ }
     } catch (err: any) {
       setError(err.message || "Enrichment failed");
     } finally {
@@ -151,6 +160,8 @@ export default function SiteIntelligencePage() {
     setProcessSteps([]);
     setReportBlob(null);
     setError(null);
+    setSourceStatus({});
+    setSourcePreviews({});
   }, []);
 
   return (
@@ -188,11 +199,13 @@ export default function SiteIntelligencePage() {
         <IntakeForm onSubmit={handleEnrich} isLoading={isLoading} />
       )}
 
-      {currentStep === 2 && enrichment && (
+      {currentStep === 2 && (
         <EnrichmentStatus
           enrichment={enrichment}
           resolution={resolution}
           isResolving={isLoading && !resolution}
+          sourceStatus={sourceStatus}
+          sourcePreviews={sourcePreviews}
           onConfirm={handleConfirm}
           onOverrideModality={handleOverrideModality}
         />

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FoMI Live — Design Proposals</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Montserrat', system-ui, sans-serif;
+    background: #08050e;
+    color: #f0e8f2;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 40px;
+  }
+  h1 {
+    font-size: 32px; font-weight: 900;
+    background: linear-gradient(135deg, #d03a8c, #7b2d85);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  p { color: rgba(240,232,242,0.5); font-size: 14px; margin-top: -20px; }
+  .cards { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+  .card {
+    width: 320px; padding: 32px;
+    border-radius: 20px;
+    border: 1px solid rgba(208,58,140,0.2);
+    background: rgba(208,58,140,0.04);
+    text-decoration: none; color: inherit;
+    transition: all 0.3s;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(208,58,140,0.5);
+    box-shadow: 0 8px 40px rgba(208,58,140,0.2);
+  }
+  .card h2 { font-size: 20px; font-weight: 900; }
+  .card .desc { font-size: 13px; color: rgba(240,232,242,0.5); line-height: 1.6; font-weight: 400; }
+  .card .tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(208,58,140,0.1);
+    border: 1px solid rgba(208,58,140,0.2);
+    font-size: 11px; font-weight: 700;
+    color: #d03a8c;
+    letter-spacing: 1px;
+    align-self: flex-start;
+  }
+</style>
+</head>
+<body>
+  <h1>FoMI Live — Design Proposals</h1>
+  <p>TTPSC Branding / Montserrat + Noto Sans Display / Same layout & content</p>
+  <div class="cards">
+    <a href="proposal-a.html" class="card">
+      <span class="tag">A</span>
+      <h2>Glass Morphism</h2>
+      <span class="desc">
+        Glassmorphism-Karten mit backdrop-filter blur.
+        Radiale Gradient-Glows im Hintergrund.
+        Soft borders, sanfte Transparenzen.
+        Eleganter, premium Look.
+      </span>
+    </a>
+    <a href="proposal-b.html" class="card">
+      <span class="tag">B</span>
+      <h2>Gradient Mesh</h2>
+      <span class="desc">
+        Conic Gradients im Hintergrund (Mesh-Effekt).
+        Dickere Karten mit Top-Glow-Line.
+        Gradient Brand-Name. Orbital-Deko im KG.
+        Bolder, impactvoller Look.
+      </span>
+    </a>
+    <a href="proposal-c.html" class="card">
+      <span class="tag">C</span>
+      <h2>Neon Line</h2>
+      <span class="desc">
+        Minimalistisch, Outline-Stil.
+        Neon-Akzentlinien statt gefuellter Flaechen.
+        Grid-Hintergrund. Monospace-Akzente.
+        Technical, futuristischer Look.
+      </span>
+    </a>
+  </div>
+</body>
+</html>

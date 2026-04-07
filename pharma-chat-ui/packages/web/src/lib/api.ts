@@ -206,6 +206,7 @@ function siteHeaders(): Record<string, string> {
   return h;
 }
 
+/** Batch enrichment (non-streaming fallback) */
 export async function siteEnrich(input: SiteIntelligenceInput): Promise<EnrichmentData> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/enrich`, {
     method: 'POST',
@@ -214,6 +215,55 @@ export async function siteEnrich(input: SiteIntelligenceInput): Promise<Enrichme
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+/** Streaming enrichment with per-source progress updates */
+export async function siteEnrichStream(
+  input: SiteIntelligenceInput,
+  onSourceStart: (name: string) => void,
+  onSourceDone: (name: string, preview: string) => void,
+  onSourceError: (name: string) => void,
+): Promise<EnrichmentData> {
+  const cfg = loadLlmConfig();
+  const params = new URLSearchParams({
+    accountName: input.accountName,
+    ...(input.location ? { location: input.location } : {}),
+    ...(input.vendor ? { vendor: input.vendor } : {}),
+  });
+
+  const url = `${GATEWAY_URL}/api/site-intelligence/enrich-stream?${params}`;
+  const headers: Record<string, string> = {};
+  if (cfg.apiKey) headers['X-API-Key'] = cfg.apiKey;
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(await res.text());
+  if (!res.body) throw new Error('No response body');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let enrichment: EnrichmentData | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const evt = JSON.parse(line.slice(6));
+        if (evt.event === 'source_start') onSourceStart(evt.name);
+        else if (evt.event === 'source_done') onSourceDone(evt.name, evt.preview);
+        else if (evt.event === 'source_error') onSourceError(evt.name);
+        else if (evt.event === 'complete') enrichment = evt.enrichment;
+      } catch { /* skip malformed */ }
+    }
+  }
+
+  if (!enrichment) throw new Error('Enrichment stream ended without data');
+  return enrichment;
 }
 
 export async function siteResolve(enrichment: EnrichmentData): Promise<ModalityResolution> {
