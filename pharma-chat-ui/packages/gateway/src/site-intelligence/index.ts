@@ -63,7 +63,7 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
         // 1. ClinicalTrials.gov
         fetch(ctUrl, { signal: AbortSignal.timeout(15000) })
           .then(r => r.ok ? r.json() : null)
-          .then(data => {
+          .then((data: any) => {
             const studies = (data?.studies || []).map((s: any) => {
               const proto = s.protocolSection || {};
               const id = proto.identificationModule || {};
@@ -89,7 +89,7 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
         fetch(`https://api.fda.gov/drug/drugsfda.json?search=openfda.manufacturer_name:${fdaEncoded}&limit=20`,
           { signal: AbortSignal.timeout(10000) })
           .then(r => r.ok ? r.json() : { results: [] })
-          .then(data => {
+          .then((data: any) => {
             const approvals = (data.results || []).map((r: any) => ({
               application_number: r.application_number,
               application_type: r.application_type,

@@ -20,6 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </a>
           <span className="text-p1-dim text-xs hidden sm:inline">Sales Intelligence for Bioprocess Equipment</span>
           <div className="flex-1" />
+          <a href="/site-intelligence" className="text-p1-muted hover:text-p1-text text-sm font-medium transition-colors">
+            Site Intelligence
+          </a>
           <a href="/settings" className="text-p1-muted hover:text-p1-text text-sm transition-colors">
             Settings
           </a>

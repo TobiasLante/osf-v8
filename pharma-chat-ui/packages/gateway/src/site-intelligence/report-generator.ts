@@ -205,7 +205,7 @@ function buildSiteProfileTable(
   });
 }
 
-function buildPipelineSection(enrichment: EnrichmentData, resolution: ModalityResolution): Paragraph[] {
+function buildPipelineSection(enrichment: EnrichmentData, resolution: ModalityResolution): (Paragraph | Table)[] {
   if (resolution.accountType === 'cdmo') {
     return [new Paragraph({ children: [
       new TextRun({

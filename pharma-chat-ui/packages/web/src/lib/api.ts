@@ -190,3 +190,79 @@ export async function enrichFda(companyName: string) {
   if (!res.ok) return { approvals: [], summary: 'API error' };
   return res.json();
 }
+
+// ── Site Intelligence ──
+
+import type {
+  SiteIntelligenceInput, EnrichmentData, ModalityResolution,
+  EquipmentStatus, ReportRequest, VendorMapRow, ProcessStep,
+} from '@p1/shared';
+
+export async function siteEnrich(input: SiteIntelligenceInput): Promise<EnrichmentData> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function siteResolve(enrichment: EnrichmentData): Promise<ModalityResolution> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enrichment }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function siteInferStatus(
+  enrichment: EnrichmentData, vendorMapTab: string, userVendor: string,
+): Promise<EquipmentStatus> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enrichment, vendorMapTab, userVendor }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function siteGetProcessSteps(
+  vendorMapTab: string, userVendor: string, equipmentStatus: EquipmentStatus,
+): Promise<ProcessStep[]> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/process-steps`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vendorMapTab, userVendor, equipmentStatus }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.steps || [];
+}
+
+export async function siteGenerateReport(request: ReportRequest): Promise<Blob> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.blob();
+}
+
+export async function getVendorMapTabList(): Promise<string[]> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/vendor-map`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.tabs || [];
+}
+
+export async function getVendorMapData(tab: string): Promise<VendorMapRow[]> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/vendor-map/${encodeURIComponent(tab)}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.rows || [];
+}
