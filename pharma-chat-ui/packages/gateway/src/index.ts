@@ -3,6 +3,7 @@ import { llmRouter } from './llm-proxy';
 import { mcpRouter } from './mcp-proxy';
 import { i3xRouter } from './i3x-proxy';
 import { fdaRouter } from './fda-api';
+import { siteIntelligenceRouter } from './site-intelligence';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3101', 10);
@@ -63,6 +64,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use('/api/chat', rateLimit);
 app.use('/api/tools/call', rateLimit);
 app.use('/api/enrich', rateLimit);
+app.use('/api/site-intelligence', rateLimit);
 
 // Health
 app.get('/health', (_req, res) => {
@@ -79,6 +81,7 @@ app.use(llmRouter);
 app.use(mcpRouter);
 app.use(i3xRouter);
 app.use(fdaRouter);
+app.use(siteIntelligenceRouter);
 
 // Start
 const server = app.listen(PORT, () => {
