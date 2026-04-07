@@ -15,10 +15,20 @@ const SUBPAGES = ['/about', '/about-us', '/capabilities', '/services', '/technol
 export async function enrichFromWebsite(
   companyName: string,
   websiteUrl?: string,
+  ctgovEmail?: string,
 ): Promise<WebsiteEnrichment | null> {
   try {
-    // Try multiple URL variants
-    const urls = websiteUrl ? [websiteUrl] : guessWebsiteUrls(companyName);
+    // Priority: explicit URL > CT.gov email domain > guessed URLs
+    const urls: string[] = [];
+    if (websiteUrl) urls.push(websiteUrl);
+    if (ctgovEmail) {
+      const domain = ctgovEmail.split('@')[1];
+      if (domain && !domain.includes('gmail') && !domain.includes('yahoo') && !domain.includes('outlook')) {
+        urls.push(`https://${domain}`);
+        urls.push(`https://www.${domain}`);
+      }
+    }
+    urls.push(...guessWebsiteUrls(companyName));
     let texts: string[] = [];
 
     for (const url of urls) {

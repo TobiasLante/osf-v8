@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { SiteIntelligenceInput, Vendor } from "@p1/shared";
+import { getSavedAccounts } from "../../lib/api";
 
 const VENDORS: Vendor[] = [
   "Sartorius",
@@ -21,6 +22,11 @@ export function IntakeForm({ onSubmit, isLoading }: Props) {
   const [location, setLocation] = useState("");
   const [vendor, setVendor] = useState<Vendor>("Sartorius");
   const [salesGoal, setSalesGoal] = useState("");
+  const [recentAccounts, setRecentAccounts] = useState<Array<{ companyName: string; location: string; modality: string; lastEnriched: string }>>([]);
+
+  useEffect(() => {
+    getSavedAccounts().then(a => setRecentAccounts(a.slice(0, 5))).catch(() => {});
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +99,28 @@ export function IntakeForm({ onSubmit, isLoading }: Props) {
           disabled={isLoading}
         />
       </div>
+
+      {/* Recent accounts */}
+      {recentAccounts.length > 0 && (
+        <div>
+          <label className="block text-xs font-semibold text-p1-muted uppercase tracking-wider mb-1.5">
+            Recent Accounts
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {recentAccounts.map((a, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => { setAccountName(a.companyName); setLocation(a.location); }}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-p1-border bg-p1-surface text-p1-text hover:border-cyan-500/40 transition-colors"
+                disabled={isLoading}
+              >
+                {a.companyName} <span className="text-p1-dim">({a.modality})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <button
         type="submit"

@@ -95,27 +95,52 @@ siteIntelligenceRouter.get('/api/site-intelligence/enrich-stream', async (req: R
     }
   };
 
-  // Run all 7 in parallel
+  // Phase 1: Run CT.gov + fast APIs in parallel, website waits for CT.gov email
+  let ctEmail: string | undefined;
+
   await Promise.allSettled([
     runSource('clinicalTrials', async () => {
-      const resp = await fetch(ctUrl, { signal: AbortSignal.timeout(15000) });
-      if (!resp.ok) return { studies: [], summary: 'Failed' };
-      const data: any = await resp.json();
-      const studies = (data?.studies || []).map((s: any) => {
-        const proto = s.protocolSection || {};
-        return {
-          nctId: proto.identificationModule?.nctId,
-          title: proto.identificationModule?.briefTitle || '',
-          phase: proto.designModule?.phases?.[0] || 'N/A',
-          status: proto.statusModule?.overallStatus || 'N/A',
-          conditions: proto.conditionsModule?.conditions || [],
-          interventions: (proto.armsInterventionsModule?.interventions || []).map((iv: any) => ({ type: iv.type, name: iv.name })),
-          sponsor: proto.sponsorCollaboratorsModule?.leadSponsor?.name,
-          collaborators: (proto.sponsorCollaboratorsModule?.collaborators || []).map((c: any) => c.name),
-        };
-      });
-      return { studies, summary: `Found ${studies.length} studies` };
-    }),
+    const resp = await fetch(ctUrl, { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) return { studies: [], summary: 'Failed' };
+    const data: any = await resp.json();
+    const studies = (data?.studies || []).map((s: any) => {
+      const proto = s.protocolSection || {};
+      return {
+        nctId: proto.identificationModule?.nctId,
+        title: proto.identificationModule?.briefTitle || '',
+        phase: proto.designModule?.phases?.[0] || 'N/A',
+        status: proto.statusModule?.overallStatus || 'N/A',
+        conditions: proto.conditionsModule?.conditions || [],
+        interventions: (proto.armsInterventionsModule?.interventions || []).map((iv: any) => ({ type: iv.type, name: iv.name })),
+        sponsor: proto.sponsorCollaboratorsModule?.leadSponsor?.name,
+        collaborators: (proto.sponsorCollaboratorsModule?.collaborators || []).map((c: any) => c.name),
+        _contactEmail: proto.contactsLocationsModule?.centralContacts?.[0]?.email,
+      };
+    });
+    // Extract email for website lookup
+    let email = studies.find((s: any) => s._contactEmail)?._contactEmail;
+
+    // If no email in general results, try recruiting studies (they have contact info)
+    if (!email && studies.length > 0) {
+      try {
+        const recruitUrl = `https://clinicaltrials.gov/api/v2/studies?query.term=${encodeURIComponent(companyName)}&filter.overallStatus=RECRUITING,ACTIVE_NOT_RECRUITING&pageSize=5`;
+        const recruitResp = await fetch(recruitUrl, { signal: AbortSignal.timeout(10000) });
+        if (recruitResp.ok) {
+          const recruitData: any = await recruitResp.json();
+          for (const rs of recruitData?.studies || []) {
+            const rEmail = rs.protocolSection?.contactsLocationsModule?.centralContacts?.[0]?.email;
+            if (rEmail) { email = rEmail; break; }
+          }
+        }
+      } catch { /* ignore secondary lookup failure */ }
+    }
+
+    if (email) {
+      ctEmail = email;
+      console.log(`[site-intelligence] CT.gov contact email: ${email} → domain: ${email.split('@')[1]}`);
+    }
+    return { studies, summary: `Found ${studies.length} studies` };
+  }),
 
     runSource('openFda', async () => {
       const resp = await fetch(`https://api.fda.gov/drug/drugsfda.json?search=openfda.manufacturer_name:${fdaEncoded}&limit=20`, { signal: AbortSignal.timeout(10000) });
@@ -135,7 +160,13 @@ siteIntelligenceRouter.get('/api/site-intelligence/enrich-stream', async (req: R
     runSource('decrs', () => queryDecrs(companyName).then(r => r.length > 0 ? r[0] : null)),
     runSource('hcters', () => queryHcters(companyName)),
     runSource('edgar', () => queryEdgar(companyName)),
-    runSource('website', () => enrichFromWebsite(companyName)),
+    runSource('website', async () => {
+      // Wait up to 10s for CT.gov to provide email domain
+      for (let i = 0; i < 20 && !ctEmail && !results.clinicalTrials; i++) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      return enrichFromWebsite(companyName, undefined, ctEmail);
+    }),
     runSource('news', () => enrichFromNews(companyName)),
   ]);
 

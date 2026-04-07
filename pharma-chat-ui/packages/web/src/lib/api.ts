@@ -311,6 +311,16 @@ export async function siteGenerateReport(request: ReportRequest): Promise<Blob> 
   return res.blob();
 }
 
+export async function getSavedAccounts(): Promise<Array<{
+  facilityId: string; companyName: string; location: string;
+  modality: string; scale: string; accountType: string; lastEnriched: string;
+}>> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/accounts`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.accounts || [];
+}
+
 export async function getVendorMapTabList(): Promise<string[]> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/vendor-map`);
   if (!res.ok) return [];
