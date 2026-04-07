@@ -102,6 +102,27 @@
         { "name": "capa_id", "type": "string", "description": "Related CAPA" },
         { "name": "status", "type": "string", "description": "Status (open, closed)" }
       ]
+    },
+    {
+      "label": "Facility",
+      "idProperty": "facility_id",
+      "sourceTool": "site_intelligence_enrich",
+      "properties": [
+        { "name": "facility_id", "type": "string", "required": true, "description": "Unique facility identifier (company_name + address hash)" },
+        { "name": "company_name", "type": "string", "required": true, "description": "Company name" },
+        { "name": "address", "type": "string", "description": "Facility address" },
+        { "name": "parent_company", "type": "string", "description": "Parent company if subsidiary" },
+        { "name": "modalities", "type": "string", "description": "Detected modalities (comma-separated: mAb, AAV, mRNA, etc.)" },
+        { "name": "gmp_status", "type": "string", "description": "cGMP certification status" },
+        { "name": "scale", "type": "string", "description": "Production scale (e.g. 500L, 2000L)" },
+        { "name": "phase", "type": "string", "description": "Development phase (Phase I-III, Commercial)" },
+        { "name": "account_type", "type": "string", "description": "CDMO / Innovator / Unknown" },
+        { "name": "fei_number", "type": "string", "description": "FDA Establishment Identifier from DECRS" },
+        { "name": "sales_temperature", "type": "string", "description": "HOT / WARM / COLD / MONITOR" },
+        { "name": "enrichment_timestamp", "type": "string", "description": "ISO timestamp of last enrichment" },
+        { "name": "enrichment_sources", "type": "string", "description": "APIs that returned data (comma-separated)" },
+        { "name": "confidence_score", "type": "float", "description": "Modality resolution confidence 0.0-1.0" }
+      ]
     }
   ],
   "edgeTypes": [
@@ -146,6 +167,20 @@
       "toType": "Deviation",
       "fkProperty": "batch_id",
       "sourceTool": "get_deviations"
+    },
+    {
+      "label": "LOCATED_AT",
+      "fromType": "Equipment",
+      "toType": "Facility",
+      "fkProperty": "facility_id",
+      "sourceTool": "get_equipment"
+    },
+    {
+      "label": "MANUFACTURED_AT",
+      "fromType": "Batch",
+      "toType": "Facility",
+      "fkProperty": "facility_id",
+      "sourceTool": "get_batches"
     }
   ],
   "complianceChecks": [
