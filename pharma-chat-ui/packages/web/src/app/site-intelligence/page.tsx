@@ -41,14 +41,22 @@ export default function SiteIntelligencePage() {
       setEnrichment(data);
       setCurrentStep(2);
 
-      // Auto-resolve modality
-      const res = await siteResolve(data);
-      setResolution(res);
+      // Auto-resolve modality (separate try-catch so enrichment still shows)
+      try {
+        const res = await siteResolve(data);
+        setResolution(res);
 
-      // Auto-infer status
-      if (res.vendorMapTab) {
-        const status = await siteInferStatus(data, res.vendorMapTab, formInput.vendor);
-        setEquipmentStatus(status);
+        // Auto-infer status
+        if (res.vendorMapTab) {
+          try {
+            const status = await siteInferStatus(data, res.vendorMapTab, formInput.vendor);
+            setEquipmentStatus(status);
+          } catch {
+            console.warn('Status inference failed, using defaults');
+          }
+        }
+      } catch {
+        console.warn('Auto-resolve failed, user can select modality manually');
       }
     } catch (err: any) {
       setError(err.message || "Enrichment failed");
