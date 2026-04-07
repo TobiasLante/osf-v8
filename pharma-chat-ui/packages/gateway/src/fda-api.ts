@@ -41,6 +41,10 @@ fdaRouter.post('/api/enrich/clinicaltrials', async (req: Request, res: Response)
         status: status.overallStatus,
         conditions,
         interventions,
+        sponsor: proto.sponsorCollaboratorsModule?.leadSponsor?.name,
+        collaborators: (proto.sponsorCollaboratorsModule?.collaborators || []).map(
+          (c: any) => c.name
+        ),
       };
     });
 
@@ -107,6 +111,7 @@ async function fetchFdaDrugs(companyName: string, field: string): Promise<any[]>
         brand_name: openfda.brand_name?.[0] || products[0]?.brand_name || 'N/A',
         generic_name: openfda.generic_name?.[0] || 'N/A',
         route: openfda.route?.[0] || products[0]?.route || 'N/A',
+        isBLA: r.application_number?.startsWith('BLA') ?? false,
       };
     });
   } catch (err: any) {
