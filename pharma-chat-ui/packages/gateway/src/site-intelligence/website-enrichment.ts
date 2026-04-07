@@ -17,11 +17,17 @@ export async function enrichFromWebsite(
   websiteUrl?: string,
 ): Promise<WebsiteEnrichment | null> {
   try {
-    const baseUrl = websiteUrl || guessWebsiteUrl(companyName);
-    if (!baseUrl) return null;
+    // Try multiple URL variants
+    const urls = websiteUrl ? [websiteUrl] : guessWebsiteUrls(companyName);
+    let texts: string[] = [];
 
-    // Fetch homepage + up to 2 subpages
-    const texts = await fetchPageTexts(baseUrl);
+    for (const url of urls) {
+      texts = await fetchPageTexts(url);
+      if (texts.length > 0) {
+        console.log(`[website-enrichment] Success with ${url}`);
+        break;
+      }
+    }
     if (!texts.length) return null;
 
     const combined = texts.join('\n\n---\n\n').slice(0, MAX_TEXT_CHARS);
@@ -32,34 +38,38 @@ export async function enrichFromWebsite(
   }
 }
 
-function guessWebsiteUrl(companyName: string): string | null {
-  // Common patterns: "Matica Biotechnology" -> "maticabio.com", "TriLink BioTechnologies" -> "trilinkbiotech.com"
+function guessWebsiteUrls(companyName: string): string[] {
   const cleaned = companyName
     .toLowerCase()
-    .replace(/[,.\s]+inc\.?$/i, '')
-    .replace(/[,.\s]+llc\.?$/i, '')
-    .replace(/[,.\s]+ltd\.?$/i, '')
+    .replace(/[,.\s]+(inc|llc|ltd|corp)\.?\s*$/i, '')
     .trim();
 
-  // Try with and without spaces
+  const words = cleaned.split(/\s+/);
   const variants = [
-    cleaned.replace(/\s+/g, ''),           // maticabiotechnology
-    cleaned.replace(/\s+/g, '').replace('ology', ''),  // maticabiotech
-    cleaned.replace(/\s+/g, ''),           // direct
+    words[0] + 'bio',                                      // maticabio (most common CDMO pattern)
+    cleaned.replace(/\s+/g, '').replace('ology', ''),     // maticabiotech
+    cleaned.replace(/\s+/g, '').replace('ologies', ''),   // trilinkbiotech
+    cleaned.replace(/\s+/g, ''),                          // maticabiotechnology
+    words[0] + 'biotech',                                  // maticabiotech
+    words[0],                                              // matica
+    words.join(''),                                        // fallback
   ];
 
-  // We'll try the first variant — the fetch will tell us if it works
-  return `https://${variants[0]}.com`;
+  const unique = [...new Set(variants)].filter(v => v.length > 3);
+  return unique.map(v => `https://${v}.com`);
 }
 
 async function fetchPageTexts(baseUrl: string): Promise<string[]> {
-  const texts: string[] = [];
-
-  // Fetch homepage
   const homeText = await fetchAndExtractText(baseUrl);
-  if (homeText) texts.push(homeText);
+  if (!homeText) return [];
 
-  // Try subpages (stop after 2 successful ones)
+  const texts = [homeText];
+  texts.push(...(await fetchSubpages(baseUrl)));
+  return texts;
+}
+
+async function fetchSubpages(baseUrl: string): Promise<string[]> {
+  const texts: string[] = [];
   let found = 0;
   for (const sub of SUBPAGES) {
     if (found >= 2) break;
@@ -70,7 +80,6 @@ async function fetchPageTexts(baseUrl: string): Promise<string[]> {
       found++;
     }
   }
-
   return texts;
 }
 

@@ -14,6 +14,33 @@ const MAX_FULL_FETCH = 5;
 const DELAY_BETWEEN_REQUESTS_MS = 250;
 
 export async function queryEdgar(companyName: string): Promise<EdgarResult | null> {
+  // Try full name first, then shorter variants
+  const variants = [companyName, ...generateShortNames(companyName)];
+
+  for (const name of variants) {
+    const result = await queryEdgarSingle(name);
+    if (result && result.totalMentions > 0) return result;
+  }
+
+  return { totalMentions: 0, filings: [] };
+}
+
+function generateShortNames(name: string): string[] {
+  const shorts: string[] = [];
+  // "Matica Biotechnology" → "Matica Bio"
+  const cleaned = name.replace(/,?\s*(Inc\.?|LLC|Ltd\.?|Corp\.?)$/i, '').trim();
+  if (cleaned !== name) shorts.push(cleaned);
+  // Try dropping long suffixes: "Biotechnology" → "Bio", "Therapeutics" → "Ther"
+  const shortened = cleaned
+    .replace(/Biotechnology/i, 'Bio')
+    .replace(/BioTechnologies/i, 'Biotech')
+    .replace(/Therapeutics/i, 'Ther')
+    .replace(/Pharmaceuticals/i, 'Pharma');
+  if (shortened !== cleaned) shorts.push(shortened);
+  return shorts.filter((s, i, a) => a.indexOf(s) === i);
+}
+
+async function queryEdgarSingle(companyName: string): Promise<EdgarResult | null> {
   try {
     const query = encodeURIComponent(`"${companyName}"`);
     const twoYearsAgo = new Date();
