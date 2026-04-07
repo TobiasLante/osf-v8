@@ -113,30 +113,19 @@ export function resolveModality(enrichment: EnrichmentData): ModalityResolution 
     }
   }
 
-  // ── Signal 4: HCTERS (Cell/Gene Therapy) ──
-  if (enrichment.hcters?.hasRegistration) {
-    candidates.push({
-      modality: 'AAV', // Most common HCT/P
-      score: WEIGHT_HCTERS,
-      signals: ['HCTERS: HCT/P registration → cell/gene therapy facility'],
-    });
-    candidates.push({
-      modality: 'Lentivirus',
-      score: WEIGHT_HCTERS * 0.7,
-      signals: ['HCTERS: HCT/P registration → possible lentivirus'],
-    });
-  }
-
-  // ── Signal 5: Website ──
+  // ── Signal 5: Website (evaluated BEFORE HCTERS so we can check for conflicts) ──
   const ws = enrichment.website;
+  const websiteModalities = new Set<string>();
   if (ws && ws.modalities.length > 0) {
     for (const mod of ws.modalities) {
       const normalized = normalizeModality(mod);
       if (normalized) {
+        websiteModalities.add(normalized);
+        // Website modalities get higher weight — they are explicit, not inferred
         candidates.push({
           modality: normalized,
           scale: ws.scale || undefined,
-          score: WEIGHT_WEBSITE,
+          score: WEIGHT_WEBSITE * 1.5, // 1.5x boost for explicit website mention
           signals: [`Website: "${mod}" mentioned → ${normalized}`],
         });
       }
@@ -147,6 +136,27 @@ export function resolveModality(enrichment: EnrichmentData): ModalityResolution 
     if (ws.cgmpStatus) {
       allSignals.push(`Website: ${ws.cgmpStatus} status confirmed`);
     }
+  }
+
+  // ── Signal 4: HCTERS (Cell/Gene Therapy) — evaluated AFTER website ──
+  if (enrichment.hcters?.hasRegistration) {
+    const geneTherapyMods = new Set(['AAV', 'Lentivirus']);
+    const websiteHasNonGT = [...websiteModalities].some(m => !geneTherapyMods.has(m));
+    const hctersWeight = websiteHasNonGT ? WEIGHT_HCTERS * 0.3 : WEIGHT_HCTERS;
+
+    candidates.push({
+      modality: 'AAV',
+      score: hctersWeight,
+      signals: [`HCTERS: HCT/P registration → cell/gene therapy${websiteHasNonGT ? ' (reduced — website suggests other modality)' : ''}`],
+    });
+    if (!websiteHasNonGT) {
+      candidates.push({
+        modality: 'Lentivirus',
+        score: hctersWeight * 0.7,
+        signals: ['HCTERS: HCT/P registration → possible lentivirus'],
+      });
+    }
+    allSignals.push('HCTERS: HCT/P establishment registered');
   }
 
   // ── Signal 6: EDGAR ──
