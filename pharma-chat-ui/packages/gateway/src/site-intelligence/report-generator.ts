@@ -423,64 +423,118 @@ function buildChecklistParagraphs(checklist: string, resolution: ModalityResolut
 async function generateStrategy(input: SiteIntelligenceInput, enrichment: EnrichmentData, resolution: ModalityResolution, steps: ProcessStep[]): Promise<string> {
   const openOps = steps.filter(s => s.status === 'OPEN' || s.status === 'NO_CONTACT');
   const compOps = steps.filter(s => s.status === 'COMPETITOR');
+  const wonOps = steps.filter(s => s.status === 'WON');
 
-  return callLlm(`You are a senior bioprocess sales strategist writing for a ${input.vendor} salesperson approaching ${input.accountName}.
+  // Build a detailed equipment context from the actual process steps
+  const equipContext = steps.map(s => {
+    const st = s.status || 'NO_CONTACT';
+    return `${s.step}: ${s.product || '—'} [${st}]${s.vendor && s.vendor !== '—' ? ` (competitors: ${s.vendor})` : ''}`;
+  }).join('\n');
 
-Write EXACTLY three strategic plays. Each play is two sentences maximum. Use the format:
-Primary: [text]
-Secondary: [text]
-Expansion: [text]
+  return callLlmSonnet(`You are writing the strategy section of a Process-1st Account Intelligence Report. Your output will be read by a salesperson from ${input.vendor} before they walk into a meeting with ${input.accountName}.
 
-Rules:
-- Name specific products from ${input.vendor}'s portfolio (e.g. "SUPRAcap Depth Filter", "DynaChrom SU", "Biostat STR")
-- Name specific competitor products if relevant
-- Reference the account's actual situation (modality: ${resolution.modality}, phase: ${resolution.phase}, type: ${resolution.accountType})
-- Open opportunities: ${openOps.slice(0, 5).map(s => s.step).join(', ') || 'None identified'}
-- Competitor positions: ${compOps.slice(0, 3).map(s => `${s.step}`).join(', ') || 'None identified'}
+ACCOUNT CONTEXT:
+- Company: ${input.accountName} (${resolution.accountType === 'cdmo' ? 'CDMO' : 'Innovator'})
+- Modality: ${resolution.modality} ${resolution.scale}
+- Phase: ${resolution.phase}
+${input.salesGoal ? `- Sales goal: ${input.salesGoal}` : ''}
+${enrichment.website?.parentCompany ? `- Parent company: ${enrichment.website.parentCompany}` : ''}
 ${enrichment.website?.partnerships?.length ? `- Known partnerships: ${enrichment.website.partnerships.join(', ')}` : ''}
-${enrichment.website?.keyDifferentiators?.length ? `- Key differentiators: ${enrichment.website.keyDifferentiators.slice(0, 3).join(', ')}` : ''}
-- NO bullet points, NO markdown headers, NO generic statements
-- Write like a veteran sales coach, not an AI`);
+${enrichment.website?.keyDifferentiators?.length ? `- Key capabilities: ${enrichment.website.keyDifferentiators.slice(0, 4).join(', ')}` : ''}
+${enrichment.website?.recentNews?.length ? `- Recent news: ${enrichment.website.recentNews[0]}` : ''}
+${enrichment.edgar?.filings?.length ? `- SEC filing: ${enrichment.edgar.filings[0].filer} mentioned this company (${enrichment.edgar.filings[0].form}, ${enrichment.edgar.filings[0].date})` : ''}
+
+EQUIPMENT LANDSCAPE (${input.vendor} perspective):
+${equipContext}
+
+Write EXACTLY three plays using this format:
+Primary: [two sentences]
+Secondary: [two sentences]
+Expansion: [two sentences]
+
+EXAMPLE OF THE QUALITY EXPECTED (from a different account — do NOT copy this, use it only as a tone reference):
+Primary: Move immediately on the downstream transition point — Cell Harvest and UFDF 1 are the first unit operations downstream of the competitor's upstream footprint, and winning them positions us as the lead downstream partner before any other vendor makes contact.
+Secondary: Open the chromatography conversation in parallel — both capture and polishing steps are entirely unengaged, and the DynaChrom SU system is the right product to lead with against the incumbent Resolute Flowdrive.
+Expansion: Once downstream equipment is anchored, build the full platform story: freeze/thaw, buffer preparation, and sterile filtration. The 2026 capacity expansion means new procurement cycles are forming now.
+
+RULES:
+- Name SPECIFIC products from the equipment table above (not generic categories)
+- Name SPECIFIC competitor products where installed
+- Explain WHY each play matters NOW (timeline pressure, procurement cycles, competitive dynamics)
+- Each play must be a clear sequence: Primary = do this first, Secondary = do this in parallel, Expansion = do this after winning
+- NO bullet points. NO markdown. NO generic "leverage our platform" language.
+- Write like a 20-year bioprocess sales veteran coaching a colleague, not like an AI assistant.`);
 }
 
 async function generateTalkingPoints(input: SiteIntelligenceInput, enrichment: EnrichmentData, resolution: ModalityResolution, steps: ProcessStep[]): Promise<string> {
-  return callLlm(`You are coaching a ${input.vendor} salesperson for a meeting with ${input.accountName}.
+  const openOps = steps.filter(s => s.status === 'OPEN' || s.status === 'NO_CONTACT').slice(0, 4);
+  const compOps = steps.filter(s => s.status === 'COMPETITOR').slice(0, 3);
 
-Write EXACTLY three talking points. Format:
-Opening Line: [one sentence — reference something specific about this account]
-Value Proposition: [one sentence — the core technical argument]
-Close / Next Step: [one sentence — what you're asking for, specific and actionable]
+  return callLlmSonnet(`You are writing three talking points for a Process-1st Account Intelligence Report. These are the exact words a ${input.vendor} salesperson will say in a meeting with ${input.accountName}.
 
-Rules:
-- Account: ${input.accountName}, ${resolution.modality} ${resolution.scale}, ${resolution.phase}
+ACCOUNT FACTS:
+- ${input.accountName}, ${resolution.modality} ${resolution.scale}, ${resolution.phase}
 - Type: ${resolution.accountType === 'cdmo' ? 'CDMO' : 'Innovator'}
-${enrichment.website?.partnerships?.length ? `- Known partnerships: ${enrichment.website.partnerships.join(', ')}` : ''}
-${enrichment.edgar?.filings?.length ? `- SEC filing: ${enrichment.edgar.filings[0].filer} mentioned this company` : ''}
+${enrichment.website?.parentCompany ? `- Parent: ${enrichment.website.parentCompany}` : ''}
+${enrichment.website?.partnerships?.length ? `- Partnerships: ${enrichment.website.partnerships.slice(0, 4).join(', ')}` : ''}
 ${enrichment.website?.keyDifferentiators?.length ? `- Their differentiator: ${enrichment.website.keyDifferentiators[0]}` : ''}
-- Each line must be account-specific — not applicable to any other company
-- Opening should reference a real fact about the company (partnership, milestone, technology)
-- Write as direct speech — these are words the salesperson actually says`);
+${enrichment.website?.recentNews?.length ? `- Latest news: ${enrichment.website.recentNews[0]}` : ''}
+${enrichment.edgar?.filings?.length ? `- SEC: ${enrichment.edgar.filings[0].filer} filed ${enrichment.edgar.filings[0].form} mentioning them` : ''}
+- Open opportunities: ${openOps.map(s => `${s.step} (${s.product || 'no product'})`).join(', ') || 'none identified'}
+- Competitor positions: ${compOps.map(s => `${s.step} (${s.vendor})`).join(', ') || 'none identified'}
+
+Write EXACTLY three lines in this format:
+Opening Line: [one sentence]
+Value Proposition: [one sentence]
+Close / Next Step: [one sentence]
+
+EXAMPLE OF THE QUALITY EXPECTED (from a different account):
+Opening Line: "Congratulations on the commercial manufacturing agreement in September — going from groundbreaking in 2021 to BLA-stage production in four years is genuinely impressive, and it tells me that your downstream procurement decisions are about to get very serious very fast."
+Value Proposition: "Sartorius has the upstream locked up, and that actually creates a clean opportunity for us — your depth filtration, TFF, and chromatography decisions are completely open, and we can come in as your downstream specialist with no conflict and a platform designed for AAV at 500L scale."
+Close / Next Step: "I want to bring our AAV applications specialist and walk through your downstream layout with your process team — not a pitch, just an engineering conversation about what your TFF and chrom train needs to look like to support the BLA timeline you're on."
+
+RULES:
+- Opening MUST reference a specific fact about THIS company (a date, a partnership, a milestone, a news headline)
+- Value Proposition MUST name specific equipment or unit operations from the open opportunities list
+- Close MUST ask for something specific (a meeting, a demo, a visit, a technical review) — not "send more information"
+- Sound like a confident human salesperson, not an AI. Use natural language, not corporate speak.
+- Each line is direct speech in quotation marks.`);
 }
 
 async function generateChecklist(input: SiteIntelligenceInput, enrichment: EnrichmentData, resolution: ModalityResolution, steps: ProcessStep[]): Promise<string> {
-  const openOps = steps.filter(s => s.status === 'OPEN' || s.status === 'NO_CONTACT').slice(0, 3);
-  return callLlm(`Write 3-5 account-specific meeting preparation items for a ${input.vendor} salesperson visiting ${input.accountName}.
+  const openOps = steps.filter(s => s.status === 'OPEN' || s.status === 'NO_CONTACT').slice(0, 5);
+  const compOps = steps.filter(s => s.status === 'COMPETITOR').slice(0, 3);
 
-Context:
-- Modality: ${resolution.modality} ${resolution.scale}
-- Top opportunities: ${openOps.map(s => `${s.step} (${s.product || 'no product'})`).join(', ')}
-${enrichment.website?.partnerships?.length ? `- Partnerships: ${enrichment.website.partnerships.join(', ')}` : ''}
-${enrichment.website?.keyDifferentiators?.length ? `- Differentiators: ${enrichment.website.keyDifferentiators.slice(0, 2).join(', ')}` : ''}
+  return callLlmSonnet(`Write 4-6 account-specific meeting preparation checklist items for a ${input.vendor} salesperson visiting ${input.accountName}.
 
-Rules:
-- Each item is one actionable line (e.g. "Prepare head-to-head performance data for DynaChrom vs Resolute Flowdrive")
-- Reference specific equipment, datasheets, or technical comparisons
-- NO generic items like "research the company" — every item must be specific to this account
-- NO numbering, NO bullets — just plain text lines`);
+CONTEXT:
+- ${input.accountName}: ${resolution.modality} ${resolution.scale}, ${resolution.phase}, ${resolution.accountType}
+- Top OPEN opportunities: ${openOps.map(s => `${s.step} → ${s.product || 'our product TBD'}`).join('; ')}
+- Competitor positions: ${compOps.map(s => `${s.step} → ${s.vendor}`).join('; ') || 'none confirmed'}
+${enrichment.website?.partnerships?.length ? `- Partnerships: ${enrichment.website.partnerships.slice(0, 3).join(', ')}` : ''}
+${enrichment.website?.keyDifferentiators?.length ? `- Their tech: ${enrichment.website.keyDifferentiators[0]}` : ''}
+
+EXAMPLE (from a different account — use as FORMAT reference only):
+AAV applications specialist briefing — confirm familiarity with MatiMAX cell line and 500L Sartorius STR upstream context
+SUPRAcap Depth Filter System technical datasheet — account's first downstream decision post-harvest
+DynaChrom SU vs. Sartorius Resolute Flowdrive performance comparison — AAV capture and polishing head-to-head
+CryoMed Controlled-Rate Freezer AAV application data — two-player market vs. Sartorius Celsius CFT
+G-CON POD modular cleanroom constraints — confirm all proposed equipment fits within POD footprint specifications
+
+RULES:
+- Each item: [specific document/action] — [why it matters for THIS account]
+- Name specific equipment from the OPEN opportunities list
+- Include at least one head-to-head comparison document against a named competitor
+- Include at least one item about understanding the account's specific technology/platform
+- NO generic items. NO numbering. One item per line.`);
 }
 
 async function callLlm(prompt: string): Promise<string> {
   return llmComplete(prompt, { maxTokens: 600 });
+}
+
+async function callLlmSonnet(prompt: string): Promise<string> {
+  return llmComplete(prompt, { maxTokens: 800, model: 'claude-sonnet-4-20250514' });
 }
 
 // ── Parsers ──
