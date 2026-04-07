@@ -41,21 +41,26 @@ export async function enrichFromWebsite(
 function guessWebsiteUrls(companyName: string): string[] {
   const cleaned = companyName
     .toLowerCase()
-    .replace(/[,.\s]+(inc|llc|ltd|corp)\.?\s*$/i, '')
+    .replace(/[,.\s]+(inc|llc|ltd|corp|pharmaceuticals|therapeutics)\.?\s*$/i, '')
     .trim();
 
   const words = cleaned.split(/\s+/);
+  const first = words[0];
+
+  // Order matters — try most specific first, then shorter names
+  const noSpaces = cleaned.replace(/\s+/g, '');
   const variants = [
-    words[0] + 'bio',                                      // maticabio (most common CDMO pattern)
-    cleaned.replace(/\s+/g, '').replace('ology', ''),     // maticabiotech
-    cleaned.replace(/\s+/g, '').replace('ologies', ''),   // trilinkbiotech
-    cleaned.replace(/\s+/g, ''),                          // maticabiotechnology
-    words[0] + 'biotech',                                  // maticabiotech
-    words[0],                                              // matica
-    words.join(''),                                        // fallback
+    noSpaces,                                               // bluebirdbio, modernatx (if cleaned has no spaces)
+    first + 'bio',                                          // maticabio
+    noSpaces.replace('ology', ''),                          // maticabiotech
+    noSpaces.replace('ologies', ''),                        // trilinkbiotech
+    first + 'biotech',                                      // maticabiotech
+    first,                                                  // moderna, lonza, catalent
+    first + 'tx',                                           // modernatx
+    words.join('-'),                                        // bluebird-bio
   ];
 
-  const unique = [...new Set(variants)].filter(v => v.length > 3);
+  const unique = [...new Set(variants)].filter(v => v.length > 2);
   return unique.map(v => `https://${v}.com`);
 }
 

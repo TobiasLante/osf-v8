@@ -19,6 +19,7 @@ import { inferStatus } from './status-inference';
 import { generateReport } from './report-generator';
 import { enrichFromNews, type NewsEnrichment } from './news-api';
 import { setRequestApiKey } from './llm-client';
+import { saveAccount, listAccounts } from './account-store';
 
 export const siteIntelligenceRouter: IRouter = Router();
 
@@ -27,6 +28,13 @@ siteIntelligenceRouter.use('/api/site-intelligence', (req: Request, _res: Respon
   const apiKey = req.headers['x-api-key'] as string | undefined;
   setRequestApiKey(apiKey || null);
   next();
+});
+
+// ── GET /api/site-intelligence/accounts — list saved accounts ──
+
+siteIntelligenceRouter.get('/api/site-intelligence/accounts', async (_req: Request, res: Response) => {
+  const accounts = await listAccounts();
+  res.json({ accounts });
 });
 
 // ── GET /api/site-intelligence/vendor-map — list available tabs ──
@@ -70,7 +78,7 @@ siteIntelligenceRouter.get('/api/site-intelligence/enrich-stream', async (req: R
 
   const companyName = accountName;
   const fdaEncoded = encodeURIComponent(`"${companyName}"`);
-  const ctUrl = `https://clinicaltrials.gov/api/v2/studies?query.term=${encodeURIComponent(companyName)}${location ? `+${encodeURIComponent(location)}` : ''}&pageSize=20`;
+  const ctUrl = `https://clinicaltrials.gov/api/v2/studies?query.term=${encodeURIComponent(companyName)}&pageSize=20`;
 
   // Run each source and stream progress
   const results: any = {};
@@ -209,7 +217,7 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
   try {
     // Import the existing FDA API functions by calling the same endpoints internally
     // But for efficiency, we call the underlying APIs directly here.
-    const ctUrl = `https://clinicaltrials.gov/api/v2/studies?query.term=${encodeURIComponent(companyName)}${location ? `+${encodeURIComponent(location)}` : ''}&pageSize=20`;
+    const ctUrl = `https://clinicaltrials.gov/api/v2/studies?query.term=${encodeURIComponent(companyName)}&pageSize=20`;
     const fdaEncoded = encodeURIComponent(`"${companyName}"`);
 
     // Run all 6 enrichment sources in parallel
@@ -396,8 +404,11 @@ siteIntelligenceRouter.post('/api/site-intelligence/report', async (req: Request
 
   try {
     console.log(`[site-intelligence] Generating report for "${request.input.accountName}"`);
-    const buffer = await generateReport(request);
 
+    // Save to Knowledge Graph (async, don't block report generation)
+    saveAccount(request.input, request.enrichment, request.resolution).catch(() => {});
+
+    const buffer = await generateReport(request);
     const filename = `P1st_${request.input.accountName.replace(/\s+/g, '_')}_Intelligence_Report.docx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

@@ -39,39 +39,51 @@ export async function queryHcters(establishmentName: string): Promise<HctersResu
 
 function parseHctersHtml(html: string, searchName: string): HctersResult {
   const $ = cheerio.load(html);
+
+  // The HCTERS results page shows actual establishment names in a results table.
+  // The search form page (no results) shows "Enter Query Criteria" and form fields.
+  // Key: if the page still shows the search form, there are NO results.
+  const pageText = $('body').text();
+
+  // Detect if this is the search form (no results) vs actual results
+  const isSearchForm = pageText.includes('Enter Query Criteria') ||
+    pageText.includes('Select the parameters');
+  const hasNoResults = pageText.toLowerCase().includes('no records') ||
+    pageText.toLowerCase().includes('no results') ||
+    pageText.toLowerCase().includes('0 records') ||
+    pageText.toLowerCase().includes('no establishments found');
+
+  // Look for actual establishment data — must contain the search name
+  const searchLower = searchName.toLowerCase();
+  let foundMatch = false;
   const details: string[] = [];
 
-  // Look for result rows in any table on the page
+  // Results appear in a table with establishment names
   $('table').each((_, table) => {
     $(table).find('tr').each((__, row) => {
-      const cells = $(row).find('td');
-      if (cells.length < 2) return;
-
-      const text = $(row).text().trim();
-      if (!text) return;
-
-      // Check if this row contains establishment data (not headers/navigation)
-      const cellTexts = cells.map((___, cell) => $(cell).text().trim()).get();
-      const hasContent = cellTexts.some(t => t.length > 3 && !t.startsWith('Page'));
-      if (hasContent) {
-        details.push(cellTexts.filter(t => t).join(' | '));
+      const rowText = $(row).text().toLowerCase();
+      // Only count rows that actually contain the search term
+      if (rowText.includes(searchLower) || rowText.includes(searchLower.split(' ')[0].toLowerCase())) {
+        const cells = $(row).find('td');
+        if (cells.length >= 2) {
+          const cellTexts = cells.map((___, cell) => $(cell).text().trim()).get()
+            .filter(t => t.length > 2);
+          if (cellTexts.length > 0) {
+            foundMatch = true;
+            details.push(cellTexts.join(' | '));
+          }
+        }
       }
     });
   });
 
-  // Also check for "no records" messages
-  const pageText = $('body').text().toLowerCase();
-  const noResults = pageText.includes('no records') ||
-    pageText.includes('no results') ||
-    pageText.includes('0 records');
-
-  if (noResults || details.length === 0) {
+  if (!foundMatch || isSearchForm || hasNoResults) {
     return { hasRegistration: false, establishmentName: searchName };
   }
 
   return {
     hasRegistration: true,
     establishmentName: searchName,
-    details: details.slice(0, 10), // cap at 10 entries
+    details: details.slice(0, 10),
   };
 }
