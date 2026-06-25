@@ -7,6 +7,25 @@ import { ff } from '../feature-flags';
 import { llmLatencySeconds } from '../metrics';
 import { recordLlmCall } from '../internal-metrics';
 
+// ─── Base-URL Normalization ─────────────────────────────────────────────────
+// We always append the endpoint path ourselves (`/v1/chat/completions` for
+// OpenAI-compatible servers, `/messages` for Anthropic). Users frequently paste
+// a base URL that already includes a path suffix — e.g. Ollama's native
+// `http://host:11434/api`, a trailing `/v1`, a trailing slash, or even the full
+// endpoint. Without normalization that produces broken URLs like
+// `http://host:11434/api/v1/chat/completions` → 404. Strip any such suffix so
+// the bare server root remains and our own suffix lands correctly.
+export function normalizeLlmBaseUrl(raw: string): string {
+  return (raw || '')
+    .trim()
+    .replace(/\/+$/, '')                          // trailing slashes
+    .replace(/\/(v1\/)?chat\/completions$/i, '')  // pasted OpenAI endpoint
+    .replace(/\/messages$/i, '')                  // pasted Anthropic endpoint
+    .replace(/\/api\/v1$/i, '')                   // Ollama base + /api/v1
+    .replace(/\/(v1|api)$/i, '')                  // trailing /v1 or Ollama /api
+    .replace(/\/+$/, '');
+}
+
 // ─── LLM Concurrency Control ────────────────────────────────────────────────
 class Semaphore {
   private queue: Array<{ resolve: () => void; reject: (err: Error) => void; timer?: ReturnType<typeof setTimeout> }> = [];
@@ -379,7 +398,8 @@ export async function callLlm(
   const llmStartTime = Date.now();
 
   try {
-    const isAnthropic = config.baseUrl.includes('anthropic.com');
+    const baseUrl = normalizeLlmBaseUrl(config.baseUrl);
+    const isAnthropic = baseUrl.includes('anthropic.com');
 
     // Build request body + headers depending on provider
     let requestBody: string;
@@ -407,7 +427,7 @@ export async function callLlm(
         }));
       }
       requestBody = JSON.stringify(anthropicBody);
-      requestUrl = `${config.baseUrl}/messages`;
+      requestUrl = `${baseUrl}/messages`;
     } else {
       // OpenAI-compatible format
       const body: any = {
@@ -430,7 +450,7 @@ export async function callLlm(
         headers['Authorization'] = `Bearer ${config.apiKey}`;
       }
       requestBody = JSON.stringify(body);
-      requestUrl = `${config.baseUrl}/v1/chat/completions`;
+      requestUrl = `${baseUrl}/v1/chat/completions`;
     }
 
     // Combine caller signal with per-request timeout (5min)
@@ -585,7 +605,7 @@ export async function* streamLlm(
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
-    const streamUrl = `${config.baseUrl}/v1/chat/completions`;
+    const streamUrl = `${normalizeLlmBaseUrl(config.baseUrl)}/v1/chat/completions`;
 
     let resp: globalThis.Response;
     try {

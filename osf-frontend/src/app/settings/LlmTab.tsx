@@ -99,8 +99,14 @@ export function LlmTab() {
         <>
           <div>
             <label className="text-text text-sm font-medium block mb-1.5">Base URL</label>
-            <input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.openai.com"
+            <input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+              placeholder={provider === 'custom' ? 'http://your-ollama-host:11434' : 'https://api.openai.com'}
               className="w-full bg-bg-surface border border-border rounded-sm px-3 py-2.5 text-text text-sm focus:outline-none focus:border-accent" />
+            {provider === 'custom' && (
+              <p className="text-text-dim text-xs mt-1">
+                Enter the server root only — no <code>/v1</code> or <code>/api</code>. We append <code>/v1/chat/completions</code> automatically (Ollama&apos;s OpenAI-compatible endpoint).
+              </p>
+            )}
           </div>
           <div>
             <label className="text-text text-sm font-medium block mb-1.5">Model</label>

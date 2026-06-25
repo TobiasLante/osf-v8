@@ -10,7 +10,7 @@ import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../email/sender';
 import { encryptApiKey } from './crypto';
-import { callLlm } from '../chat/llm-client';
+import { callLlm, normalizeLlmBaseUrl } from '../chat/llm-client';
 
 const router = Router();
 
@@ -665,7 +665,9 @@ router.put('/llm-settings', requireAuth, async (req: Request, res: Response) => 
       }
     }
 
-    const resolvedUrl = baseUrl || PROVIDER_DEFAULTS[provider]?.baseUrl;
+    // Normalize so a pasted path suffix (e.g. Ollama's `/api`, a trailing `/v1`,
+    // or the full endpoint) doesn't break the URL we build downstream.
+    const resolvedUrl = normalizeLlmBaseUrl(baseUrl || PROVIDER_DEFAULTS[provider]?.baseUrl || '');
     if (!resolvedUrl) {
       res.status(400).json({ error: 'Base URL required for custom provider' });
       return;
