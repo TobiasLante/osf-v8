@@ -17,6 +17,7 @@ import { enrichFromWebsite } from './website-enrichment';
 import { resolveModality } from './modality-resolver';
 import { inferStatus } from './status-inference';
 import { generateReport } from './report-generator';
+import { generateBrief } from './brief-generator';
 import { enrichFromNews, type NewsEnrichment } from './news-api';
 import { setRequestApiKey } from './llm-client';
 import { saveAccount, listAccounts } from './account-store';
@@ -183,10 +184,10 @@ siteIntelligenceRouter.get('/api/site-intelligence/enrich-stream', async (req: R
       ),
     ]);
     website.partnerships = Array.from(allPartners);
-    if (news.parentCompany) {
+    if (news.parentCompany && isValidParentCompany(news.parentCompany)) {
       console.log(`[site-intelligence] Parent company from news titles: ${news.parentCompany}`);
       website.parentCompany = news.parentCompany;
-    } else if (website.parentCompany && website.parentCompany.length < 4) {
+    } else if (website.parentCompany && !isValidParentCompany(website.parentCompany)) {
       website.parentCompany = undefined;
     }
     if (!website.facilityDetails && news.facilityDetails) website.facilityDetails = news.facilityDetails;
@@ -334,12 +335,10 @@ siteIntelligenceRouter.post('/api/site-intelligence/enrich', async (req: Request
       website.partnerships = Array.from(allPartners);
 
       // Fill gaps from news
-      // News parent company is always more reliable (regex from PR titles, not LLM hallucination)
-      if (news.parentCompany) {
+      if (news.parentCompany && isValidParentCompany(news.parentCompany)) {
         console.log(`[site-intelligence] Parent company from news titles: ${news.parentCompany}`);
         website.parentCompany = news.parentCompany;
-      } else if (website.parentCompany && website.parentCompany.length < 4) {
-        // LLM garbage like "Child" — discard
+      } else if (website.parentCompany && !isValidParentCompany(website.parentCompany)) {
         website.parentCompany = undefined;
       }
       if (!website.facilityDetails && news.facilityDetails) website.facilityDetails = news.facilityDetails;
@@ -424,7 +423,7 @@ siteIntelligenceRouter.post('/api/site-intelligence/status', async (req: Request
   }
 });
 
-// ── POST /api/site-intelligence/report — generate DOCX ──
+// ── POST /api/site-intelligence/report — generate DOCX (detailed, brief, or both) ──
 
 siteIntelligenceRouter.post('/api/site-intelligence/report', async (req: Request, res: Response) => {
   const request: ReportRequest = req.body;
@@ -433,17 +432,46 @@ siteIntelligenceRouter.post('/api/site-intelligence/report', async (req: Request
     return;
   }
 
+  const reportType = request.reportType || 'both';
+  const safeName = request.input.accountName.replace(/\s+/g, '_');
+
   try {
-    console.log(`[site-intelligence] Generating report for "${request.input.accountName}"`);
+    console.log(`[site-intelligence] Generating ${reportType} report for "${request.input.accountName}"`);
 
     // Save to Knowledge Graph (async, don't block report generation)
     saveAccount(request.input, request.enrichment, request.resolution).catch(() => {});
 
-    const buffer = await generateReport(request);
-    const filename = `P1st_${request.input.accountName.replace(/\s+/g, '_')}_Intelligence_Report.docx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(buffer);
+    if (reportType === 'detailed') {
+      const buffer = await generateReport(request);
+      const filename = `P1st_${safeName}_Intelligence_Report.docx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } else if (reportType === 'brief') {
+      const buffer = await generateBrief(request);
+      const filename = `P1st_${safeName}_PreMeeting_Brief.docx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } else {
+      // 'both' — generate both and return as JSON with base64 buffers
+      const [detailedBuf, briefBuf] = await Promise.all([
+        generateReport(request),
+        generateBrief(request),
+      ]);
+      res.json({
+        detailed: {
+          filename: `P1st_${safeName}_Intelligence_Report.docx`,
+          base64: detailedBuf.toString('base64'),
+          size: detailedBuf.length,
+        },
+        brief: {
+          filename: `P1st_${safeName}_PreMeeting_Brief.docx`,
+          base64: briefBuf.toString('base64'),
+          size: briefBuf.length,
+        },
+      });
+    }
   } catch (err: any) {
     console.error('[site-intelligence] Report generation error:', err.message);
     res.status(500).json({ error: err.message });
@@ -462,3 +490,21 @@ siteIntelligenceRouter.post('/api/site-intelligence/process-steps', (req: Reques
   const steps = getProcessSteps(vendorMapTab, userVendor, equipmentStatus || {});
   res.json({ steps });
 });
+
+// ── Helpers ──
+
+/** Filter out garbage parent company values extracted from news headlines */
+function isValidParentCompany(name: string): boolean {
+  if (!name || name.length < 3 || name.length > 80) return false;
+  // Reject if it looks like a news headline fragment
+  const garbage = ['layoff', 'report', 'announce', 'acquire', 'merger', 'deal', 'stock', 'share',
+    'price', 'revenue', 'quarter', 'growth', 'profit', 'loss', 'restructur', 'bankrupt',
+    'lawsuit', 'settle', 'fda', 'approval', 'clinical', 'trial', 'study', 'phase'];
+  const lower = name.toLowerCase();
+  if (garbage.some(g => lower.includes(g))) return false;
+  // Reject if it contains sentence-like patterns (spaces + lowercase words)
+  if ((name.match(/\s/g) || []).length > 4) return false;
+  // Must start with uppercase
+  if (!/^[A-Z]/.test(name)) return false;
+  return true;
+}

@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: kg-server
-          image: 192.168.178.150:32000/osf-kg-server:8.25.0
+          image: 192.168.178.150:32000/osf-kg-server:8.27.9
           imagePullPolicy: Always
           ports:
             - containerPort: 8035
@@ -55,7 +55,7 @@ spec:
             - name: HISTORIAN_URL
               value: "http://historian:8030"
             - name: MCP_PROXY_URL
-              value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+              value: "http://factory-v4-fertigung.factory.svc.cluster.local:8020"
             - name: GATEWAY_DB_URL
               value: "postgresql://osf_admin:$(DB_PASSWORD)@osf-postgres:5432/osf"
             - name: KG_SERVER_URL

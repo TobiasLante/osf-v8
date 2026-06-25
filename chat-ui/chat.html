@@ -2321,7 +2321,7 @@
                 </div>
                 <div class="brand-text">
                     <span class="brand-name">ZeroGuess AI</span>
-                    <span class="version-badge" id="versionBadge">v…</span>
+                    <span class="version-badge" id="versionBadge">v8.10.1</span>
                 </div>
                 <div class="header-status">
                     <div class="status-indicator" id="statusIndicator"></div>
@@ -2754,7 +2754,7 @@
 
           // Skill names
           'skill.oee_summary': { de: 'OEE Übersicht', en: 'OEE Overview' },
-          'skill.factory_get_oee_summary': { de: 'OEE Übersicht', en: 'OEE Overview' },
+          'skill.factory_get_latest_oee': { de: 'OEE Übersicht', en: 'OEE Overview' },
           'skill.quality_summary': { de: 'Qualität', en: 'Quality' },
           'skill.factory_get_scrap_history': { de: 'Qualität / Ausschuss', en: 'Quality / Scrap' },
           'skill.otd_summary': { de: 'Liefertreue', en: 'On-Time Delivery' },
@@ -2763,6 +2763,7 @@
           'skill.show': { de: 'anzeigen', en: 'show' },
 
           // Tool names (progress panel)
+          'tool.factory_get_latest_oee': { de: 'OEE-Daten', en: 'OEE Data' },
           'tool.get_oee_summary': { de: 'OEE-Daten', en: 'OEE Data' },
           'tool.get_oee_deep_analysis': { de: 'OEE-Tiefenanalyse', en: 'OEE Deep Analysis' },
           'tool.get_oee_hourly': { de: 'OEE Stundenwerte', en: 'OEE Hourly' },
@@ -3410,7 +3411,7 @@
         function handleQuickAction(action) {
             switch(action) {
                 case 'oee':
-                    openMachineModal('skill', 'factory_get_oee_summary');
+                    openMachineModal('skill', 'factory_get_latest_oee');
                     break;
                 case 'quality':
                     openMachineModal('skill', 'factory_get_scrap_history');
@@ -3519,7 +3520,7 @@
             'llm-config': { type: 'llm' },
             'oee': {
                 buttons: [
-                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'factory_get_oee_summary' },
+                    { labelKey: 'pill.overview', label: 'Overview', dot: 'green', action: 'skill', skill: 'factory_get_latest_oee' },
                     { labelKey: 'pill.deep', label: 'Deep Analyze', dot: 'orange', action: 'agent', agent: 'oee-optimize' },
                     { labelKey: 'pill.fast', label: 'Fast', dot: 'blue', action: 'agent', agent: 'oee-diagnose' },
                 ]
@@ -3893,7 +3894,7 @@
             // Check if it's a machine ID (4 digits)
             const machineMatch = text.match(/^(\d{4})$/);
             if (machineMatch) {
-                await executeSkill('factory_get_oee_summary', { machine_id: machineMatch[1] });
+                await executeSkill('factory_get_latest_oee', { machine_id: machineMatch[1] });
                 return;
             }
 
@@ -4256,7 +4257,7 @@
             }
 
             switch (skill) {
-                case 'factory_get_oee_summary': return formatOEE(data);
+                case 'factory_get_latest_oee': return formatOEE(data);
                 case 'factory_get_scrap_history': return formatQuality(data);
                 case 'factory_get_otd_statistics': return formatOTD(data);
                 case 'factory_get_low_stock_items': return formatLowStock(data);
@@ -4265,7 +4266,7 @@
         }
 
         function formatOEE(data) {
-            // factory_get_oee_summary returns {maschinen: [{machineNo, avgOee: "85.0%", avgVerfuegbarkeit, avgLeistung, avgQualitaet, ausschussRate}]}
+            // factory_get_latest_oee returns {maschinen: [{machineNo, avgOee: "85.0%", avgVerfuegbarkeit, avgLeistung, avgQualitaet, ausschussRate}]}
             // Also handle single-machine: {machineNo, avgOee, ...}
             if (data.machineNo && data.avgOee) {
                 const oee = parseFloat(data.avgOee);

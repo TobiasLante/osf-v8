@@ -301,11 +301,34 @@ export async function siteGetProcessSteps(
   return data.steps || [];
 }
 
+export interface ReportFile {
+  filename: string;
+  base64: string;
+  size: number;
+}
+
+export interface BothReportsResponse {
+  detailed: ReportFile;
+  brief: ReportFile;
+}
+
+/** Generate both reports (detailed + brief) and return as JSON with base64 */
+export async function siteGenerateReports(request: ReportRequest): Promise<BothReportsResponse> {
+  const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/report`, {
+    method: 'POST',
+    headers: siteHeaders(),
+    body: JSON.stringify({ ...request, reportType: 'both' }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** Generate single report (legacy, returns Blob) */
 export async function siteGenerateReport(request: ReportRequest): Promise<Blob> {
   const res = await fetch(`${GATEWAY_URL}/api/site-intelligence/report`, {
     method: 'POST',
     headers: siteHeaders(),
-    body: JSON.stringify(request),
+    body: JSON.stringify({ ...request, reportType: 'detailed' }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.blob();

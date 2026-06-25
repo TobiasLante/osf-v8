@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: gateway
-        image: 192.168.178.150:32000/osf-gateway:8.25.0
+        image: 192.168.178.150:32000/osf-gateway:8.27.9
         imagePullPolicy: Always
         ports:
         - containerPort: 8012
@@ -115,7 +115,7 @@ spec:
               key: NODE_RED_SECRET
               optional: true
         - name: APP_VERSION
-          value: "8.25.0" # APP_VERSION
+          value: "8.27.9" # APP_VERSION
         - name: NODE_ENV
           value: "production"
         - name: FRONTEND_URL
@@ -125,9 +125,9 @@ spec:
         - name: GATEWAY_INTERNAL_URL
           value: "http://osf-gateway.osf.svc.cluster.local:8012"
         - name: MCP_URL
-          value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+          value: "http://factory-v4-fertigung.factory.svc.cluster.local:8020"
         - name: FACTORY_SIM_URL
-          value: "http://factory-v3-fertigung.factory.svc.cluster.local:8888"
+          value: "http://factory-v4-fertigung.factory.svc.cluster.local:8888"
         resources:
           requests:
             memory: "512Mi"

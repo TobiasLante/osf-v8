@@ -223,8 +223,8 @@ export default function I3xPage() {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-md border border-red-500/30 bg-red-500/10 text-red-400 text-sm text-center">
-            API Error: {error}
+          <div className="mb-4 p-3 rounded-md border border-amber-500/20 bg-amber-500/5 text-text-muted text-sm text-center">
+            Live i3X data is temporarily unavailable — showing the architecture overview.
           </div>
         )}
       </div>

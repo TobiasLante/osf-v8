@@ -43,15 +43,32 @@ export async function llmComplete(prompt: string, opts?: {
   const provider = getProvider();
   const maxTokens = opts?.maxTokens || 1000;
 
+  let result: string;
   if (provider === 'anthropic') {
-    return anthropicComplete(prompt, maxTokens, opts?.model);
-  }
-  if (provider === 'openai-compat') {
-    return openaiCompatComplete(prompt, maxTokens);
+    result = await anthropicComplete(prompt, maxTokens, opts?.model);
+  } else if (provider === 'openai-compat') {
+    result = await openaiCompatComplete(prompt, maxTokens);
+  } else {
+    console.warn('[llm-client] No LLM provider configured (set ANTHROPIC_API_KEY, X-API-Key header, or LLM_BASE_URL)');
+    return '(LLM not configured — add your API key in Settings)';
   }
 
-  console.warn('[llm-client] No LLM provider configured (set ANTHROPIC_API_KEY, X-API-Key header, or LLM_BASE_URL)');
-  return '(LLM not configured — add your API key in Settings)';
+  // Strip markdown artifacts from LLM output (bold, headers, etc.)
+  return sanitizeLlmOutput(result);
+}
+
+/** Remove markdown formatting artifacts that break DOCX output */
+function sanitizeLlmOutput(text: string): string {
+  return text
+    .replace(/\*\*/g, '')        // bold markers
+    .replace(/\*/g, '')          // italic markers
+    .replace(/^#{1,4}\s+/gm, '') // heading markers
+    .replace(/^[-*]\s+/gm, '- ') // normalize bullet markers
+    .replace(/`([^`]+)`/g, '$1') // inline code
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links → text only
+    .replace(/[""\u201C\u201D]/g, '"')  // normalize fancy quotes
+    .replace(/['\u2018\u2019]/g, "'")   // normalize fancy apostrophes
+    .trim();
 }
 
 /**

@@ -7,7 +7,8 @@ import type {
 } from "@p1/shared";
 import {
   siteEnrichStream, siteResolve, siteInferStatus,
-  siteGetProcessSteps, siteGenerateReport,
+  siteGetProcessSteps, siteGenerateReports,
+  type BothReportsResponse,
 } from "../../lib/api";
 import { IntakeForm } from "../../components/site-intelligence/IntakeForm";
 import { EnrichmentStatus } from "../../components/site-intelligence/EnrichmentStatus";
@@ -30,6 +31,7 @@ export default function SiteIntelligencePage() {
   const [equipmentStatus, setEquipmentStatus] = useState<EquipmentStatus>({});
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   const [reportBlob, setReportBlob] = useState<Blob | null>(null);
+  const [reportData, setReportData] = useState<BothReportsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ── Step 1 → 2: Enrich with live progress + Resolve ──
@@ -140,8 +142,8 @@ export default function SiteIntelligencePage() {
       const request: ReportRequest = {
         input, enrichment, resolution, equipmentStatus, processSteps,
       };
-      const blob = await siteGenerateReport(request);
-      setReportBlob(blob);
+      const data = await siteGenerateReports(request);
+      setReportData(data);
       setCurrentStep(4);
     } catch (err: any) {
       setError(err.message || "Report generation failed");
@@ -159,6 +161,7 @@ export default function SiteIntelligencePage() {
     setEquipmentStatus({});
     setProcessSteps([]);
     setReportBlob(null);
+    setReportData(null);
     setError(null);
     setSourceStatus({});
     setSourcePreviews({});
@@ -224,6 +227,7 @@ export default function SiteIntelligencePage() {
 
       {currentStep === 4 && (
         <ReportDownload
+          reportData={reportData}
           reportBlob={reportBlob}
           accountName={input?.accountName || ""}
           steps={processSteps}

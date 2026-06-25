@@ -52,7 +52,7 @@ spec:
             - name: DOMAIN
               value: "discrete"
             - name: MCP_PROXY_URL
-              value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+              value: "http://factory-v4-fertigung.factory.svc.cluster.local:8020"
             - name: HISTORIAN_URL
               value: "http://historian:8030"
             - name: ERP_DB_HOST

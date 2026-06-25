@@ -18,7 +18,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: kg-builder
-          image: 192.168.178.150:32000/osf-kg-builder:8.25.0
+          image: 192.168.178.150:32000/osf-kg-builder:8.27.9
           imagePullPolicy: Always
           args: ["--domain", "discrete"]
           envFrom:
@@ -47,7 +47,7 @@ spec:
             - name: DOMAIN
               value: "discrete"
             - name: MCP_PROXY_URL
-              value: "http://factory-v3-fertigung.factory.svc.cluster.local:8020"
+              value: "http://factory-v4-fertigung.factory.svc.cluster.local:8020"
             - name: HISTORIAN_URL
               value: "http://historian:8030"
             - name: ERP_DB_HOST

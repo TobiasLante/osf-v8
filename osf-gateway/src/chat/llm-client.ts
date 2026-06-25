@@ -341,6 +341,7 @@ export async function callLlm(
   tierOrConfig: string | LlmConfig,
   userId?: string,
   signal?: AbortSignal,
+  jsonMode?: boolean,
 ): Promise<LlmResponse> {
   const config: LlmConfig = typeof tierOrConfig === 'string'
     ? getPlatformConfig(tierOrConfig)
@@ -379,7 +380,6 @@ export async function callLlm(
 
   try {
     const isAnthropic = config.baseUrl.includes('anthropic.com');
-    const isAzure = config.provider === 'azure' || config.baseUrl.includes('.azure.com');
 
     // Build request body + headers depending on provider
     let requestBody: string;
@@ -414,25 +414,23 @@ export async function callLlm(
         model: config.model,
         messages,
         temperature: 0.3,
-        ...(isAzure ? { max_completion_tokens: 4096 } : { max_tokens: 4096 }),
+        max_tokens: 4096,
+        // Disable Qwen3 thinking-mode so output goes to `content`, not `reasoning_content`
+        chat_template_kwargs: { enable_thinking: false },
       };
+      if (jsonMode && !hasTools) {
+        // Constrained JSON output (llama.cpp / OpenAI-compatible)
+        body.response_format = { type: 'json_object' };
+      }
       if (hasTools) {
         body.tools = tools;
         body.tool_choice = 'auto';
       }
       if (config.apiKey) {
-        if (isAzure) {
-          headers['api-key'] = config.apiKey;
-        } else {
-          headers['Authorization'] = `Bearer ${config.apiKey}`;
-        }
+        headers['Authorization'] = `Bearer ${config.apiKey}`;
       }
       requestBody = JSON.stringify(body);
-      if (isAzure) {
-        requestUrl = `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-12-01-preview`;
-      } else {
-        requestUrl = `${config.baseUrl}/v1/chat/completions`;
-      }
+      requestUrl = `${config.baseUrl}/v1/chat/completions`;
     }
 
     // Combine caller signal with per-request timeout (5min)
@@ -496,11 +494,13 @@ export async function callLlm(
     } else {
       // OpenAI-compatible response
       const choice = data.choices?.[0];
+      // Qwen3 thinking-mode fallback: when enable_thinking=false isn't honored, content lands in reasoning_content
+      const content = choice?.message?.content || choice?.message?.reasoning_content || null;
       const inputTokens = estimateTokens(JSON.stringify(messages));
-      const outputTokens = estimateTokens(choice?.message?.content || '');
+      const outputTokens = estimateTokens(content || '');
       const tokensUsed = inputTokens + outputTokens;
       result = {
-        content: choice?.message?.content || null,
+        content,
         tool_calls: choice?.message?.tool_calls || [],
         finish_reason: choice?.finish_reason || null,
         tokensUsed,
@@ -567,13 +567,14 @@ export async function* streamLlm(
   }
 
   try {
-    const isAzure = config.provider === 'azure' || config.baseUrl.includes('.azure.com');
     const body: any = {
       model: config.model,
       messages,
       temperature: 0.3,
-      ...(isAzure ? { max_completion_tokens: 4096 } : { max_tokens: 4096 }),
+      max_tokens: 4096,
       stream: true,
+      // Disable Qwen3 thinking-mode so output goes to `content`, not `reasoning_content`
+      chat_template_kwargs: { enable_thinking: false },
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
@@ -581,16 +582,10 @@ export async function* streamLlm(
     }
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (config.apiKey) {
-      if (isAzure) {
-        headers['api-key'] = config.apiKey;
-      } else {
-        headers['Authorization'] = `Bearer ${config.apiKey}`;
-      }
+      headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
-    const streamUrl = isAzure
-      ? `${config.baseUrl}/openai/deployments/${config.model}/chat/completions?api-version=2024-12-01-preview`
-      : `${config.baseUrl}/v1/chat/completions`;
+    const streamUrl = `${config.baseUrl}/v1/chat/completions`;
 
     let resp: globalThis.Response;
     try {

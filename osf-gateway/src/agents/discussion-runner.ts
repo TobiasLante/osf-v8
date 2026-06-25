@@ -188,7 +188,7 @@ export async function callLlmJson<T>(
   userId?: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await callLlm(messages, undefined, config, userId, signal);
+  const response = await callLlm(messages, undefined, config, userId, signal, true);
   const text = (response.content || '').trim();
   // Extract JSON from markdown code blocks if needed
   const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -199,36 +199,49 @@ export async function callLlmJson<T>(
     return cleanLlmOutput(JSON.parse(jsonStr)) as T;
   } catch {
     // Attempt to repair truncated JSON — close open brackets/braces
-    jsonStr = repairTruncatedJson(jsonStr);
-    return cleanLlmOutput(JSON.parse(jsonStr)) as T;
+    const repaired = repairTruncatedJson(jsonStr);
+    try {
+      return cleanLlmOutput(JSON.parse(repaired)) as T;
+    } catch (err) {
+      logger.warn({ rawLen: text.length, raw: text.slice(0, 600), tail: text.slice(-400), err: (err as Error).message }, 'callLlmJson: parse failed after repair');
+      throw err;
+    }
   }
 }
 
-/** Attempt to close truncated JSON by balancing brackets/braces */
+/** Attempt to close truncated JSON by balancing brackets/braces (preserves nesting order). */
 function repairTruncatedJson(input: string): string {
   let s = input.trim();
-  // Remove trailing comma
-  s = s.replace(/,\s*$/, '');
-  // Remove incomplete key-value (e.g. trailing "key": or "key": "unfinished)
+  // Drop trailing incomplete fragments — comma, dangling key, incomplete object/array opener
   s = s.replace(/,?\s*"[^"]*":\s*"?[^"}\]]*$/, '');
-  // Count open/close brackets
-  let braces = 0, brackets = 0;
-  let inString = false, escape = false;
+  s = s.replace(/[,\s]+$/, '');
+  // Strip a trailing element-opener like ", {" or "[{" that has no content yet
+  s = s.replace(/[,\s]*[{\[]\s*$/, '');
+  s = s.replace(/[,\s]+$/, '');
+
+  // Walk the string and track open structures as a stack (preserves nesting order)
+  const stack: string[] = [];
+  let inString = false;
+  let escape = false;
   for (const ch of s) {
     if (escape) { escape = false; continue; }
     if (ch === '\\') { escape = true; continue; }
     if (ch === '"') { inString = !inString; continue; }
     if (inString) continue;
-    if (ch === '{') braces++;
-    if (ch === '}') braces--;
-    if (ch === '[') brackets++;
-    if (ch === ']') brackets--;
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') {
+      if (stack.length && stack[stack.length - 1] === ch) stack.pop();
+    }
   }
-  // Close any unclosed strings
+
   if (inString) s += '"';
-  // Close brackets then braces
-  while (brackets > 0) { s += ']'; brackets--; }
-  while (braces > 0) { s += '}'; braces--; }
+  // If we just closed a string and the next thing should be a value-end,
+  // a dangling key like `"foo":` may remain — strip it before closing.
+  s = s.replace(/,?\s*"[^"]*"\s*:\s*$/, '');
+  s = s.replace(/[,\s]+$/, '');
+
+  while (stack.length) s += stack.pop()!;
   return s;
 }
 
@@ -407,6 +420,7 @@ async function runKgPhase(
   res: Response,
   params: Record<string, unknown>,
   llmExtraKgTools?: string[],
+  agentId?: string,
 ): Promise<{ kgNodes: KgNode[]; kgEdges: KgEdge[]; kgToolResults: Array<{ name: string; result: string }> }> {
   const entityId = String(params.entityId || params.machineId || 'unknown');
   const entityType = detectEntityType(params);
@@ -427,7 +441,7 @@ async function runKgPhase(
 
   emitSSE(res, {
     type: 'kg_traversal_start',
-    scenarioName: params.scenario || 'Impact Analysis',
+    scenarioName: (params.scenario as string) || agentId || 'KG Analysis',
     entityId,
     entityType,
     kgTools: allKgTools,
@@ -670,7 +684,7 @@ async function runSpecialistsParallel(
         status: 'done' as const,
         report: {
           domain: rpt.domain,
-          zahlenDatenFakten: (rpt.zahlenDatenFakten || '').substring(0, 250),
+          zahlenDatenFakten: (typeof rpt.zahlenDatenFakten === 'string' ? rpt.zahlenDatenFakten : JSON.stringify(rpt.zahlenDatenFakten || '')).substring(0, 250),
           findingsCount: safeArray(rpt.kritischeFindings).length,
         },
       };
@@ -858,12 +872,13 @@ Regeln für newSpecialists:
       // Abort early if client disconnected
       if (res.writableEnded) break;
 
-      // Run the new specialist
+      // Run the new specialist on premium tier — same reasoning as Q&A:
+      // recruit happens deep in the moderator loop with full context, MoE inference handles it faster
       try {
         const newReport = await runSpecialistLlm(
           newSpecDef,
           `${kgContext}\n\n${factoryContext}`,
-          freeLlmConfig,
+          premiumLlmConfig,
           userId,
           signal,
           language,
@@ -931,6 +946,7 @@ Regeln für newSpecialists:
     }, 15_000);
     let answer: string;
     try {
+      // Use premium tier for Q&A — MoE inference handles the large context (KG + factory + specialist report) much faster than the dense free model
       const answerResponse = await callLlm(
         [
           { role: 'system', content: isEn
@@ -941,7 +957,7 @@ Regeln für newSpecialists:
             : `Deine bisherige Analyse und Rohdaten:\n${specContext}\n\nFrage des Moderators: ${question}\n\nAntworte in bis zu 10 Sätzen. Sei präzise, faktisch, und nenne konkrete Datenpunkte (Maschinen-IDs, Auftragsnummern, Werte) als Beleg.` },
         ],
         undefined,
-        freeLlmConfig,
+        premiumLlmConfig,
         userId,
         signal,
       );
@@ -1119,6 +1135,8 @@ ANTWORT-FORMAT: Reines JSON.
           emitSSE(res, { type: 'heartbeat' });
         }, 15_000);
         try {
+          // Critique on premium tier — same reasoning as Q&A and recruit:
+          // dense 14B free model is slow on large prompts (draft + report). MoE on premium keeps the debate flowing.
           const rawCritique = await callLlmJson<any>(
             [
               { role: 'system', content: isEn
@@ -1126,7 +1144,7 @@ ANTWORT-FORMAT: Reines JSON.
                 : `Du bist ein kritischer ${displayName}. Sei konstruktiv aber ehrlich.` },
               { role: 'user', content: critiquePrompt },
             ],
-            freeLlmConfig,
+            premiumLlmConfig,
             userId,
             signal,
           );
@@ -1678,7 +1696,7 @@ export async function runDiscussionAgent(
     const allTools = await getMcpTools();
     const allToolNames = allTools.map((t: any) => t.function?.name || t.name).filter(Boolean);
     const agentKgTools = agent.tools.filter(t => t.startsWith('kg_'));
-    const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(allToolNames, res, params, agentKgTools);
+    const { kgNodes, kgEdges, kgToolResults } = await runKgPhase(allToolNames, res, params, agentKgTools, agent.id);
 
     const isEn = language === 'en';
     const kgContext = kgToolResults.length > 0
@@ -1846,7 +1864,7 @@ export async function runDiscussionAgent(
     }
 
     // Send report download link
-    const reportUrl = `/agents/impact-analysis/runs/${runId}/report`;
+    const reportUrl = `/agents/${agent.id}/runs/${runId}/report`;
     emitSSE(res, { type: 'report_ready', reportUrl });
 
     emitSSE(res, { type: 'done', runId });
@@ -2172,7 +2190,7 @@ export async function runDynamicDiscussion(
         kgEdges: kgEdges.length,
       })],
     );
-    const reportUrl = `/agents/impact-analysis/runs/${runResult.rows[0].id}/report`;
+    const reportUrl = `/agents/${dynamicAgent.id}/runs/${runResult.rows[0].id}/report`;
     emitSSE(res, { type: 'report_ready', reportUrl });
   }
 

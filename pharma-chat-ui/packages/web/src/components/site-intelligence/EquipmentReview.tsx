@@ -14,21 +14,25 @@ interface Props {
 }
 
 const STATUS_OPTIONS: { value: EquipmentStatusValue; label: string; icon: string }[] = [
-  { value: "WON", label: "Our Product", icon: "✓" },
+  { value: "WON", label: "Confirmed Installed", icon: "✓" },
   { value: "OPEN", label: "Open Opportunity", icon: "●" },
   { value: "COMPETITOR", label: "Competitor", icon: "✕" },
-  { value: "NO_CONTACT", label: "Unknown", icon: "◆" },
+  { value: "NO_CONTACT", label: "Unknown — Follow Up", icon: "◆" },
+  { value: "VERIFY", label: "Product Exists — Verify", icon: "◇" },
+  { value: "NO_SAR_PRODUCT", label: "No Sartorius Product", icon: "✗" },
 ];
 
 const STATUS_STYLES: Record<EquipmentStatusValue, { bg: string; text: string; border: string }> = {
-  WON:        { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-l-emerald-500" },
-  OPEN:       { bg: "bg-amber-500/10",   text: "text-amber-400",   border: "border-l-amber-500" },
-  COMPETITOR: { bg: "bg-red-500/10",     text: "text-red-400",     border: "border-l-red-500" },
-  NO_CONTACT: { bg: "bg-slate-500/5",    text: "text-slate-500",   border: "border-l-slate-600" },
+  WON:            { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-l-emerald-500" },
+  OPEN:           { bg: "bg-amber-500/10",   text: "text-amber-400",   border: "border-l-amber-500" },
+  COMPETITOR:     { bg: "bg-red-500/10",     text: "text-red-400",     border: "border-l-red-500" },
+  NO_CONTACT:     { bg: "bg-slate-500/5",    text: "text-slate-500",   border: "border-l-slate-600" },
+  VERIFY:         { bg: "bg-cyan-500/10",    text: "text-cyan-400",    border: "border-l-cyan-500" },
+  NO_SAR_PRODUCT: { bg: "bg-purple-500/10",  text: "text-purple-400",  border: "border-l-purple-500" },
 };
 
 export function EquipmentReview({ steps, vendorMapTab, vendor, onStatusChange, onGenerate, isLoading }: Props) {
-  const counts: Record<EquipmentStatusValue, number> = { WON: 0, OPEN: 0, COMPETITOR: 0, NO_CONTACT: 0 };
+  const counts: Record<EquipmentStatusValue, number> = { WON: 0, OPEN: 0, COMPETITOR: 0, NO_CONTACT: 0, VERIFY: 0, NO_SAR_PRODUCT: 0 };
   for (const s of steps) counts[(s.status || "NO_CONTACT") as EquipmentStatusValue]++;
 
   return (
@@ -40,9 +44,9 @@ export function EquipmentReview({ steps, vendorMapTab, vendor, onStatusChange, o
       </div>
 
       {/* Summary bar — Justin style */}
-      <div className="flex items-center justify-center gap-6 py-3 rounded-lg bg-p1-surface border border-p1-border">
+      <div className="flex items-center justify-center gap-4 py-3 rounded-lg bg-p1-surface border border-p1-border flex-wrap">
         <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-400">
-          <span className="text-base">✓</span> Our Product: {counts.WON}
+          <span className="text-base">✓</span> Won: {counts.WON}
         </span>
         <span className="flex items-center gap-1.5 text-sm font-bold text-red-400">
           <span className="text-base">✕</span> Competitor: {counts.COMPETITOR}
@@ -51,8 +55,18 @@ export function EquipmentReview({ steps, vendorMapTab, vendor, onStatusChange, o
           <span className="text-base">●</span> Open: {counts.OPEN}
         </span>
         <span className="flex items-center gap-1.5 text-sm font-bold text-slate-400">
-          <span className="text-base">◆</span> Unknown: {counts.NO_CONTACT}
+          <span className="text-base">◆</span> Follow Up: {counts.NO_CONTACT}
         </span>
+        {counts.VERIFY > 0 && (
+          <span className="flex items-center gap-1.5 text-sm font-bold text-cyan-400">
+            <span className="text-base">◇</span> Verify: {counts.VERIFY}
+          </span>
+        )}
+        {counts.NO_SAR_PRODUCT > 0 && (
+          <span className="flex items-center gap-1.5 text-sm font-bold text-purple-400">
+            <span className="text-base">✗</span> No SAR: {counts.NO_SAR_PRODUCT}
+          </span>
+        )}
       </div>
 
       {/* 2D Process Map — BFD style */}

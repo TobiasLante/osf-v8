@@ -181,7 +181,6 @@ router.post('/:id/token-test', requireAuth, requireGroupAdmin, async (req: Reque
 
   const provider = group.llm_provider || 'anthropic';
   const isAnthropic = provider === 'anthropic';
-  const isAzure = provider === 'azure';
   const baseUrl = (group.llm_base_url || (isAnthropic ? 'https://api.anthropic.com' : '')).replace(/\/+$/, '');
   const model = (group.llm_model || (isAnthropic ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini')).trim();
 
@@ -196,14 +195,9 @@ router.post('/:id/token-test', requireAuth, requireGroupAdmin, async (req: Reque
       headers['anthropic-version'] = '2023-06-01';
       body = JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Say "ok"' }] });
     } else {
-      if (isAzure) {
-        url = `${baseUrl}/openai/deployments/${model}/chat/completions?api-version=2024-12-01-preview`;
-        headers['api-key'] = apiKey;
-      } else {
-        url = `${baseUrl}/v1/chat/completions`;
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
-      body = JSON.stringify({ model, ...(isAzure ? { max_completion_tokens: 16 } : { max_tokens: 16 }), messages: [{ role: 'user', content: 'Say "ok"' }] });
+      url = `${baseUrl}/v1/chat/completions`;
+      headers['Authorization'] = `Bearer ${apiKey}`;
+      body = JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Say "ok"' }] });
     }
 
     const controller = new AbortController();

@@ -82,6 +82,12 @@ export async function apiFetch<T = any>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
+    // A 404 means the endpoint isn't present in this environment (frontend is ahead of
+    // the deployed gateway). Surface it as an intentional, non-alarming message rather
+    // than a raw "Not found" so half-wired sections degrade cleanly instead of looking broken.
+    if (res.status === 404) {
+      throw new ApiError(404, 'Not available in this environment yet');
+    }
     throw new ApiError(res.status, body.error || res.statusText);
   }
 

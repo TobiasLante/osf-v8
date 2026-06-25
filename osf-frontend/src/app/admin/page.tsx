@@ -173,7 +173,22 @@ function HealthTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   if (error && !data) return <div className="text-red-400 text-sm">{error}</div>;
   if (!data) return <div className="text-text-muted text-sm">Loading health data...</div>;
 
-  const overall = STATUS_CONFIG[data.overall];
+  // Defensive normalization: tolerate a health payload that omits or renames any
+  // component (the API shape drifts after backend changes, e.g. the sim-v5 cutover)
+  // instead of throwing on `.status`/`.services` and crashing the whole panel.
+  {
+    const C: any = { ...((data as any).components || {}) };
+    // Backend renamed `factory` → `factorySim`; alias it so the tile shows real data.
+    if (C.factorySim && !C.factory) C.factory = C.factorySim;
+    for (const k of ["gateway", "database", "llm", "nodered", "mcp", "factory", "databases", "mqtt", "cloudflare"]) {
+      C[k] = { status: "critical", ...(C[k] || {}) };
+    }
+    C.mcp.services = C.mcp.services ?? [];
+    C.factory.services = C.factory.services ?? [];
+    (data as any).components = C;
+  }
+
+  const overall = STATUS_CONFIG[data.overall] ?? STATUS_CONFIG.critical;
 
   interface ServiceDetail { name: string; ok: boolean; latencyMs?: number; error?: string; badge?: string }
   type HealthTile = { key: string; label: string; status: "healthy" | "degraded" | "critical"; metrics: string; services?: ServiceDetail[]; navigateTo?: Tab };
@@ -2466,11 +2481,11 @@ function CategoriesTab() {
 
   useEffect(() => {
     Promise.all([
-      apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories"),
+      apiFetch<{ categories: ToolCategory[] }>("/admin/tool-categories").catch((err: any) => { console.error(err.message); return { categories: [] }; }),
       apiFetch<{ classifications: any[] }>("/admin/tool-classifications").catch((err: any) => { console.error(err.message); return { classifications: [] }; }),
     ])
       .then(([c, cl]) => {
-        setCategories(c.categories);
+        setCategories(c.categories || []);
         setClassifications(cl.classifications || []);
       })
       .finally(() => setLoading(false));

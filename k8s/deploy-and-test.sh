@@ -112,8 +112,8 @@ stamp_versions() {
   sed -i "s|image: ${REGISTRY}/osf-frontend:.*|image: ${REGISTRY}/osf-frontend:${FRONTEND_TAG}|" "$SCRIPT_DIR/osf-frontend.yaml"
   # osf-chat-ui.yaml
   sed -i "s|image: ${REGISTRY}/osf-chat-ui:.*|image: ${REGISTRY}/osf-chat-ui:${CHAT_UI_TAG}|" "$SCRIPT_DIR/osf-chat-ui.yaml"
-  # chat.html version badge
-  sed -i "s|<span class=\"version-badge\">v[0-9.]*</span>|<span class=\"version-badge\">v${CHAT_UI_TAG}</span>|" "$V8_ROOT/chat-ui/chat.html"
+  # chat.html version badge — match span with optional id attribute
+  sed -i -E "s|<span class=\"version-badge\"([^>]*)>v[^<]*</span>|<span class=\"version-badge\"\\1>v${CHAT_UI_TAG}</span>|" "$V8_ROOT/chat-ui/chat.html"
   # v9 kg-server + kg-builder
   sed -i "s|image: ${REGISTRY}/osf-kg-server:.*|image: ${REGISTRY}/osf-kg-server:${KG_SERVER_TAG}|" "$SCRIPT_DIR/v9/kg-server.yaml" 2>/dev/null || true
   sed -i "s|image: ${REGISTRY}/osf-kg-builder:.*|image: ${REGISTRY}/osf-kg-builder:${KG_BUILDER_TAG}|" "$SCRIPT_DIR/v9/kg-builder-job.yaml" 2>/dev/null || true

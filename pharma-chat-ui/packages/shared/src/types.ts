@@ -37,7 +37,7 @@ export interface ProcessStep {
   category: string;
   stepOrder: number;
   equipment: string;
-  status?: 'WON' | 'OPEN' | 'COMPETITOR' | 'NO_CONTACT';
+  status?: EquipmentStatusValue;
   vendor?: string;
   product?: string;
 }
@@ -51,7 +51,7 @@ export interface EnrichmentResult {
 
 // ── Site Intelligence Types ──
 
-export type EquipmentStatusValue = 'WON' | 'OPEN' | 'COMPETITOR' | 'NO_CONTACT';
+export type EquipmentStatusValue = 'WON' | 'OPEN' | 'COMPETITOR' | 'NO_CONTACT' | 'VERIFY' | 'NO_SAR_PRODUCT';
 export type EquipmentStatus = Record<string, EquipmentStatusValue>;
 
 export type Vendor = 'Sartorius' | 'Thermo Fisher' | 'Cytiva' | 'MilliporeSigma' | 'Repligen';
@@ -165,4 +165,5 @@ export interface ReportRequest {
   resolution: ModalityResolution;
   equipmentStatus: EquipmentStatus;
   processSteps: ProcessStep[];
+  reportType?: 'detailed' | 'brief' | 'both';
 }

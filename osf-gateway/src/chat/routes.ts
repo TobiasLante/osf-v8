@@ -491,7 +491,7 @@ router.post('/completions', requireAuth, async (req: Request, res: Response) => 
                   type: 'kg_nodes_discovered',
                   timestamp: new Date().toISOString(),
                   nodes: Array.isArray(nodes) ? nodes.map((n: any) => ({ id: n.id || n.node_id || n, type: n.type || n.label || 'node', label: n.name || n.label || n.id || String(n) })) : [],
-                  edges: Array.isArray(edges) ? edges.map((e: any) => ({ source: e.source || e.from, target: e.target || e.to, type: e.type || e.relation || 'related' })) : [],
+                  edges: Array.isArray(edges) ? edges.map((e: any) => ({ from: e.from || e.source, to: e.to || e.target, label: e.label || e.type || e.relation || 'related' })) : [],
                   centerEntity: { id: (toolArgs as any).entity_id || (toolArgs as any).machine_id || (toolArgs as any).order_id || toolName },
                 })}\n\n`);
               }
