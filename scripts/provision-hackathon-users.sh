@@ -35,7 +35,7 @@ mkdir -p "$OUT_DIR"
 chmod 700 "$OUT_DIR"
 
 # Postgres connection (cluster-internal, run via kubectl exec)
-PG_POD=$(microk8s kubectl -n osf get pods -l app=osf-postgres-new -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
+PG_POD=$(kubectl -n osf get pods -l app=osf-postgres-new -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
 if [ -z "$PG_POD" ]; then
   echo "ERR: osf-postgres-new pod not found" >&2
   exit 1
@@ -45,12 +45,9 @@ fi
 randhex()  { openssl rand -hex "$1"; }
 sha256hex() { printf %s "$1" | sha256sum | awk '{print $1}'; }
 bcrypt_hash() {
-  # use python3-bcrypt if installed, otherwise gateway-style (sha256 placeholder)
-  # The osf-gateway uses bcrypt for password_hash — replicate via docker run or in-cluster exec
-  microk8s kubectl -n osf exec deploy/osf-gateway -- node -e "
-    const bcrypt = require('bcrypt');
-    bcrypt.hash(process.argv[1], 10).then(h => process.stdout.write(h));
-  " "$1"
+  # osf-gateway image has bcryptjs (not bcrypt); use hashSync via kubectl exec.
+  local pw="$1"
+  kubectl -n osf exec deploy/osf-gateway -- node -e 'const b=require("bcryptjs");process.stdout.write(b.hashSync(process.argv[1],12))' "$pw"
 }
 
 echo "Provisioning $COUNT users (prefix=$PREFIX, tier=$TIER) ..."
@@ -78,7 +75,7 @@ for i in $(seq 1 "$COUNT"); do
     continue
   fi
 
-  echo "$SQL" | microk8s kubectl -n osf exec -i "$PG_POD" -- psql -U osf_user -d osf -v ON_ERROR_STOP=1 >/dev/null
+  echo "$SQL" | kubectl -n osf exec -i "$PG_POD" -- psql -U osf_admin -d osf -v ON_ERROR_STOP=1 >/dev/null
 
   CRED_FILE="$OUT_DIR/${EMAIL}.txt"
   cat > "$CRED_FILE" <<CREDS

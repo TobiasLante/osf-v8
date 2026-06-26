@@ -100,20 +100,23 @@ export default function HackathonPage() {
 
       <section style={{ margin: "32px 0" }}>
         <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 12 }}>Quickstart</h2>
-        <div style={{ background: "#1f2937", color: "#e5e7eb", padding: 16, borderRadius: 6, overflow: "auto", fontFamily: "monospace", fontSize: 13 }}>
-          <div style={{ color: "#9ca3af" }}># 1. Machine-Catalog</div>
-          <div>curl -H "X-API-Key: {apiKey}" \</div>
-          <div>  https://osf-api.zeroguess.ai/api/sim-v5/opcua/machines</div>
-          <div style={{ marginTop: 12, color: "#9ca3af" }}># 2. OPC-UA Browse (root of {sampleMachine})</div>
-          <div>curl -H "X-API-Key: {apiKey}" \</div>
-          <div>  "https://osf-api.zeroguess.ai/api/sim-v5/opcua/{sampleMachine}/browse?nodeId=ObjectsFolder"</div>
-          <div style={{ marginTop: 12, color: "#9ca3af" }}># 3. ERP — Active Orders</div>
-          <div>curl -H "X-API-Key: {apiKey}" \</div>
-          <div>  https://osf-api.zeroguess.ai/api/sim-v5/erp/api/orders/active</div>
-          <div style={{ marginTop: 12, color: "#9ca3af" }}># 4. OPC-UA SSE Stream</div>
-          <div>curl -N -H "X-API-Key: {apiKey}" \</div>
-          <div>  "https://osf-api.zeroguess.ai/api/sim-v5/opcua/{sampleMachine}/stream?nodeIds=ns%3D1%3Bs%3DState&intervalMs=1000"</div>
-        </div>
+        <pre style={{ background: "#1f2937", color: "#e5e7eb", padding: 16, borderRadius: 6, overflow: "auto", fontFamily: "monospace", fontSize: 13, margin: 0, whiteSpace: "pre-wrap" }}>
+{`# 1. Machine-Catalog
+curl -H 'X-API-Key: ${apiKey}' \\
+  https://osf-api.zeroguess.ai/api/sim-v5/opcua/machines
+
+# 2. OPC-UA Browse (root of ${sampleMachine})
+curl -H 'X-API-Key: ${apiKey}' \\
+  'https://osf-api.zeroguess.ai/api/sim-v5/opcua/${sampleMachine}/browse?nodeId=ObjectsFolder'
+
+# 3. ERP — Active Orders
+curl -H 'X-API-Key: ${apiKey}' \\
+  https://osf-api.zeroguess.ai/api/sim-v5/erp/api/orders/active
+
+# 4. OPC-UA SSE Stream (Server-Sent Events)
+curl -N -H 'X-API-Key: ${apiKey}' \\
+  'https://osf-api.zeroguess.ai/api/sim-v5/opcua/${sampleMachine}/stream?nodeIds=ns%3D1%3Bs%3DState&intervalMs=1000'`}
+        </pre>
         <div style={{ marginTop: 12 }}>
           <Link href={`${API_BASE}/api/sim-v5/docs`} style={{ color: "#1d4ed8", marginRight: 16 }}>OpenAPI Docs (Swagger)</Link>
           <Link href={`${API_BASE}/api/sim-v5/openapi.json`} style={{ color: "#1d4ed8" }}>openapi.json</Link>
