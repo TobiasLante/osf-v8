@@ -1,16 +1,18 @@
-// sim-v5 Hackathon Routes — read-only proxy to sim-v5 REST + OPC-UA shim
-// Mounted at /api/sim-v5/* by index.ts
+// sim-v5 Hackathon Routes — read-only proxy + OPC-UA REST shim.
+// Mounted at /api/sim-v5/* by index.ts.
 //
-// Auth: requireAuth (JWT or X-API-Key osf_*) — same as other osf-gateway routes.
-// Method: GET-only enforced at router level (Hackathon = read-only).
-// Audit: logger.info per request with userId + path.
-//
-// Skeleton (Tag 1): only /ping endpoint, full routes land in Tag 2-4.
+// Auth: requireAuth (JWT or X-API-Key osf_*) at every endpoint.
+// Method: GET/HEAD/OPTIONS only.
+// Audit: logger.info per request with userId + path (rest-proxy + opcua-shim).
 
 import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth } from "../auth/middleware";
 import { logger } from "../logger";
 import { simV5 } from "./config";
+import { CATALOG } from "./catalog";
+import { erpProxy, qmsProxy, wmsProxy, windchillProxy, gatewayProxy } from "./rest-proxy";
+import { handleAggregateOpenApi, handleSwaggerUI } from "./openapi-aggregator";
+import { opcuaRouter } from "./opcua-shim";
 
 const router = Router();
 
@@ -23,8 +25,11 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ── Smoke: /api/sim-v5/ping ─────────────────────────────────────
-router.get("/ping", requireAuth, (req: any, res: Response) => {
+// ── All endpoints require auth ──────────────────────────────────
+router.use(requireAuth);
+
+// ── Health/Smoke ────────────────────────────────────────────────
+router.get("/ping", (req: any, res: Response) => {
   res.json({
     ok: true,
     ts: new Date().toISOString(),
@@ -33,17 +38,28 @@ router.get("/ping", requireAuth, (req: any, res: Response) => {
   });
 });
 
-// ── Catalog stub: /api/sim-v5/info ──────────────────────────────
-router.get("/info", requireAuth, (_req: Request, res: Response) => {
+router.get("/info", (_req: Request, res: Response) => {
   res.json({
     surface: "sim-v5 hackathon",
     rest: Object.keys(simV5.rest),
-    opcua: {
-      portRange: [simV5.opcua.portBase, simV5.opcua.portMax],
-      note: "individual machine endpoints addressable via /opcua/{machineId}/*",
-    },
-    todo: ["erp-proxy (Tag 2)", "opcua-shim (Tag 4)", "openapi-aggregator (Tag 2)"],
+    opcua: { machines: CATALOG.length, portRange: [simV5.opcua.portBase, simV5.opcua.portMax] },
+    docs: "/api/sim-v5/docs",
+    openapi: "/api/sim-v5/openapi.json",
   });
 });
+
+// ── Discovery / OpenAPI / Swagger UI ────────────────────────────
+router.get("/openapi.json", handleAggregateOpenApi);
+router.get("/docs", handleSwaggerUI);
+
+// ── REST proxies ────────────────────────────────────────────────
+router.use("/erp",       erpProxy);
+router.use("/qms",       qmsProxy);
+router.use("/wms",       wmsProxy);
+router.use("/windchill", windchillProxy);
+router.use("/gateway",   gatewayProxy);
+
+// ── OPC-UA REST shim ────────────────────────────────────────────
+router.use("/opcua", opcuaRouter);
 
 export default router;
