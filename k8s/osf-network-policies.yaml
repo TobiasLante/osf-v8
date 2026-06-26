@@ -185,6 +185,30 @@ spec:
       to:
         - ipBlock:
             cidr: 192.168.178.120/32
+    # sim-v5 PROD on .154 — Hackathon read-only proxy
+    # REST: 38xxx (api-erp 38260, api-gateway 38210, api-qms 38261, api-windchill 38222, api-wms 38224)
+    # OPC-UA: 36000-36499 (50 machines, raw TCP)
+    - ports:
+        - port: 38210
+          protocol: TCP
+        - port: 38222
+          protocol: TCP
+        - port: 38224
+          protocol: TCP
+        - port: 38260
+          protocol: TCP
+        - port: 38261
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.154/32
+    - ports:
+        - port: 36000
+          endPort: 36499
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 192.168.178.154/32
     # K8s API (ClusterIP)
     - ports:
         - port: 443

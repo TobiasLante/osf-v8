@@ -25,6 +25,7 @@ import newsRoutes from './news/routes';
 import marketplaceRoutes from './marketplace/routes';
 import healthAgentRoutes from './health-agent/routes';
 import i3xRoutes from './i3x/routes';
+import simV5Routes from './sim-v5/routes';
 import { initNodeRedProxy } from './nodered/proxy';
 import { NrPodManager } from './nodered/pod-manager';
 import internalApiRoutes from './nodered/internal-api';
@@ -661,6 +662,7 @@ async function main() {
   app.use('/health-agent', healthAgentRoutes);
   app.use('/i3x', i3xRoutes);
   app.use('/api/i3x', i3xRoutes);
+  app.use('/api/sim-v5', simV5Routes);
 
   // API Versioning — same routes under /v1/ prefix (backward compat preserved above)
   app.use('/v1', createVersionedRouter([
