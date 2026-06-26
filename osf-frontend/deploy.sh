@@ -54,7 +54,7 @@ if [ ! -f out/index.html ]; then
 fi
 
 # Required pages — add new pages here when they are created
-REQUIRED_PAGES="index admin login chat flows chains dashboard settings uns agents i3x onboarding register news"
+REQUIRED_PAGES="index admin login chat flows chains dashboard settings uns agents i3x onboarding register news hackathon"
 MISSING=0
 FOUND=0
 for PAGE in $REQUIRED_PAGES; do
