@@ -119,6 +119,11 @@ export function LlmTab() {
               <input type="text" value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. llama3, mistral"
                 className="w-full bg-bg-surface border border-border rounded-sm px-3 py-2.5 text-text text-sm focus:outline-none focus:border-accent" />
             )}
+            {provider === 'custom' && (
+              <p className="text-text-dim text-xs mt-1">
+                Use the exact model tag. Ollama Cloud models need the <code>:cloud</code> suffix (e.g. <code>deepseek-v4-flash:cloud</code>) with Base URL <code>https://ollama.com</code> and your ollama.com API key.
+              </p>
+            )}
           </div>
           <div>
             <label className="text-text text-sm font-medium block mb-1.5">

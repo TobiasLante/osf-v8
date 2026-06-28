@@ -9,7 +9,7 @@ import { requireAuth } from './middleware';
 import { checkRateLimit } from '../rate-limit';
 import { logger, logSecurity } from '../logger';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../email/sender';
-import { encryptApiKey } from './crypto';
+import { encryptApiKey, decryptApiKey } from './crypto';
 import { callLlm, normalizeLlmBaseUrl } from '../chat/llm-client';
 
 const router = Router();
@@ -678,13 +678,33 @@ router.put('/llm-settings', requireAuth, async (req: Request, res: Response) => 
       return;
     }
 
+    // Determine the effective API key for the connection test. When the user
+    // changes only the model/URL and leaves the key field blank (because it's
+    // already saved), fall back to their stored key — otherwise the test runs
+    // unauthenticated against a key-requiring provider (OpenAI, Anthropic,
+    // Ollama Cloud) and fails with 401, blocking the whole save even though
+    // COALESCE below would have kept the key anyway.
+    let testApiKey: string | undefined = apiKey;
+    if (!testApiKey) {
+      try {
+        const existing = await pool.query(
+          'SELECT llm_api_key_encrypted FROM users WHERE id = $1',
+          [req.user!.userId]
+        );
+        const enc = existing.rows[0]?.llm_api_key_encrypted;
+        if (enc) testApiKey = decryptApiKey(enc);
+      } catch {
+        // Decryption failed — fall through and test without a key
+      }
+    }
+
     // Test the connection with a short timeout (don't block the global semaphore for 5min)
     try {
       const testSignal = AbortSignal.timeout(15_000);
       await callLlm(
         [{ role: 'user', content: 'Hi' }],
         undefined,
-        { baseUrl: resolvedUrl, model, apiKey },
+        { baseUrl: resolvedUrl, model, apiKey: testApiKey },
         undefined,
         testSignal
       );
