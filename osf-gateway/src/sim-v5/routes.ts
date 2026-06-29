@@ -11,13 +11,13 @@ import { requireAuth } from "../auth/middleware";
 import { logger } from "../logger";
 import { simV5 } from "./config";
 import { CATALOG } from "./catalog";
-import { erpProxy, qmsProxy, wmsProxy, windchillProxy, gatewayProxy } from "./rest-proxy";
+import { erpProxy, qmsProxy, wmsProxy, windchillProxy, gatewayProxy, ppsProxy } from "./rest-proxy";
 import { handleAggregateOpenApi, handleSwaggerUI } from "./openapi-aggregator";
 import { opcuaRouter } from "./opcua-shim";
 
 const router = Router();
 
-// ── Method whitelist: GET + HEAD + OPTIONS only ─────────────────
+// -- Method whitelist: GET + HEAD + OPTIONS only --
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
     res.status(405).json({ error: "Method not allowed (read-only hackathon surface)" });
@@ -26,14 +26,14 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ── PUBLIC: Discovery / OpenAPI / Swagger UI (must load without key) ──
+// -- PUBLIC: Discovery / OpenAPI / Swagger UI (must load without key) --
 router.get("/openapi.json", handleAggregateOpenApi);
 router.get("/docs", handleSwaggerUI);
 
-// ── All remaining endpoints require auth ────────────────────────
+// -- All remaining endpoints require auth --
 router.use(requireAuth);
 
-// ── Health/Smoke ────────────────────────────────────────────────
+// -- Health/Smoke --
 router.get("/ping", (req: any, res: Response) => {
   res.json({
     ok: true,
@@ -54,14 +54,17 @@ router.get("/info", (_req: Request, res: Response) => {
   });
 });
 
-// ── REST proxies ────────────────────────────────────────────────
+// -- REST proxies --
 router.use("/erp",       erpProxy);
 router.use("/qms",       qmsProxy);
 router.use("/wms",       wmsProxy);
 router.use("/windchill", windchillProxy);
 router.use("/gateway",   gatewayProxy);
 
-// ── OPC-UA REST shim ────────────────────────────────────────────
+// -- PPS-Clone (BMW Steyr HX) -- read-only via PostgREST --
+router.use("/pps",       ppsProxy);
+
+// -- OPC-UA REST shim --
 router.use("/opcua", opcuaRouter);
 
 export default router;

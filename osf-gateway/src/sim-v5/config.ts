@@ -13,6 +13,8 @@ export const simV5 = {
     apiQms:        `http://${SIM_V5_HOST}:${process.env.SIM_V5_QMS_PORT || "38261"}`,
     apiWms:        `http://${SIM_V5_HOST}:${process.env.SIM_V5_WMS_PORT || "38224"}`,
     apiWindchill:  `http://${SIM_V5_HOST}:${process.env.SIM_V5_WINDCHILL_PORT || "38222"}`,
+    // PPS-Clone (BMW Steyr HX) — read-only via PostgREST in k8s ns hackathon-shared.
+    apiPps:        process.env.SIM_V5_PPS_URL || "http://postgrest.hackathon-shared.svc.cluster.local:3000",
   },
   opcua: {
     portBase: parseInt(process.env.SIM_V5_OPCUA_PORT_BASE || "36000", 10),

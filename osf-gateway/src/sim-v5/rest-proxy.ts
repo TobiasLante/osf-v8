@@ -7,6 +7,10 @@ import { simV5 } from "./config";
 
 const FETCH_TIMEOUT_MS = 20_000;
 
+// Request headers forwarded to upstream when present (PostgREST schema/profile
+// selection, pagination, content negotiation).
+const PASSTHROUGH_HEADERS = ["accept-profile", "content-profile", "prefer", "range"];
+
 function makeProxy(upstream: string, prefix: string) {
   const router = Router({ mergeParams: true });
 
@@ -23,6 +27,10 @@ function makeProxy(upstream: string, prefix: string) {
     const headers: Record<string, string> = {
       accept: req.headers.accept || "application/json",
     };
+    for (const h of PASSTHROUGH_HEADERS) {
+      const v = req.headers[h];
+      if (typeof v === "string") headers[h] = v;
+    }
     if (simV5.upstreamApiKey) {
       headers["x-api-key"] = simV5.upstreamApiKey;
     }
@@ -64,3 +72,4 @@ export const qmsProxy        = makeProxy(simV5.rest.apiQms,       "/api/sim-v5/q
 export const wmsProxy        = makeProxy(simV5.rest.apiWms,       "/api/sim-v5/wms");
 export const windchillProxy  = makeProxy(simV5.rest.apiWindchill, "/api/sim-v5/windchill");
 export const gatewayProxy    = makeProxy(simV5.rest.apiGateway,   "/api/sim-v5/gateway");
+export const ppsProxy        = makeProxy(simV5.rest.apiPps,       "/api/sim-v5/pps");
