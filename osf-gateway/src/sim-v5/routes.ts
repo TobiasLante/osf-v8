@@ -1,11 +1,5 @@
 // sim-v5 Hackathon Routes — read-only proxy + OPC-UA REST shim.
 // Mounted at /api/sim-v5/* by index.ts.
-//
-// Auth model:
-//   - /docs, /openapi.json: PUBLIC (Swagger UI + raw OpenAPI). Contains no live data.
-//   - everything else: requireAuth (JWT or X-API-Key osf_*). Method GET/HEAD/OPTIONS only.
-// Audit: logger.info per request with userId + path (rest-proxy + opcua-shim).
-
 import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth } from "../auth/middleware";
 import { logger } from "../logger";
@@ -13,6 +7,7 @@ import { simV5 } from "./config";
 import { CATALOG } from "./catalog";
 import { erpProxy, qmsProxy, wmsProxy, windchillProxy, gatewayProxy, ppsProxy } from "./rest-proxy";
 import { handleAggregateOpenApi, handleSwaggerUI } from "./openapi-aggregator";
+import { handlePpsSchema } from "./pps-schema";
 import { opcuaRouter } from "./opcua-shim";
 
 const router = Router();
@@ -61,7 +56,8 @@ router.use("/wms",       wmsProxy);
 router.use("/windchill", windchillProxy);
 router.use("/gateway",   gatewayProxy);
 
-// -- PPS-Clone (BMW Steyr HX) -- read-only via PostgREST --
+// -- PPS-Clone (BMW Steyr HX) — token-gated schema bundle (before the proxy) + read-only PostgREST --
+router.get("/pps/_schema", handlePpsSchema);
 router.use("/pps",       ppsProxy);
 
 // -- OPC-UA REST shim --
