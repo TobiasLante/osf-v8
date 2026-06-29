@@ -1,8 +1,9 @@
 // sim-v5 Hackathon Routes — read-only proxy + OPC-UA REST shim.
 // Mounted at /api/sim-v5/* by index.ts.
 //
-// Auth: requireAuth (JWT or X-API-Key osf_*) at every endpoint.
-// Method: GET/HEAD/OPTIONS only.
+// Auth model:
+//   - /docs, /openapi.json: PUBLIC (Swagger UI + raw OpenAPI). Contains no live data.
+//   - everything else: requireAuth (JWT or X-API-Key osf_*). Method GET/HEAD/OPTIONS only.
 // Audit: logger.info per request with userId + path (rest-proxy + opcua-shim).
 
 import { Router, Request, Response, NextFunction } from "express";
@@ -25,7 +26,11 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ── All endpoints require auth ──────────────────────────────────
+// ── PUBLIC: Discovery / OpenAPI / Swagger UI (must load without key) ──
+router.get("/openapi.json", handleAggregateOpenApi);
+router.get("/docs", handleSwaggerUI);
+
+// ── All remaining endpoints require auth ────────────────────────
 router.use(requireAuth);
 
 // ── Health/Smoke ────────────────────────────────────────────────
@@ -34,6 +39,7 @@ router.get("/ping", (req: any, res: Response) => {
     ok: true,
     ts: new Date().toISOString(),
     who: req.user?.email || null,
+    tier: req.user?.tier || null,
     backend: simV5.host,
   });
 });
@@ -47,10 +53,6 @@ router.get("/info", (_req: Request, res: Response) => {
     openapi: "/api/sim-v5/openapi.json",
   });
 });
-
-// ── Discovery / OpenAPI / Swagger UI ────────────────────────────
-router.get("/openapi.json", handleAggregateOpenApi);
-router.get("/docs", handleSwaggerUI);
 
 // ── REST proxies ────────────────────────────────────────────────
 router.use("/erp",       erpProxy);
