@@ -17,15 +17,18 @@ COUNT=10
 PREFIX="hk"
 DOMAIN="hackathon.zeroguess.ai"
 TIER="hackathon"
+EXPIRE_DAYS=14         # default: keys expire after 14 days. Pass --no-expire for unlimited.
 DRY_RUN=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --count)    COUNT="$2"; shift 2 ;;
-    --prefix)   PREFIX="$2"; shift 2 ;;
-    --domain)   DOMAIN="$2"; shift 2 ;;
-    --tier)     TIER="$2"; shift 2 ;;
-    --dry-run)  DRY_RUN=true; shift ;;
+    --count)              COUNT="$2"; shift 2 ;;
+    --prefix)             PREFIX="$2"; shift 2 ;;
+    --domain)             DOMAIN="$2"; shift 2 ;;
+    --tier)               TIER="$2"; shift 2 ;;
+    --expire-after-days)  EXPIRE_DAYS="$2"; shift 2 ;;
+    --no-expire)          EXPIRE_DAYS=""; shift ;;
+    --dry-run)            DRY_RUN=true; shift ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -61,11 +64,23 @@ for i in $(seq 1 "$COUNT"); do
   API_KEY_HASH=$(sha256hex "$API_KEY")
   PWD_HASH=$(bcrypt_hash "$PASSWORD")
 
+  if [ -z "$EXPIRE_DAYS" ]; then
+    EXPIRES_SQL="NULL"
+    EXPIRES_LABEL="unlimited"
+  else
+    EXPIRES_SQL="NOW() + INTERVAL '${EXPIRE_DAYS} days'"
+    EXPIRES_LABEL="$(date -u -d "+${EXPIRE_DAYS} days" '+%Y-%m-%d')"
+  fi
+
   SQL="
-    INSERT INTO users (email, password_hash, name, tier, role, api_key, api_key_hash, email_verified, created_at)
-    VALUES ('${EMAIL}', '${PWD_HASH}', 'Hackathon User ${PADDED}', '${TIER}', 'user', '${API_KEY}', '${API_KEY_HASH}', true, NOW())
+    INSERT INTO users (email, password_hash, name, tier, role, api_key, api_key_hash, api_key_expires_at, email_verified, created_at)
+    VALUES ('${EMAIL}', '${PWD_HASH}', 'Hackathon User ${PADDED}', '${TIER}', 'user', '${API_KEY}', '${API_KEY_HASH}', ${EXPIRES_SQL}, true, NOW())
     ON CONFLICT (email) DO UPDATE
-      SET api_key = EXCLUDED.api_key, api_key_hash = EXCLUDED.api_key_hash, tier = EXCLUDED.tier, password_hash = EXCLUDED.password_hash;
+      SET api_key = EXCLUDED.api_key,
+          api_key_hash = EXCLUDED.api_key_hash,
+          api_key_expires_at = EXCLUDED.api_key_expires_at,
+          tier = EXCLUDED.tier,
+          password_hash = EXCLUDED.password_hash;
   "
 
   if [ "$DRY_RUN" = true ]; then
@@ -82,18 +97,17 @@ for i in $(seq 1 "$COUNT"); do
 sim-v5 Hackathon — Zugangsdaten
 ================================
 Email:    $EMAIL
-Password: $PASSWORD
 API-Key:  $API_KEY
+Gueltig:  $EXPIRES_LABEL
 Portal:   https://openshopfloor.zeroguess.ai/hackathon
 Docs:     https://osf-api.zeroguess.ai/api/sim-v5/docs
 
-Login via Browser:  https://openshopfloor.zeroguess.ai/login
-oder via API:
+Auf dem Portal API-Key einkleben (kein Login noetig) oder direkt:
   curl -H "X-API-Key: $API_KEY" \\
     https://osf-api.zeroguess.ai/api/sim-v5/opcua/machines | jq
 
 Rate-Limit: 60 req/min/Key. GET-only. Read-only.
-Support: tobias.lante74@gmail.com
+Bei abgelaufenem Key: tobias.lante74@gmail.com
 CREDS
   chmod 600 "$CRED_FILE"
   echo "  $EMAIL -> $CRED_FILE"
