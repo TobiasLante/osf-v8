@@ -45,7 +45,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     try {
       const result = await pool.query(
-        'SELECT id, email, tier, role FROM users WHERE api_key_hash = $1',
+        'SELECT id, email, tier, role, api_key_expires_at FROM users WHERE api_key_hash = $1',
         [apiKeyHash]
       );
       if (result.rows.length === 0) {
@@ -54,6 +54,21 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         return;
       }
       const user = result.rows[0];
+      // NULL api_key_expires_at = never expires (sales / owner keys).
+      // Otherwise the timestamp must be in the future.
+      if (user.api_key_expires_at && new Date(user.api_key_expires_at).getTime() < Date.now()) {
+        const expiredAt = new Date(user.api_key_expires_at).toISOString();
+        const dateStr = expiredAt.slice(0, 10);
+        logSecurity('auth.apikey.expired', { ip: req.ip, path: req.path, userId: user.id, expired_at: expiredAt });
+        res.status(401).json({
+          error: 'API key expired',
+          code: 'API_KEY_EXPIRED',
+          expired_at: expiredAt,
+          contact: 'tobias.lante74@gmail.com',
+          message: `Your API key expired on ${dateStr}. Please contact tobias.lante74@gmail.com to request a new key.`,
+        });
+        return;
+      }
       req.user = { userId: user.id, email: user.email, tier: user.tier, role: user.role || 'user' };
       next();
     } catch (err) {

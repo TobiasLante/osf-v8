@@ -21,6 +21,12 @@ interface PingInfo {
   backend: string;
 }
 
+interface ExpiredInfo {
+  expired_at: string;
+  contact: string;
+  message: string;
+}
+
 const REST_SERVICES = [
   { id: "erp",       name: "api-erp",       desc: "Orders, Customers, Materials, Confirmations, BDE, Reservations" },
   { id: "qms",       name: "api-qms",       desc: "Quality Lots, Inspections, Non-Conformities, Tool Lifecycle" },
@@ -137,6 +143,7 @@ export default function HackathonPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState<ExpiredInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<"opcua" | "rest">("opcua");
 
@@ -166,7 +173,14 @@ export default function HackathonPage() {
       fetch(`${API_BASE}/api/sim-v5/opcua/machines`, { headers }),
     ])
       .then(async ([pingRes, machRes]) => {
-        if (pingRes.status === 401 || machRes.status === 401) throw new Error("401");
+        if (pingRes.status === 401 || machRes.status === 401) {
+          const errRes = pingRes.status === 401 ? pingRes : machRes;
+          const errBody = await errRes.json().catch(() => ({}));
+          if (errBody && errBody.code === "API_KEY_EXPIRED") {
+            throw Object.assign(new Error("EXPIRED"), { expiredInfo: errBody });
+          }
+          throw new Error("401");
+        }
         if (!pingRes.ok) throw new Error(`ping HTTP ${pingRes.status}`);
         if (!machRes.ok) throw new Error(`catalog HTTP ${machRes.status}`);
         const ping = await pingRes.json();
@@ -174,8 +188,14 @@ export default function HackathonPage() {
         setInfo({ who: ping.who, tier: ping.tier, backend: ping.backend });
         setMachines(cat.machines || []);
       })
-      .catch((e: Error) => {
-        if (e.message === "401") {
+      .catch((e: Error & { expiredInfo?: ExpiredInfo }) => {
+        if (e.message === "EXPIRED" && e.expiredInfo) {
+          setExpired(e.expiredInfo);
+          localStorage.removeItem(LS_KEY);
+          setApiKey(null);
+          setInfo(null);
+          setMachines([]);
+        } else if (e.message === "401") {
           setError("API-Key ungültig oder abgelaufen. Bitte erneut eingeben.");
           localStorage.removeItem(LS_KEY);
           setApiKey(null);
@@ -195,6 +215,8 @@ export default function HackathonPage() {
     localStorage.setItem(LS_KEY, k);
     setApiKey(k);
     setKeyInput("");
+    setExpired(null);
+    setError(null);
   };
 
   const handleClear = () => {
@@ -203,6 +225,7 @@ export default function HackathonPage() {
     setInfo(null);
     setMachines([]);
     setError(null);
+    setExpired(null);
   };
 
   const filtered = filter
@@ -265,6 +288,24 @@ Danach warte auf meine Wahl und baue das gewählte Projekt schrittweise.`;
         <p className="text-text-muted mb-8">
           Read-only Zugriff auf die sim-v5 Factory (live PROD) — REST für ERP/QMS/WMS/Windchill und OPC-UA-Shim für 211 Maschinen.
         </p>
+
+        {expired && (
+          <div className="bg-amber-950/30 border border-amber-800 text-amber-100 px-4 py-4 rounded-sm mb-4 space-y-2">
+            <div className="font-semibold text-amber-50">API-Key abgelaufen</div>
+            <div className="text-sm">
+              Dein Key ist am{" "}
+              <span className="font-mono">{new Date(expired.expired_at).toISOString().slice(0, 10)}</span>
+              {" "}abgelaufen.
+            </div>
+            <div className="text-sm">
+              Bitte melde dich bei{" "}
+              <a href={`mailto:${expired.contact}?subject=Neuer Hackathon API-Key bitte`} className="text-accent hover:text-accent-hover underline">
+                {expired.contact}
+              </a>
+              {" "}für einen neuen Key.
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-950/30 border border-red-900 text-red-200 px-4 py-3 rounded-sm mb-4">
