@@ -68,6 +68,68 @@ function Card({ children }: { children: ReactNode }) {
   return <div className="bg-bg-surface border border-border rounded-sm p-4">{children}</div>;
 }
 
+function MachineRow({ m, apiKey }: { m: Machine; apiKey: string }) {
+  const [data, setData] = useState<unknown>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const url = `${API_BASE}/api/sim-v5/opcua/${m.machineId}/browse`;
+  const curl = `curl -H 'X-API-Key: ${apiKey}' '${url}'`;
+
+  const toggle = async () => {
+    if (data !== null || err !== null) {
+      setData(null);
+      setErr(null);
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await fetch(url, { headers: { "X-API-Key": apiKey } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setData(await r.json());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <tr className="border-t border-border">
+        <td className="px-3 py-2 font-mono">{m.machineId}</td>
+        <td className="px-3 py-2 font-mono text-xs text-text-muted">{m.endpoint}</td>
+        <td className="px-3 py-2 text-xs text-text-muted">{m.companions.join(", ")}</td>
+        <td className="px-3 py-2">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={toggle}
+              disabled={loading}
+              className="text-xs px-2 py-1 rounded-sm border border-border bg-bg-surface-2 hover:bg-bg-surface-3 text-text-muted hover:text-text disabled:opacity-50"
+            >
+              {loading ? "..." : (data !== null || err !== null) ? "schließen" : "browse"}
+            </button>
+            <CopyButton value={curl} label="curl" />
+          </div>
+        </td>
+      </tr>
+      {(data !== null || err !== null) && (
+        <tr>
+          <td colSpan={4} className="px-3 py-3 bg-bg-surface-2">
+            {err && <div className="text-red-300 text-sm">Fehler: {err}</div>}
+            {data !== null && (
+              <pre className="text-xs overflow-auto whitespace-pre-wrap break-all font-mono leading-relaxed text-text">
+                {JSON.stringify(data, null, 2)}
+              </pre>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 export default function HackathonPage() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
@@ -379,24 +441,12 @@ Danach warte auf meine Wahl und baue das gewählte Projekt schrittweise.`;
                         <th className="text-left px-3 py-2 font-medium">machineId</th>
                         <th className="text-left px-3 py-2 font-medium">OPC-UA Endpoint</th>
                         <th className="text-left px-3 py-2 font-medium">Companions</th>
-                        <th className="text-left px-3 py-2 font-medium">REST</th>
+                        <th className="text-left px-3 py-2 font-medium">Aktionen</th>
                       </tr>
                     </thead>
                     <tbody>
                       {byType[type].map((m) => (
-                        <tr key={m.machineId} className="border-t border-border">
-                          <td className="px-3 py-2 font-mono">{m.machineId}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-text-muted">{m.endpoint}</td>
-                          <td className="px-3 py-2 text-xs text-text-muted">{m.companions.join(", ")}</td>
-                          <td className="px-3 py-2">
-                            <a
-                              href={`${API_BASE}/api/sim-v5/opcua/${m.machineId}/browse`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-accent hover:text-accent-hover text-xs"
-                            >browse →</a>
-                          </td>
-                        </tr>
+                        <MachineRow key={m.machineId} m={m} apiKey={apiKey} />
                       ))}
                     </tbody>
                   </table>
