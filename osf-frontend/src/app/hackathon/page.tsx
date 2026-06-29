@@ -412,7 +412,7 @@ Danach warte auf meine Wahl und baue das gewählte Projekt schrittweise.`;
               <div key={s.id} className="bg-bg-surface border border-border rounded-sm p-4 flex flex-col gap-2">
                 <div className="flex items-baseline justify-between gap-2">
                   <h3 className="font-mono font-semibold">{s.name}</h3>
-                  <code className="text-xs text-text-muted">/api/sim-v5/{s.id}/*</code>
+                  <code className="text-xs text-text-muted">/api/sim-v5/{s.id}/{"*"}</code>
                 </div>
                 <p className="text-sm text-text-muted leading-snug">{s.desc}</p>
                 <div className="mt-auto pt-2">
@@ -430,7 +430,7 @@ Danach warte auf meine Wahl und baue das gewählte Projekt schrittweise.`;
             <div className="bg-bg-surface border border-border rounded-sm p-4 col-span-full text-sm text-text-muted">
               Endpoint-Details und Schemas siehe{" "}
               <Link href={`${API_BASE}/api/sim-v5/docs`} target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover">Swagger UI</Link>
-              {" "}— 131 Endpoints, gefiltert nach Tag. Authorize-Dialog: deinen API-Key einkleben, dann "Try it out".
+              {" "}— 131 Endpoints, gefiltert nach Tag. Authorize-Dialog: deinen API-Key einkleben, dann &quot;Try it out&quot;.
             </div>
           </div>
         )}
