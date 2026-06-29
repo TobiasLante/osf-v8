@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://osf-api.zeroguess.ai";
+const LS_KEY = "sim_v5_api_key";
 
 interface Machine {
   machineId: string;
@@ -13,45 +14,79 @@ interface Machine {
   companions: string[];
 }
 
-interface UserInfo {
-  email?: string;
-  apiKey?: string;
-  tier?: string;
+interface PingInfo {
+  who: string | null;
+  tier: string | null;
+  backend: string;
 }
 
 export default function HackathonPage() {
-  const [user, setUser] = useState<UserInfo | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [info, setInfo] = useState<PingInfo | null>(null);
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [filter, setFilter] = useState<string>("");
+  const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
+  // Hydrate key from localStorage on mount
   useEffect(() => {
-    async function load() {
-      try {
-        const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
-        if (meRes.ok) {
-          const me = await meRes.json();
-          const u = me.user || me;
-          setUser({ email: u.email, apiKey: u.api_key_masked, tier: u.tier });
-        }
-        const mRes = await fetch(`${API_BASE}/api/sim-v5/opcua/machines`, { credentials: "include" });
-        if (mRes.ok) {
-          const data = await mRes.json();
-          setMachines(data.machines || []);
-        } else if (mRes.status === 401) {
-          setError("Bitte zuerst einloggen.");
-        } else {
-          setError(`Catalog HTTP ${mRes.status}`);
-        }
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
+    if (typeof window === "undefined") return;
+    const k = localStorage.getItem(LS_KEY);
+    if (k) setApiKey(k);
   }, []);
+
+  // Load ping + catalog whenever the key changes
+  useEffect(() => {
+    if (!apiKey) return;
+    setLoading(true);
+    setError(null);
+    const headers = { "X-API-Key": apiKey };
+    Promise.all([
+      fetch(`${API_BASE}/api/sim-v5/ping`, { headers }),
+      fetch(`${API_BASE}/api/sim-v5/opcua/machines`, { headers }),
+    ])
+      .then(async ([pingRes, machRes]) => {
+        if (pingRes.status === 401 || machRes.status === 401) {
+          throw new Error("401");
+        }
+        if (!pingRes.ok) throw new Error(`ping HTTP ${pingRes.status}`);
+        if (!machRes.ok) throw new Error(`catalog HTTP ${machRes.status}`);
+        const ping = await pingRes.json();
+        const cat = await machRes.json();
+        setInfo({ who: ping.who, tier: ping.tier, backend: ping.backend });
+        setMachines(cat.machines || []);
+      })
+      .catch((e: Error) => {
+        if (e.message === "401") {
+          setError("API-Key ungültig oder abgelaufen. Bitte erneut eingeben.");
+          localStorage.removeItem(LS_KEY);
+          setApiKey(null);
+          setInfo(null);
+          setMachines([]);
+        } else {
+          setError(e.message);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [apiKey]);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const k = keyInput.trim();
+    if (!k) return;
+    localStorage.setItem(LS_KEY, k);
+    setApiKey(k);
+    setKeyInput("");
+  };
+
+  const handleClear = () => {
+    localStorage.removeItem(LS_KEY);
+    setApiKey(null);
+    setInfo(null);
+    setMachines([]);
+    setError(null);
+  };
 
   const filtered = filter
     ? machines.filter((m) => m.machineId.includes(filter) || m.type.includes(filter))
@@ -62,9 +97,62 @@ export default function HackathonPage() {
     return acc;
   }, {});
 
-  const apiKey = user?.apiKey || "<dein-api-key>";
   const sampleMachine = machines[0]?.machineId || "cnc-01";
 
+  // ─────────────────────────────────────────────────────────────
+  // NO KEY → Input form
+  // ─────────────────────────────────────────────────────────────
+  if (!apiKey) {
+    return (
+      <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 16px", fontFamily: "system-ui, sans-serif", lineHeight: 1.5 }}>
+        <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>sim-v5 Hackathon API</h1>
+        <p style={{ color: "#666", marginBottom: 32 }}>
+          Read-only Zugriff auf die sim-v5 Factory (PROD, live) — REST für ERP/QMS/WMS/Windchill und OPC-UA-Shim für 200+ Maschinen.
+        </p>
+
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", padding: 12, borderRadius: 6, marginBottom: 16 }}>
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ background: "#f9fafb", padding: 24, borderRadius: 8, border: "1px solid #e5e7eb" }}>
+          <label htmlFor="apikey" style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>
+            Dein API-Key
+          </label>
+          <input
+            id="apikey"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="osf_hk_..."
+            style={{ width: "100%", padding: "10px 12px", fontFamily: "monospace", fontSize: 14, border: "1px solid #d1d5db", borderRadius: 4, marginBottom: 12, boxSizing: "border-box" }}
+          />
+          <button
+            type="submit"
+            disabled={!keyInput.trim()}
+            style={{ padding: "10px 20px", background: "#1d4ed8", color: "#fff", border: 0, borderRadius: 4, fontWeight: 600, cursor: "pointer", opacity: keyInput.trim() ? 1 : 0.5 }}
+          >
+            Verbinden
+          </button>
+          <p style={{ marginTop: 16, color: "#666", fontSize: 13 }}>
+            Du bekommst den Key per Mail vom Veranstalter. Er wird lokal in deinem Browser gespeichert (kein Server-Login).
+          </p>
+        </form>
+
+        <div style={{ marginTop: 24, color: "#666", fontSize: 13 }}>
+          Doku auch ohne Key:{" "}
+          <Link href={`${API_BASE}/api/sim-v5/docs`} style={{ color: "#1d4ed8" }}>OpenAPI / Swagger</Link>
+        </div>
+      </main>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // KEY OK → Dashboard
+  // ─────────────────────────────────────────────────────────────
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 16px", fontFamily: "system-ui, sans-serif", lineHeight: 1.5 }}>
       <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>sim-v5 Hackathon API</h1>
@@ -74,28 +162,29 @@ export default function HackathonPage() {
 
       {error && (
         <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", padding: 12, borderRadius: 6, margin: "16px 0" }}>
-          {error} {error.includes("einloggen") && <Link href="/login" style={{ marginLeft: 8, color: "#1d4ed8" }}>Login</Link>}
+          {error}
         </div>
       )}
 
-      <section style={{ background: "#f9fafb", padding: 16, borderRadius: 8, margin: "24px 0" }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Dein Zugang</h2>
-        {user ? (
-          <>
-            <div><strong>Email:</strong> {user.email}</div>
-            <div><strong>Tier:</strong> {user.tier || "—"}</div>
-            <div style={{ marginTop: 8 }}>
-              <strong>API-Key:</strong>{" "}
-              {user.apiKey ? (
-                <code style={{ background: "#fff", padding: "2px 8px", borderRadius: 4, fontSize: 13 }}>{user.apiKey}</code>
-              ) : (
-                <span style={{ color: "#92400e" }}>noch nicht erstellt — bitte beim Admin anfordern</span>
-              )}
-            </div>
-          </>
-        ) : (
-          <Link href="/login" style={{ color: "#1d4ed8" }}>Login →</Link>
-        )}
+      <section style={{ background: "#f9fafb", padding: 16, borderRadius: 8, margin: "24px 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Dein Zugang</h2>
+          {info ? (
+            <>
+              <div><strong>Email:</strong> {info.who || "—"}</div>
+              <div><strong>Tier:</strong> {info.tier || "—"}</div>
+              <div><strong>Backend:</strong> <code style={{ fontSize: 13 }}>{info.backend}</code></div>
+            </>
+          ) : (
+            <div style={{ color: "#666" }}>{loading ? "Verbinde..." : "—"}</div>
+          )}
+        </div>
+        <button
+          onClick={handleClear}
+          style={{ padding: "6px 12px", background: "#fff", border: "1px solid #d1d5db", borderRadius: 4, cursor: "pointer", fontSize: 13 }}
+        >
+          Key wechseln
+        </button>
       </section>
 
       <section style={{ margin: "32px 0" }}>
@@ -130,7 +219,7 @@ curl -N -H 'X-API-Key: ${apiKey}' \\
           placeholder="Filter machineId or type..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 4, marginBottom: 16 }}
+          style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 4, marginBottom: 16, boxSizing: "border-box" }}
         />
         {loading && <div>Lade...</div>}
         {!loading && Object.keys(byType).sort().map((type) => (
