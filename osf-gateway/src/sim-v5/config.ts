@@ -1,8 +1,4 @@
 // sim-v5 backend endpoint config (PROD = .154)
-// External ports on .154 verified via `docker ps` 2026-06-26.
-// REST = 38xxx (PROD offset +10000 from internal 18xxx)
-// OPC-UA = 36xxx (no offset on PROD; 50 machines, port = 36000 + idx)
-
 const SIM_V5_HOST = process.env.SIM_V5_HOST || "192.168.178.154";
 
 export const simV5 = {
@@ -15,6 +11,8 @@ export const simV5 = {
     apiWindchill:  `http://${SIM_V5_HOST}:${process.env.SIM_V5_WINDCHILL_PORT || "38222"}`,
     // PPS-Clone (BMW Steyr HX) — read-only via PostgREST in k8s ns hackathon-shared.
     apiPps:        process.env.SIM_V5_PPS_URL || "http://postgrest.hackathon-shared.svc.cluster.local:3000",
+    // MTConnect 1.7 agent on .154 (host 35000 -> container 5000): /probe, /current.
+    apiMtconnect:  `http://${SIM_V5_HOST}:${process.env.SIM_V5_MTCONNECT_PORT || "35000"}`,
   },
   opcua: {
     portBase: parseInt(process.env.SIM_V5_OPCUA_PORT_BASE || "36000", 10),

@@ -1,21 +1,15 @@
-// REST proxy for sim-v5 backends — read-only (GET/HEAD/OPTIONS).
-// Forwards to .154 PROD endpoints with optional upstream X-API-Key injection.
-
+// REST/HTTP proxy for sim-v5 backends — read-only (GET/HEAD/OPTIONS).
 import { Router, Request, Response } from "express";
 import { logger } from "../logger";
 import { simV5 } from "./config";
 
 const FETCH_TIMEOUT_MS = 20_000;
-
-// Request headers forwarded to upstream when present (PostgREST schema/profile
-// selection, pagination, content negotiation).
 const PASSTHROUGH_HEADERS = ["accept-profile", "content-profile", "prefer", "range"];
 
 function makeProxy(upstream: string, prefix: string) {
   const router = Router({ mergeParams: true });
 
   router.all("*", async (req: Request, res: Response) => {
-    // GET/HEAD/OPTIONS only (parent router enforces but defensive)
     if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -73,3 +67,4 @@ export const wmsProxy        = makeProxy(simV5.rest.apiWms,       "/api/sim-v5/w
 export const windchillProxy  = makeProxy(simV5.rest.apiWindchill, "/api/sim-v5/windchill");
 export const gatewayProxy    = makeProxy(simV5.rest.apiGateway,   "/api/sim-v5/gateway");
 export const ppsProxy        = makeProxy(simV5.rest.apiPps,       "/api/sim-v5/pps");
+export const mtconnectProxy  = makeProxy(simV5.rest.apiMtconnect, "/api/sim-v5/mtconnect");
